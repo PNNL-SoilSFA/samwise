@@ -169,7 +169,6 @@ read2_re = re.compile(r'^(.+)_(R2|2)\\.(fastq|fq)(\\.gz)?\$')
 interleaved_re = re.compile(r'^(.+)_interleaved\\.(fastq|fq)(\\.gz)?\$')
 fastq_like_re = re.compile(r'.*\\.(fastq|fq)(\\.gz)?\$')
 
-
 def normalize_read_name(filename):
     if filename.endswith(".fastq.gz"):
         return filename
