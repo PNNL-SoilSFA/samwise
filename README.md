@@ -51,9 +51,12 @@ This module performs the following steps:
 
 ---
 
-## Required input
+## Usage:
 
 The workflow requires an input directory containing sequencing read files.
 
 ```bash
---input_dir ./reads
+nextflow run module_0_readprocess.nf \
+  --input_dir ./reads \
+  --fastqc_threads 8 \
+  --output_dir ./fastqc_out
