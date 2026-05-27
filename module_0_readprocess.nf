@@ -4,7 +4,7 @@ nextflow.enable.dsl=2
 
 /*
  * Default parameters.
- * These can be overridden on the command line.
+ * Command-line values override these.
  */
 params.input_dir       = null
 params.outdir          = "./results/module_0_readprocess"
@@ -14,18 +14,6 @@ params.file_pattern    = "*"
 params.fastqc_threads  = 2
 params.threads         = null
 
-/*
- * Allow alternate user-facing names:
- *   --output_dir instead of --outdir
- *   --threads instead of --fastqc_threads
- */
-if( params.output_dir ) {
-    params.outdir = params.output_dir
-}
-
-if( params.threads ) {
-    params.fastqc_threads = params.threads
-}
 
 workflow {
 
@@ -38,43 +26,20 @@ workflow {
         """.stripIndent()
     }
 
-    /*
-     * Use "*" so the workflow sees every file in the directory.
-     * This allows it to catch non-FASTQ files or badly named FASTQ files.
-     */
     all_files_ch = channel.fromPath(
         "${params.input_dir}/${params.file_pattern}",
         type: 'file',
         checkIfExists: true
     )
 
-    /*
-     * FastQC installation/check can happen independently,
-     * but RUN_FASTQC will be forced to wait for it later.
-     */
     INSTALL_FASTQC()
 
-    /*
-     * Check naming conventions, identify pairs/interleaved files,
-     * and normalize .fq/.fq.gz to .fastq/.fastq.gz using symlinks.
-     */
     CHECK_READ_NAMING(all_files_ch.collect())
 
-    /*
-     * The naming process emits valid normalized read files under valid_reads/.
-     * Flatten is used because the process emits multiple files as a list.
-     */
     valid_named_reads_ch = CHECK_READ_NAMING.out.reads.flatten()
 
-    /*
-     * Validate FASTQ structure only after naming normalization.
-     */
     VALIDATE_READS(valid_named_reads_ch)
 
-    /*
-     * Force FastQC to wait until INSTALL_FASTQC completes.
-     * combine() pairs every validated read with the FastQC install status file.
-     */
     reads_ready_for_fastqc_ch = VALIDATE_READS.out.combine(INSTALL_FASTQC.out)
 
     RUN_FASTQC(reads_ready_for_fastqc_ch)
@@ -85,7 +50,7 @@ process INSTALL_FASTQC {
 
     tag "check_fastqc"
 
-    publishDir "${params.outdir}/setup", mode: 'copy'
+    publishDir "${params.output_dir ?: params.outdir}/setup", mode: 'copy'
 
     output:
     path "fastqc_install_status.txt"
@@ -138,7 +103,7 @@ process CHECK_READ_NAMING {
 
     tag "check_read_naming"
 
-    publishDir "${params.outdir}/naming", mode: 'copy', pattern: "*.{txt,tsv}"
+    publishDir "${params.output_dir ?: params.outdir}/naming", mode: 'copy', pattern: "*.{txt,tsv}"
 
     input:
     path read_files
@@ -178,7 +143,6 @@ r2_style = {}
 errors = 0
 warnings = 0
 
-# Use \\Z instead of $ to avoid Nextflow/Groovy parsing issues.
 read1_re = re.compile(r'^(.+)_(R1|1)\\.(fastq|fq)(\\.gz)?\\Z')
 read2_re = re.compile(r'^(.+)_(R2|2)\\.(fastq|fq)(\\.gz)?\\Z')
 interleaved_re = re.compile(r'^(.+)_interleaved\\.(fastq|fq)(\\.gz)?\\Z')
@@ -403,7 +367,7 @@ process VALIDATE_READS {
 
     tag { read_file.simpleName }
 
-    publishDir "${params.outdir}/validation", mode: 'copy'
+    publishDir "${params.output_dir ?: params.outdir}/validation", mode: 'copy'
 
     input:
     path read_file
@@ -422,8 +386,6 @@ process VALIDATE_READS {
     echo "Started: \$(date)" >> "\$report"
     echo "----------------------------------------" >> "\$report"
 
-    # CHECK_READ_NAMING normalizes .fq/.fq.gz into .fastq/.fastq.gz.
-    # Therefore, VALIDATE_READS should only receive .fastq or .fastq.gz.
     case "\$infile" in
         *.fastq|*.fastq.gz)
             echo "PASS: File extension appears valid after normalization." >> "\$report"
@@ -513,9 +475,9 @@ process RUN_FASTQC {
 
     tag { read_file.simpleName }
 
-    publishDir "${params.outdir}/fastqc", mode: 'copy'
+    publishDir "${params.output_dir ?: params.outdir}/fastqc", mode: 'copy'
 
-    cpus { params.fastqc_threads as int }
+    cpus { (params.threads ?: params.fastqc_threads) as int }
 
     input:
     tuple path(read_file), path(validation_report), path(fastqc_status)
