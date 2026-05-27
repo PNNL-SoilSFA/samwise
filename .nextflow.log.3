@@ -1,124 +1,480 @@
-May-27 15:16:46.594 [main] DEBUG nextflow.cli.Launcher - $> nextflow run run module_0_readprocess.nf --input_dir '/Volumes/Macintosh HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_files' --fastqc_threads 2 --output_dir '/Volumes/Macintosh HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_out'
-May-27 15:16:46.639 [main] DEBUG nextflow.cli.CmdRun - N E X T F L O W  ~  version 26.04.2
-May-27 15:16:46.983 [main] DEBUG nextflow.plugin.PluginsFacade - Setting up plugin manager > mode=prod; embedded=false; plugins-dir=/Users/rodr771/.nextflow/plugins; core-plugins: nf-amazon@3.9.1,nf-azure@1.22.4,nf-cloudcache@0.6.0,nf-codecommit@0.5.2,nf-console@1.3.0,nf-google@1.27.2,nf-k8s@1.5.3,nf-seqera@0.20.0,nf-tower@1.27.0,nf-wave@1.20.0
-May-27 15:16:47.018 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Enabled plugins: []
-May-27 15:16:47.018 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Disabled plugins: []
-May-27 15:16:47.020 [main] INFO  org.pf4j.DefaultPluginManager - PF4J version 3.14.1 in 'deployment' mode
-May-27 15:16:47.052 [main] DEBUG nextflow.util.RetryConfig - Missing nextflow session - using default retry config
-May-27 15:16:47.206 [main] DEBUG nextflow.plugin.PluginUpdater - Using plugin repository: HttpPluginRepository [registry]; url=https://registry.nextflow.io/api
-May-27 15:16:47.212 [main] INFO  org.pf4j.AbstractPluginManager - No plugins
-May-27 15:16:47.219 [main] DEBUG nextflow.scm.ProviderConfig - Using SCM config path: /Users/rodr771/.nextflow/scm
-May-27 15:16:47.228 [main] DEBUG nextflow.scm.AssetManager - Listing projects in folder: /Users/rodr771/.nextflow/assets
-May-27 15:16:47.232 [main] DEBUG nextflow.scm.AssetManager - Selecting multi-revision strategy
-May-27 15:16:47.268 [main] DEBUG nextflow.scm.RepositoryFactory - Found Git repository result: [RepositoryFactory]
-May-27 15:16:47.279 [main] INFO  nextflow.cli.CmdRun - Pulling nextflow-io/run ...
-May-27 15:16:47.281 [main] DEBUG nextflow.scm.RepositoryProvider - Request [credentials -:-] -> https://api.github.com/repos/nextflow-io/run/contents/nextflow.config
-May-27 15:16:47.822 [main] DEBUG nextflow.scm.RepositoryProvider - Response status: 404 -- [123, 34, 109, 101, 115, 115, 97, 103, 101, 34, 58, 34, 78, 111, 116, 32, 70, 111, 117, 110, 100, 34, 44, 34, 100, 111, 99, 117, 109, 101, 110, 116, 97, 116, 105, 111, 110, 95, 117, 114, 108, 34, 58, 34, 104, 116, 116, 112, 115, 58, 47, 47, 100, 111, 99, 115, 46, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 114, 101, 115, 116, 47, 114, 101, 112, 111, 115, 47, 99, 111, 110, 116, 101, 110, 116, 115, 35, 103, 101, 116, 45, 114, 101, 112, 111, 115, 105, 116, 111, 114, 121, 45, 99, 111, 110, 116, 101, 110, 116, 34, 44, 34, 115, 116, 97, 116, 117, 115, 34, 58, 34, 52, 48, 52, 34, 125]
-May-27 15:16:47.824 [main] WARN  nextflow.scm.AssetManager - Cannot read project manifest -- Cause: Remote resource not found: https://api.github.com/repos/nextflow-io/run/contents/nextflow.config
-nextflow.exception.AbortOperationException: Remote resource not found: https://api.github.com/repos/nextflow-io/run/contents/nextflow.config
-	at nextflow.scm.RepositoryProvider.checkResponse(RepositoryProvider.groovy:309)
-	at nextflow.scm.RepositoryProvider.invokeBytes(RepositoryProvider.groovy:255)
-	at nextflow.scm.RepositoryProvider.invoke(RepositoryProvider.groovy:238)
-	at nextflow.scm.RepositoryProvider.memoizedMethodPriv$invokeAndParseResponseString(RepositoryProvider.groovy:380)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
-	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1341)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1096)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1009)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokePogoMethod(InvokerHelper.java:645)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokeMethod(InvokerHelper.java:628)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokeMethodSafe(InvokerHelper.java:82)
-	at nextflow.scm.RepositoryProvider$_closure3.doCall(RepositoryProvider.groovy)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
-	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:280)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1009)
-	at groovy.lang.Closure.call(Closure.java:433)
-	at org.codehaus.groovy.runtime.memoize.Memoize$MemoizeFunction.lambda$call$0(Memoize.java:137)
-	at org.codehaus.groovy.runtime.memoize.ConcurrentCommonCache.getAndPut(ConcurrentCommonCache.java:137)
-	at org.codehaus.groovy.runtime.memoize.ConcurrentCommonCache.getAndPut(ConcurrentCommonCache.java:113)
-	at org.codehaus.groovy.runtime.memoize.Memoize$MemoizeFunction.call(Memoize.java:136)
-	at groovy.lang.Closure.call(Closure.java:422)
-	at nextflow.scm.RepositoryProvider.invokeAndParseResponse(RepositoryProvider.groovy)
-	at nextflow.scm.GithubRepositoryProvider.readBytes(GithubRepositoryProvider.groovy:118)
-	at nextflow.scm.RepositoryProvider.readText(RepositoryProvider.groovy:425)
-	at nextflow.scm.AssetManager.getManifest0(AssetManager.groovy:604)
-	at nextflow.scm.AssetManager.memoizedMethodPriv$getManifest(AssetManager.groovy:596)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
-	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1341)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1096)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1009)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokePogoMethod(InvokerHelper.java:645)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokeMethod(InvokerHelper.java:628)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokeMethodSafe(InvokerHelper.java:82)
-	at nextflow.scm.AssetManager$_closure1.doCall(AssetManager.groovy)
-	at nextflow.scm.AssetManager$_closure1.doCall(AssetManager.groovy)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
-	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:280)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1009)
-	at groovy.lang.Closure.call(Closure.java:433)
-	at org.codehaus.groovy.runtime.memoize.Memoize$MemoizeFunction.lambda$call$0(Memoize.java:137)
-	at org.codehaus.groovy.runtime.memoize.ConcurrentCommonCache.getAndPut(ConcurrentCommonCache.java:137)
-	at org.codehaus.groovy.runtime.memoize.ConcurrentCommonCache.getAndPut(ConcurrentCommonCache.java:113)
-	at org.codehaus.groovy.runtime.memoize.Memoize$MemoizeFunction.call(Memoize.java:136)
-	at groovy.lang.Closure.call(Closure.java:412)
-	at nextflow.scm.AssetManager.getManifest(AssetManager.groovy)
-	at nextflow.scm.AssetManager.getMainScriptName(AssetManager.groovy:575)
-	at nextflow.scm.AssetManager.checkValidRemoteRepo(AssetManager.groovy:533)
-	at nextflow.scm.AssetManager.download(AssetManager.groovy:768)
-	at nextflow.cli.CmdRun.getScriptFile0(CmdRun.groovy:635)
-	at nextflow.cli.CmdRun.getScriptFile(CmdRun.groovy:567)
-	at nextflow.cli.CmdRun.run(CmdRun.groovy:337)
-	at nextflow.cli.Launcher.run(Launcher.groovy:526)
-	at nextflow.cli.Launcher.main(Launcher.groovy:686)
-May-27 15:16:47.829 [main] DEBUG nextflow.scm.RepositoryProvider - Request [credentials -:-] -> https://api.github.com/repos/nextflow-io/run/contents/main.nf
-May-27 15:16:47.964 [main] DEBUG nextflow.scm.RepositoryProvider - Response status: 404 -- [123, 34, 109, 101, 115, 115, 97, 103, 101, 34, 58, 34, 78, 111, 116, 32, 70, 111, 117, 110, 100, 34, 44, 34, 100, 111, 99, 117, 109, 101, 110, 116, 97, 116, 105, 111, 110, 95, 117, 114, 108, 34, 58, 34, 104, 116, 116, 112, 115, 58, 47, 47, 100, 111, 99, 115, 46, 103, 105, 116, 104, 117, 98, 46, 99, 111, 109, 47, 114, 101, 115, 116, 47, 114, 101, 112, 111, 115, 47, 99, 111, 110, 116, 101, 110, 116, 115, 35, 103, 101, 116, 45, 114, 101, 112, 111, 115, 105, 116, 111, 114, 121, 45, 99, 111, 110, 116, 101, 110, 116, 34, 44, 34, 115, 116, 97, 116, 117, 115, 34, 58, 34, 52, 48, 52, 34, 125]
-May-27 15:16:47.966 [main] DEBUG nextflow.cli.Launcher - Operation aborted
-nextflow.exception.AbortOperationException: Remote resource not found: https://api.github.com/repos/nextflow-io/run/contents/main.nf
-	at nextflow.scm.RepositoryProvider.checkResponse(RepositoryProvider.groovy:309)
-	at nextflow.scm.RepositoryProvider.invokeBytes(RepositoryProvider.groovy:255)
-	at nextflow.scm.RepositoryProvider.invoke(RepositoryProvider.groovy:238)
-	at nextflow.scm.RepositoryProvider.memoizedMethodPriv$invokeAndParseResponseString(RepositoryProvider.groovy:380)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
-	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1341)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1096)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1009)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokePogoMethod(InvokerHelper.java:645)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokeMethod(InvokerHelper.java:628)
-	at org.codehaus.groovy.runtime.InvokerHelper.invokeMethodSafe(InvokerHelper.java:82)
-	at nextflow.scm.RepositoryProvider$_closure3.doCall(RepositoryProvider.groovy)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
-	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:280)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1009)
-	at groovy.lang.Closure.call(Closure.java:433)
-	at org.codehaus.groovy.runtime.memoize.Memoize$MemoizeFunction.lambda$call$0(Memoize.java:137)
-	at org.codehaus.groovy.runtime.memoize.ConcurrentCommonCache.getAndPut(ConcurrentCommonCache.java:137)
-	at org.codehaus.groovy.runtime.memoize.ConcurrentCommonCache.getAndPut(ConcurrentCommonCache.java:113)
-	at org.codehaus.groovy.runtime.memoize.Memoize$MemoizeFunction.call(Memoize.java:136)
-	at groovy.lang.Closure.call(Closure.java:422)
-	at nextflow.scm.RepositoryProvider.invokeAndParseResponse(RepositoryProvider.groovy)
-	at nextflow.scm.GithubRepositoryProvider.readBytes(GithubRepositoryProvider.groovy:118)
-	at nextflow.scm.RepositoryProvider.validateFor(RepositoryProvider.groovy:438)
-	at nextflow.scm.AssetManager.checkValidRemoteRepo(AssetManager.groovy:534)
-	at nextflow.scm.AssetManager.download(AssetManager.groovy:768)
-	at nextflow.cli.CmdRun.getScriptFile0(CmdRun.groovy:635)
-	at nextflow.cli.CmdRun.getScriptFile(CmdRun.groovy:567)
-	at nextflow.cli.CmdRun.run(CmdRun.groovy:337)
-	at nextflow.cli.Launcher.run(Launcher.groovy:526)
-	at nextflow.cli.Launcher.main(Launcher.groovy:686)
+May-27 15:48:38.144 [main] DEBUG nextflow.cli.Launcher - $> nextflow run module_0_readprocess.nf --input_dir '/Volumes/Macintosh HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_files' --threads 2 --output_dir /Volumes/Macintosh HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_out
+May-27 15:48:38.215 [main] DEBUG nextflow.cli.CmdRun - N E X T F L O W  ~  version 26.04.2
+May-27 15:48:38.247 [main] DEBUG nextflow.plugin.PluginsFacade - Setting up plugin manager > mode=prod; embedded=false; plugins-dir=/Users/rodr771/.nextflow/plugins; core-plugins: nf-amazon@3.9.1,nf-azure@1.22.4,nf-cloudcache@0.6.0,nf-codecommit@0.5.2,nf-console@1.3.0,nf-google@1.27.2,nf-k8s@1.5.3,nf-seqera@0.20.0,nf-tower@1.27.0,nf-wave@1.20.0
+May-27 15:48:38.272 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Enabled plugins: []
+May-27 15:48:38.273 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Disabled plugins: []
+May-27 15:48:38.275 [main] INFO  org.pf4j.DefaultPluginManager - PF4J version 3.14.1 in 'deployment' mode
+May-27 15:48:38.304 [main] DEBUG nextflow.util.RetryConfig - Missing nextflow session - using default retry config
+May-27 15:48:38.448 [main] DEBUG nextflow.plugin.PluginUpdater - Using plugin repository: HttpPluginRepository [registry]; url=https://registry.nextflow.io/api
+May-27 15:48:38.452 [main] INFO  org.pf4j.AbstractPluginManager - No plugins
+May-27 15:48:38.465 [main] DEBUG nextflow.config.ConfigParserFactory - Using config parser v2
+May-27 15:48:38.496 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins default=[]
+May-27 15:48:38.496 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins resolved requirement=[]
+May-27 15:48:38.509 [main] DEBUG n.secret.LocalSecretsProvider - Secrets store: /Users/rodr771/.nextflow/secrets/store.json
+May-27 15:48:38.515 [main] DEBUG nextflow.secret.SecretsLoader - Discovered secrets providers: [nextflow.secret.LocalSecretsProvider@64fc097e] - activable => nextflow.secret.LocalSecretsProvider@64fc097e
+May-27 15:48:38.590 [main] DEBUG nextflow.cli.CmdRun - Launching `module_0_readprocess.nf` [gigantic_feynman] - revision: a71f912be0
+May-27 15:48:38.648 [main] DEBUG nextflow.Session - Session UUID: 22b84a13-644f-499d-8e93-a4b125b6c592
+May-27 15:48:38.649 [main] DEBUG nextflow.Session - Run name: gigantic_feynman
+May-27 15:48:38.649 [main] DEBUG nextflow.Session - Executor pool size: 12
+May-27 15:48:38.654 [main] DEBUG nextflow.file.FilePorter - File porter settings maxRetries=3; maxTransfers=50; pollTimeout=null
+May-27 15:48:38.657 [main] DEBUG nextflow.util.ThreadPoolBuilder - Creating thread pool 'FileTransfer' minSize=10; maxSize=36; workQueue=LinkedBlockingQueue[-1]; allowCoreThreadTimeout=false
+May-27 15:48:38.703 [main] DEBUG nextflow.cli.CmdRun - 
+  Version: 26.04.2 build 12216
+  Created: 21-05-2026 21:22 UTC (14:22 PDT)
+  System: Mac OS X 26.5
+  Runtime: Groovy 4.0.31 on OpenJDK 64-Bit Server VM 23.0.2+7
+  Encoding: UTF-8 (UTF-8)
+  Process: 64867@WE48225 [130.20.186.212]
+  CPUs: 12 - Mem: 16 GB (180.7 MB) - Swap: 7 GB (1.7 GB)
+May-27 15:48:38.724 [main] DEBUG nextflow.Session - Work-dir: /Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/vscode_files/samwise/work [Mac OS X]
+May-27 15:48:38.724 [main] DEBUG nextflow.Session - Script base path does not exist or is not a directory: /Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/vscode_files/samwise/bin
+May-27 15:48:38.731 [main] DEBUG nextflow.executor.ExecutorFactory - Extension executors providers=[]
+May-27 15:48:38.737 [main] DEBUG nextflow.Session - Observer factory (v2): LinObserverFactory
+May-27 15:48:38.740 [main] DEBUG nextflow.Session - Observer factory (v2): DefaultObserverFactory
+May-27 15:48:38.756 [main] DEBUG nextflow.cache.CacheFactory - Using Nextflow cache factory: nextflow.cache.DefaultCacheFactory
+May-27 15:48:38.763 [main] DEBUG nextflow.util.CustomThreadPool - Creating default thread pool > poolSize: 13; maxThreads: 1000
+May-27 15:48:38.815 [main] DEBUG nextflow.Session - Session start
+May-27 15:48:38.819 [main] DEBUG nextflow.script.ScriptLoaderFactory - Using script parser v2
+May-27 15:48:39.236 [main] DEBUG nextflow.script.ScriptRunner - > Launching execution
+May-27 15:48:39.240 [main] WARN  nextflow.script.ScriptBinding - Access to undefined parameter `outdir` -- Initialise it to a default value eg. `params.outdir = some_value`
+May-27 15:48:39.240 [main] WARN  nextflow.script.ScriptBinding - Access to undefined parameter `auto_install` -- Initialise it to a default value eg. `params.auto_install = some_value`
+May-27 15:48:39.241 [main] WARN  nextflow.script.ScriptBinding - Access to undefined parameter `file_pattern` -- Initialise it to a default value eg. `params.file_pattern = some_value`
+May-27 15:48:39.301 [main] WARN  nextflow.script.ScriptBinding - Access to undefined parameter `fastqc_threads` -- Initialise it to a default value eg. `params.fastqc_threads = some_value`
+May-27 15:48:39.328 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+May-27 15:48:39.328 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+May-27 15:48:39.334 [main] DEBUG nextflow.executor.Executor - [warm up] executor > local
+May-27 15:48:39.338 [main] DEBUG n.processor.LocalPollingMonitor - Creating local task monitor for executor 'local' > cpus=12; memory=16 GB; capacity=12; pollInterval=100ms; dumpInterval=5m
+May-27 15:48:39.339 [main] DEBUG n.processor.TaskPollingMonitor - >>> barrier register (monitor: local)
+May-27 15:48:39.361 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'INSTALL_FASTQC': maxForks=0; fair=false; array=0
+May-27 15:48:39.394 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+May-27 15:48:39.394 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+May-27 15:48:39.394 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'CHECK_READ_NAMING': maxForks=0; fair=false; array=0
+May-27 15:48:39.399 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+May-27 15:48:39.399 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+May-27 15:48:39.400 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'VALIDATE_READS': maxForks=0; fair=false; array=0
+May-27 15:48:39.408 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+May-27 15:48:39.408 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+May-27 15:48:39.408 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'RUN_FASTQC': maxForks=0; fair=false; array=0
+May-27 15:48:39.410 [main] DEBUG nextflow.Session - Process names: CHECK_READ_NAMING, INSTALL_FASTQC, VALIDATE_READS, RUN_FASTQC
+May-27 15:48:39.411 [main] DEBUG nextflow.Session - Igniting dataflow network (5)
+May-27 15:48:39.416 [main] DEBUG nextflow.processor.TaskProcessor - Starting process > INSTALL_FASTQC
+May-27 15:48:39.417 [main] DEBUG nextflow.processor.TaskProcessor - Starting process > CHECK_READ_NAMING
+May-27 15:48:39.417 [main] DEBUG nextflow.processor.TaskProcessor - Starting process > VALIDATE_READS
+May-27 15:48:39.417 [PathVisitor-1] DEBUG nextflow.file.PathVisitor - files for syntax: glob; folder: /Volumes/Macintosh HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_files/; pattern: *; options: [type:file, checkIfExists:true]
+May-27 15:48:39.417 [main] DEBUG nextflow.processor.TaskProcessor - Starting process > RUN_FASTQC
+May-27 15:48:39.418 [main] DEBUG nextflow.script.ScriptRunner - Parsed script files:
+  Main: /Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/vscode_files/samwise/module_0_readprocess.nf
+May-27 15:48:39.418 [main] DEBUG nextflow.script.ScriptRunner - > Awaiting termination 
+May-27 15:48:39.418 [main] DEBUG nextflow.Session - Session await
+May-27 15:48:39.549 [Task submitter] DEBUG n.executor.local.LocalTaskHandler - Launch cmd line: /bin/bash -ue .command.run
+May-27 15:48:39.550 [Task submitter] INFO  nextflow.Session - [23/66565c] Submitted process > CHECK_READ_NAMING (check_read_naming)
+May-27 15:48:39.607 [Task submitter] DEBUG n.executor.local.LocalTaskHandler - Launch cmd line: /bin/bash -ue .command.run
+May-27 15:48:39.607 [Task submitter] INFO  nextflow.Session - [d0/8d015c] Submitted process > INSTALL_FASTQC (check_fastqc)
+May-27 15:48:39.667 [Task monitor] DEBUG n.processor.TaskPollingMonitor - Task completed > TaskHandler[id: 2; name: CHECK_READ_NAMING (check_read_naming); status: COMPLETED; exit: 2; error: -; workDir: /Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/vscode_files/samwise/work/23/66565c0a17e4883e65e040656895ea]
+May-27 15:48:39.668 [Task monitor] DEBUG nextflow.util.ThreadPoolBuilder - Creating thread pool 'TaskFinalizer' minSize=10; maxSize=36; workQueue=LinkedBlockingQueue[-1]; allowCoreThreadTimeout=false
+May-27 15:48:39.673 [TaskFinalizer-1] DEBUG nextflow.processor.TaskProcessor - Handling unexpected condition for
+  task: name=CHECK_READ_NAMING (check_read_naming); work-dir=/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/vscode_files/samwise/work/23/66565c0a17e4883e65e040656895ea
+  error [nextflow.exception.ProcessFailedException]: Process `CHECK_READ_NAMING (check_read_naming)` terminated with an error exit status (2)
+May-27 15:48:39.682 [TaskFinalizer-1] ERROR nextflow.processor.TaskProcessor - Error executing process > 'CHECK_READ_NAMING (check_read_naming)'
+
+Caused by:
+  Process `CHECK_READ_NAMING (check_read_naming)` terminated with an error exit status (2)
+
+
+Command executed:
+
+  set -euo pipefail
+  
+      report="read_naming_report.txt"
+      manifest="read_manifest.tsv"
+  
+      mkdir -p valid_reads
+  
+      echo "Read naming and pairing report" > "$report"
+      echo "Started: $(date)" >> "$report"
+      echo "----------------------------------------" >> "$report"
+      echo "" >> "$report"
+  
+      echo -e "sample_id\tlayout\tread1\tread2\tinterleaved" > "$manifest"
+  
+      cat > staged_files.list <<'EOF'
+  SM_0533_SRMG_trimmed_interleaved.fastq.gz
+  module_0_readprocess.nf
+  DN-Isolate20-Chitin-Soil_R2.fastq
+  DN-Isolate20-Chitin-Soil_R1.fastq
+  EOF
+  
+      declare -A r1_files
+      declare -A r2_files
+      declare -A interleaved_files
+      declare -A r1_style
+      declare -A r2_style
+      declare -A seen_keys
+  
+      errors=0
+      warnings=0
+  
+      normalize_read_name() {
+          local filename="$1"
+  
+          if [[ "$filename" == *.fastq.gz ]]; then
+              echo "$filename"
+          elif [[ "$filename" == *.fq.gz ]]; then
+              echo "${filename%.fq.gz}.fastq.gz"
+          elif [[ "$filename" == *.fastq ]]; then
+              echo "$filename"
+          elif [[ "$filename" == *.fq ]]; then
+              echo "${filename%.fq}.fastq"
+          else
+              echo "$filename"
+          fi
+      }
+  
+      while IFS= read -r f; do
+  
+          if [[ -z "$f" ]]; then
+              continue
+          fi
+  
+          if [[ ! -f "$f" ]]; then
+              continue
+          fi
+  
+          base=$(basename "$f")
+  
+          echo "Checking file: $base" >> "$report"
+  
+          /*
+           * Valid read 1 names:
+           *   SampleID_R1.fastq
+           *   SampleID_R1.fastq.gz
+           *   SampleID_R1.fq
+           *   SampleID_R1.fq.gz
+           *   SampleID_1.fastq
+           *   SampleID_1.fastq.gz
+           *   SampleID_1.fq
+           *   SampleID_1.fq.gz
+           */
+          if [[ "$base" =~ ^(.+)_(R1|1)\.(fastq|fq)(\.gz)?$ ]]; then
+  
+              sample="${BASH_REMATCH[1]}"
+              style="${BASH_REMATCH[2]}"
+              ext="${BASH_REMATCH[3]}"
+              key="${sample}:R1"
+  
+              if [[ -n "${seen_keys[$key]:-}" ]]; then
+                  echo "ERROR: Duplicate read 1 file detected for sample '$sample'." >> "$report"
+                  echo "       Only one read 1 file should exist for each sample." >> "$report"
+                  echo "       Accepted read 1 suffixes:" >> "$report"
+                  echo "         _R1.fastq, _R1.fastq.gz, _R1.fq, _R1.fq.gz" >> "$report"
+                  echo "         _1.fastq,  _1.fastq.gz,  _1.fq,  _1.fq.gz" >> "$report"
+                  errors=$((errors + 1))
+              else
+                  seen_keys[$key]=1
+                  r1_files[$sample]="$f"
+                  r1_style[$sample]="$style"
+  
+                  if [[ "$ext" == "fq" ]]; then
+                      normalized=$(normalize_read_name "$base")
+                      echo "PASS: Detected read 1 for sample '$sample' using suffix '_$style'." >> "$report"
+                      echo "INFO: File uses .fq extension and will be normalized downstream:" >> "$report"
+                      echo "      $base -> $normalized" >> "$report"
+                  else
+                      echo "PASS: Detected read 1 for sample '$sample' using suffix '_$style'." >> "$report"
+                  fi
+              fi
+  
+          /*
+           * Valid read 2 names:
+           *   SampleID_R2.fastq
+           *   SampleID_R2.fastq.gz
+           *   SampleID_R2.fq
+           *   SampleID_R2.fq.gz
+           *   SampleID_2.fastq
+           *   SampleID_2.fastq.gz
+           *   SampleID_2.fq
+           *   SampleID_2.fq.gz
+           */
+          elif [[ "$base" =~ ^(.+)_(R2|2)\.(fastq|fq)(\.gz)?$ ]]; then
+  
+              sample="${BASH_REMATCH[1]}"
+              style="${BASH_REMATCH[2]}"
+              ext="${BASH_REMATCH[3]}"
+              key="${sample}:R2"
+  
+              if [[ -n "${seen_keys[$key]:-}" ]]; then
+                  echo "ERROR: Duplicate read 2 file detected for sample '$sample'." >> "$report"
+                  echo "       Only one read 2 file should exist for each sample." >> "$report"
+                  echo "       Accepted read 2 suffixes:" >> "$report"
+                  echo "         _R2.fastq, _R2.fastq.gz, _R2.fq, _R2.fq.gz" >> "$report"
+                  echo "         _2.fastq,  _2.fastq.gz,  _2.fq,  _2.fq.gz" >> "$report"
+                  errors=$((errors + 1))
+              else
+                  seen_keys[$key]=1
+                  r2_files[$sample]="$f"
+                  r2_style[$sample]="$style"
+  
+                  if [[ "$ext" == "fq" ]]; then
+                      normalized=$(normalize_read_name "$base")
+                      echo "PASS: Detected read 2 for sample '$sample' using suffix '_$style'." >> "$report"
+                      echo "INFO: File uses .fq extension and will be normalized downstream:" >> "$report"
+                      echo "      $base -> $normalized" >> "$report"
+                  else
+                      echo "PASS: Detected read 2 for sample '$sample' using suffix '_$style'." >> "$report"
+                  fi
+              fi
+  
+          /*
+           * Valid interleaved names:
+           *   SampleID_interleaved.fastq
+           *   SampleID_interleaved.fastq.gz
+           *   SampleID_interleaved.fq
+           *   SampleID_interleaved.fq.gz
+           */
+          elif [[ "$base" =~ ^(.+)_interleaved\.(fastq|fq)(\.gz)?$ ]]; then
+  
+              sample="${BASH_REMATCH[1]}"
+              ext="${BASH_REMATCH[2]}"
+              key="${sample}:interleaved"
+  
+              if [[ -n "${seen_keys[$key]:-}" ]]; then
+                  echo "ERROR: Duplicate interleaved file detected for sample '$sample'." >> "$report"
+                  errors=$((errors + 1))
+              else
+                  seen_keys[$key]=1
+                  interleaved_files[$sample]="$f"
+  
+                  if [[ "$ext" == "fq" ]]; then
+                      normalized=$(normalize_read_name "$base")
+                      echo "PASS: Detected interleaved reads for sample '$sample'." >> "$report"
+                      echo "INFO: File uses .fq extension and will be normalized downstream:" >> "$report"
+                      echo "      $base -> $normalized" >> "$report"
+                  else
+                      echo "PASS: Detected interleaved reads for sample '$sample'." >> "$report"
+                  fi
+              fi
+  
+          elif [[ "$base" =~ \.(fastq|fq)(\.gz)?$ ]]; then
+  
+              echo "ERROR: FASTQ-like file has unsupported name: $base" >> "$report"
+              echo "       Expected one of:" >> "$report"
+              echo "         SampleID_R1.fastq" >> "$report"
+              echo "         SampleID_R1.fastq.gz" >> "$report"
+              echo "         SampleID_R1.fq" >> "$report"
+              echo "         SampleID_R1.fq.gz" >> "$report"
+              echo "         SampleID_R2.fastq" >> "$report"
+              echo "         SampleID_R2.fastq.gz" >> "$report"
+              echo "         SampleID_R2.fq" >> "$report"
+              echo "         SampleID_R2.fq.gz" >> "$report"
+              echo "         SampleID_1.fastq" >> "$report"
+              echo "         SampleID_1.fastq.gz" >> "$report"
+              echo "         SampleID_1.fq" >> "$report"
+              echo "         SampleID_1.fq.gz" >> "$report"
+              echo "         SampleID_2.fastq" >> "$report"
+              echo "         SampleID_2.fastq.gz" >> "$report"
+              echo "         SampleID_2.fq" >> "$report"
+              echo "         SampleID_2.fq.gz" >> "$report"
+              echo "         SampleID_interleaved.fastq" >> "$report"
+              echo "         SampleID_interleaved.fastq.gz" >> "$report"
+              echo "         SampleID_interleaved.fq" >> "$report"
+              echo "         SampleID_interleaved.fq.gz" >> "$report"
+              errors=$((errors + 1))
+  
+          else
+  
+              echo "ERROR: File does not appear to be a supported FASTQ file: $base" >> "$report"
+              echo "       Supported extensions are .fastq, .fastq.gz, .fq, and .fq.gz." >> "$report"
+              errors=$((errors + 1))
+  
+          fi
+  
+          echo "" >> "$report"
+  
+      done < staged_files.list
+  
+      {
+          printf "%s\n" "${!r1_files[@]}"
+          printf "%s\n" "${!r2_files[@]}"
+          printf "%s\n" "${!interleaved_files[@]}"
+      } | sort -u > samples.tmp
+  
+      if [[ ! -s samples.tmp ]]; then
+          echo "ERROR: No valid read files were found." >> "$report"
+          errors=$((errors + 1))
+      fi
+  
+      echo "" >> "$report"
+      echo "Pairing/interleaving checks" >> "$report"
+      echo "----------------------------------------" >> "$report"
+  
+      while IFS= read -r sample; do
+  
+          has_r1=0
+          has_r2=0
+          has_interleaved=0
+  
+          if [[ -n "${r1_files[$sample]:-}" ]]; then
+              has_r1=1
+          fi
+  
+          if [[ -n "${r2_files[$sample]:-}" ]]; then
+              has_r2=1
+          fi
+  
+          if [[ -n "${interleaved_files[$sample]:-}" ]]; then
+              has_interleaved=1
+          fi
+  
+          if [[ "$has_interleaved" -eq 1 ]] && { [[ "$has_r1" -eq 1 ]] || [[ "$has_r2" -eq 1 ]]; }; then
+  
+              echo "ERROR: Sample '$sample' has both interleaved and paired read files." >> "$report"
+              echo "       Please provide either paired reads:" >> "$report"
+              echo "         ${sample}_R1.fastq.gz and ${sample}_R2.fastq.gz" >> "$report"
+              echo "       or:" >> "$report"
+              echo "         ${sample}_1.fastq.gz and ${sample}_2.fastq.gz" >> "$report"
+              echo "       or an interleaved file:" >> "$report"
+              echo "         ${sample}_interleaved.fastq.gz" >> "$report"
+              echo "       but not both." >> "$report"
+              errors=$((errors + 1))
+  
+          elif [[ "$has_interleaved" -eq 1 ]]; then
+  
+              interleaved="${interleaved_files[$sample]}"
+              interleaved_base=$(basename "$interleaved")
+              interleaved_norm=$(normalize_read_name "$interleaved_base")
+              interleaved_real=$(realpath "$interleaved")
+  
+              echo "PASS: Sample '$sample' is interleaved." >> "$report"
+  
+              if [[ "$interleaved_base" != "$interleaved_norm" ]]; then
+                  echo "INFO: Normalized interleaved filename:" >> "$report"
+                  echo "      $interleaved_base -> $interleaved_norm" >> "$report"
+              fi
+  
+              echo -e "$sample\tinterleaved\tNA\tNA\t$interleaved_norm" >> "$manifest"
+              ln -sf "$interleaved_real" "valid_reads/$interleaved_norm"
+  
+          elif [[ "$has_r1" -eq 1 && "$has_r2" -eq 1 ]]; then
+  
+              r1="${r1_files[$sample]}"
+              r2="${r2_files[$sample]}"
+  
+              r1_base=$(basename "$r1")
+              r2_base=$(basename "$r2")
+  
+              r1_norm=$(normalize_read_name "$r1_base")
+              r2_norm=$(normalize_read_name "$r2_base")
+  
+              r1_real=$(realpath "$r1")
+              r2_real=$(realpath "$r2")
+  
+              if [[ "${r1_style[$sample]}" == "R1" && "${r2_style[$sample]}" == "2" ]]; then
+                  echo "WARNING: Sample '$sample' mixes naming styles: _R1 with _2." >> "$report"
+                  echo "         This is allowed, but consider renaming consistently." >> "$report"
+                  warnings=$((warnings + 1))
+              elif [[ "${r1_style[$sample]}" == "1" && "${r2_style[$sample]}" == "R2" ]]; then
+                  echo "WARNING: Sample '$sample' mixes naming styles: _1 with _R2." >> "$report"
+                  echo "         This is allowed, but consider renaming consistently." >> "$report"
+                  warnings=$((warnings + 1))
+              fi
+  
+              echo "PASS: Sample '$sample' has a valid read 1/read 2 pair." >> "$report"
+  
+              if [[ "$r1_base" != "$r1_norm" ]]; then
+                  echo "INFO: Normalized read 1 filename:" >> "$report"
+                  echo "      $r1_base -> $r1_norm" >> "$report"
+              fi
+  
+              if [[ "$r2_base" != "$r2_norm" ]]; then
+                  echo "INFO: Normalized read 2 filename:" >> "$report"
+                  echo "      $r2_base -> $r2_norm" >> "$report"
+              fi
+  
+              echo -e "$sample\tpaired\t$r1_norm\t$r2_norm\tNA" >> "$manifest"
+  
+              ln -sf "$r1_real" "valid_reads/$r1_norm"
+              ln -sf "$r2_real" "valid_reads/$r2_norm"
+  
+          elif [[ "$has_r1" -eq 1 && "$has_r2" -eq 0 ]]; then
+  
+              echo "ERROR: Sample '$sample' has read 1 but is missing read 2." >> "$report"
+              echo "       Expected one of:" >> "$report"
+              echo "         ${sample}_R2.fastq" >> "$report"
+              echo "         ${sample}_R2.fastq.gz" >> "$report"
+              echo "         ${sample}_R2.fq" >> "$report"
+              echo "         ${sample}_R2.fq.gz" >> "$report"
+              echo "         ${sample}_2.fastq" >> "$report"
+              echo "         ${sample}_2.fastq.gz" >> "$report"
+              echo "         ${sample}_2.fq" >> "$report"
+              echo "         ${sample}_2.fq.gz" >> "$report"
+              errors=$((errors + 1))
+  
+          elif [[ "$has_r1" -eq 0 && "$has_r2" -eq 1 ]]; then
+  
+              echo "ERROR: Sample '$sample' has read 2 but is missing read 1." >> "$report"
+              echo "       Expected one of:" >> "$report"
+              echo "         ${sample}_R1.fastq" >> "$report"
+              echo "         ${sample}_R1.fastq.gz" >> "$report"
+              echo "         ${sample}_R1.fq" >> "$report"
+              echo "         ${sample}_R1.fq.gz" >> "$report"
+              echo "         ${sample}_1.fastq" >> "$report"
+              echo "         ${sample}_1.fastq.gz" >> "$report"
+              echo "         ${sample}_1.fq" >> "$report"
+              echo "         ${sample}_1.fq.gz" >> "$report"
+              errors=$((errors + 1))
+  
+          else
+  
+              echo "ERROR: Unexpected read structure for sample '$sample'." >> "$report"
+              errors=$((errors + 1))
+  
+          fi
+  
+      done < samples.tmp
+  
+      echo "" >> "$report"
+      echo "Finished: $(date)" >> "$report"
+  
+      if [[ "$errors" -gt 0 ]]; then
+          echo "" >> "$report"
+          echo "FAIL: Read naming check failed with $errors error(s) and $warnings warning(s)." >> "$report"
+          echo "" >&2
+          echo "Read naming check failed. Report:" >&2
+          echo "----------------------------------------" >&2
+          cat "$report" >&2
+          exit 1
+      else
+          echo "" >> "$report"
+          echo "PASS: All read names and pairings are valid." >> "$report"
+          echo "WARNINGS: $warnings" >> "$report"
+      fi
+
+Command exit status:
+  2
+
+Command output:
+  (empty)
+
+Command error:
+  .command.sh: line 23: declare: -A: invalid option
+  declare: usage: declare [-afFirtx] [-p] [name[=value] ...]
+
+Work dir:
+  /Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/vscode_files/samwise/work/23/66565c0a17e4883e65e040656895ea
+
+Tip: when you have fixed the problem you can continue the execution adding the option `-resume` to the run command line
+May-27 15:48:39.687 [TaskFinalizer-1] DEBUG nextflow.Session - Session aborted -- Cause: Process `CHECK_READ_NAMING (check_read_naming)` terminated with an error exit status (2)
+May-27 15:48:39.702 [TaskFinalizer-1] DEBUG nextflow.Session - The following nodes are still active:
+[process] RUN_FASTQC
+  status=ACTIVE
+  port 0: (queue) OPEN  ; channel: -
+  port 1: (cntrl) -     ; channel: $
+
+May-27 15:48:39.708 [TaskFinalizer-1] WARN  n.processor.TaskPollingMonitor - Killing running tasks (1)
+May-27 15:48:39.726 [TaskFinalizer-1] DEBUG n.trace.WorkflowStatsObserver - Workflow completed > WorkflowStats[succeededCount=0; failedCount=1; ignoredCount=0; cachedCount=0; pendingCount=0; submittedCount=0; runningCount=0; retriesCount=0; abortedCount=1; succeedDuration=0ms; failedDuration=13ms; cachedDuration=0ms;loadCpus=0; loadMemory=0; peakRunning=2; peakCpus=2; peakMemory=0; ]
+May-27 15:48:39.750 [Task monitor] DEBUG n.processor.TaskPollingMonitor - <<< barrier arrives (monitor: local) - terminating tasks monitor poll loop
+May-27 15:48:39.910 [main] DEBUG nextflow.Session - Session await > all processes finished
+May-27 15:48:39.910 [main] DEBUG nextflow.Session - Session await > all barriers passed
+May-27 15:48:39.912 [main] DEBUG n.trace.WorkflowStatsObserver - Workflow completed > WorkflowStats[succeededCount=0; failedCount=1; ignoredCount=0; cachedCount=0; pendingCount=0; submittedCount=0; runningCount=0; retriesCount=0; abortedCount=1; succeedDuration=0ms; failedDuration=13ms; cachedDuration=0ms;loadCpus=0; loadMemory=0; peakRunning=2; peakCpus=2; peakMemory=0; ]
+May-27 15:48:39.921 [main] DEBUG nextflow.cache.CacheDB - Closing CacheDB done
+May-27 15:48:39.947 [main] DEBUG nextflow.script.ScriptRunner - > Execution complete -- Goodbye
