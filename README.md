@@ -1,3 +1,3 @@
 # samwise
 
-testing if this is working
+Testing grounds for SAMWISE ldrd nextflow workflows
