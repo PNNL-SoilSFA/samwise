@@ -1,5 +1,7 @@
 <img width="2368" height="3076" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/45c8d15d-8008-4cf9-b226-cf00aee47ec7" />
 
+# Welcome to SAMWISE! The automated, end-to-end metagenomic read processing program
+
 
 # module_0_readprocess.nf
 
