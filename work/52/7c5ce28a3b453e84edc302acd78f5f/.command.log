@@ -1,4 +1,0 @@
-  File "<stdin>", line 22
-    read1_re = re.compile(r'^(.+)_(R1|1)\.(fastq|fq)(\.gz)?)
-                                                            ^
-SyntaxError: EOL while scanning string literal
