@@ -11,8 +11,6 @@ SAMWISE is an automated, end-to-end metagenomic read processing program. Here is
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure, and runs FastQC.
 
-<img width="524" height="153" alt="Screenshot 2026-05-27 at 2 48 32 PM" src="https://github.com/user-attachments/assets/4a99320c-9e0a-45ee-ae57-18dbd564d8aa" />
-
 ---
 
 ## What this workflow does
