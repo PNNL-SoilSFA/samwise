@@ -1,7 +1,9 @@
 <img width="1406" height="240" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/5f56bf43-fa98-4ce3-99b1-ea05313e85c5" />
 
 
-# Welcome to SAMWISE! The automated, end-to-end metagenomic read processing program
+# Welcome to SAMWISE! The automated, end-to-end metagenomic read processing program.
+
+## Here is a quick conceptual rundown of what this software can enable you to do via NextFlow Workflows.
 
 <img width="1406" height="1577" alt="SAMWISE_FULL-git2" src="https://github.com/user-attachments/assets/415602e3-ecae-44ed-9007-9c8be1d342fd" />
 
