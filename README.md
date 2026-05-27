@@ -1,4 +1,4 @@
-<img width="2000" height="2700" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/45c8d15d-8008-4cf9-b226-cf00aee47ec7" />
+<img width="1400" height="2100" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/45c8d15d-8008-4cf9-b226-cf00aee47ec7" />
 
 # Welcome to SAMWISE! The automated, end-to-end metagenomic read processing program
 
