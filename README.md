@@ -3,13 +3,13 @@
 
 # Welcome to SAMWISE!
 
-SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via NextFlow Workflows.
+SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
 <img width="1406" height="1577" alt="SAMWISE_FULL-git2" src="https://github.com/user-attachments/assets/7215de7f-6cf8-46ee-8fab-527ea545d35b" />
 
 # module_0_readprocess.nf
 
-`module_0_readprocess.nf` is a Nextflow DSL2 workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, normalizes `.fq` filenames to `.fastq`, validates FASTQ structure, and runs FastQC.
+`module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, normalizes `.fq` filenames to `.fastq`, validates FASTQ structure, and runs FastQC.
 
 ---
 
