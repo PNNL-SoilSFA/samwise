@@ -119,97 +119,89 @@ process INSTALL_FASTQC {
 
 
 process CHECK_READ_NAMING {
+            log(f"ERROR: Sample '{sample}' mixes R1/R2 and 1/2 naming styles.")
+            errors += 1
+            continue
 
-    tag "check_read_naming"
+        if r1_style[sample] == "1" and r2_style[sample] != "2":
+            log(f"ERROR: Sample '{sample}' mixes 1/2 and R1/R2 naming styles.")
+            errors += 1
+            continue
 
-    publishDir "${params.outdir}/naming", mode: 'copy', pattern: "*.{txt,tsv}"
+        r1_src = r1_files[sample]
+        r2_src = r2_files[sample]
 
-    input:
-    path read_files
+        r1_name = normalize_read_name(Path(r1_src).name)
+        r2_name = normalize_read_name(Path(r2_src).name)
 
-    output:
-    path "read_naming_report.txt", emit: report
-    path "read_manifest.tsv", emit: manifest
-    path "valid_reads/*", emit: reads
+        r1_dest = valid_reads_dir / r1_name
+        r2_dest = valid_reads_dir / r2_name
 
-    script:
-    """
-    set -euo pipefail
+        safe_symlink(r1_src, r1_dest)
+        safe_symlink(r2_src, r2_dest)
 
-    mkdir -p valid_reads
+        print(
+            sample,
+            "paired",
+            str(r1_dest),
+            str(r2_dest),
+            "",
+            sep="\\t",
+            file=manifest
+        )
 
-    cat > staged_files.list <<'EOF'
-${read_files.join('\n')}
-EOF
+        log(f"PASS: Paired sample '{sample}'")
+        log(f"      R1: {Path(r1_src).name} -> {r1_dest}")
+        log(f"      R2: {Path(r2_src).name} -> {r2_dest}")
 
-    python3 - <<'PY'
-import os
-import re
-import sys
-from pathlib import Path
+    for sample in sorted(interleaved_files):
+        if sample in r1_files or sample in r2_files:
+            continue
 
-report_path = Path("read_naming_report.txt")
-manifest_path = Path("read_manifest.tsv")
-valid_reads_dir = Path("valid_reads")
-valid_reads_dir.mkdir(exist_ok=True)
+        src = interleaved_files[sample]
+        norm_name = normalize_read_name(Path(src).name)
+        dest = valid_reads_dir / norm_name
 
-r1_files = {}
-r2_files = {}
-interleaved_files = {}
+        safe_symlink(src, dest)
 
-r1_style = {}
-r2_style = {}
+        print(
+            sample,
+            "interleaved",
+            "",
+            "",
+            str(dest),
+            sep="\\t",
+            file=manifest
+        )
 
-seen_keys = set()
-errors = 0
-warnings = 0
+        log(f"PASS: Interleaved sample '{sample}'")
+        log(f"      Interleaved: {Path(src).name} -> {dest}")
 
-read1_re = re.compile(r'^(.+)_(R1|1)\\.(fastq|fq)(\\.gz)?\$')
-read2_re = re.compile(r'^(.+)_(R2|2)\\.(fastq|fq)(\\.gz)?\$')
-interleaved_re = re.compile(r'^(.+)_interleaved\\.(fastq|fq)(\\.gz)?\$')
-fastq_like_re = re.compile(r'.*\\.(fastq|fq)(\\.gz)?\$')
+    valid_outputs = list(valid_reads_dir.glob("*"))
 
-def normalize_read_name(filename):
-    if filename.endswith(".fastq.gz"):
-        return filename
-    if filename.endswith(".fq.gz"):
-        return filename[:-6] + ".fastq.gz"
-    if filename.endswith(".fastq"):
-        return filename
-    if filename.endswith(".fq"):
-        return filename[:-3] + ".fastq"
-    return filename
-
-
-def safe_symlink(src, dest):
-    src_real = os.path.realpath(src)
-    dest = Path(dest)
-
-    if dest.exists() or dest.is_symlink():
-        dest.unlink()
-
-    os.symlink(src_real, dest)
-
-
-with report_path.open("w") as report, manifest_path.open("w") as manifest:
-
-    def log(message=""):
-        print(message, file=report)
-
-    print("sample_id", "layout", "read1", "read2", "interleaved", sep="\\t", file=manifest)
-
-    log("Read naming and pairing report")
-    log("Started")
-    log("----------------------------------------")
     log("")
+    log("Summary:")
+    log("----------------------------------------")
+    log(f"Errors: {errors}")
+    log(f"Warnings: {warnings}")
+    log(f"Valid read files emitted: {len(valid_outputs)}")
 
-    with open("staged_files.list") as handle:
-        staged_files = [line.strip() for line in handle if line.strip()]
+    for p in valid_outputs:
+        log(f"  {p}")
 
-    if not staged_files:
-        log("ERROR: No files were found in the input directory.")
-        errors += 1
+    if errors > 0:
+        log("")
+        log("FAIL: Read naming validation failed.")
+        sys.exit(1)
 
+    if not valid_outputs:
+        log("")
+        log("FAIL: No valid read files were produced.")
+        sys.exit(1)
+
+    log("")
+    log("PASS: Read naming validation completed successfully.")
+PY
     """
 }
 
