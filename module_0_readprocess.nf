@@ -617,6 +617,8 @@ process RUN_FASTQC {
 
     publishDir "${params.outdir}/fastqc", mode: 'copy'
 
+    cpus params.fastqc_threads
+
     input:
     tuple path(file), path(report), path(fastqc_status)
 
@@ -635,6 +637,12 @@ process RUN_FASTQC {
         exit 1
     fi
 
-    fastqc "${file}" --outdir .
+    echo "Running FastQC on: ${file}"
+    echo "FastQC threads: ${task.cpus}"
+
+    fastqc \\
+        -t ${task.cpus} \\
+        "${file}" \\
+        --outdir .
     """
 }
