@@ -3,6 +3,8 @@
 
 # Welcome to SAMWISE! The automated, end-to-end metagenomic read processing program
 
+<img width="1406" height="1577" alt="SAMWISE_FULL-git2" src="https://github.com/user-attachments/assets/415602e3-ecae-44ed-9007-9c8be1d342fd" />
+
 
 # module_0_readprocess.nf
 
