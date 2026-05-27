@@ -1,0 +1,2 @@
+/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/vscode_files/samwise/work/23/66565c0a17e4883e65e040656895ea/.command.sh: line 23: declare: -A: invalid option
+declare: usage: declare [-afFirtx] [-p] [name[=value] ...]
