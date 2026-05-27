@@ -1,3 +1,6 @@
+<img width="2368" height="3076" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/45c8d15d-8008-4cf9-b226-cf00aee47ec7" />
+
+
 # module_0_readprocess.nf
 
 `module_0_readprocess.nf` is a Nextflow DSL2 workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, normalizes `.fq` filenames to `.fastq`, validates FASTQ structure, and runs FastQC.
