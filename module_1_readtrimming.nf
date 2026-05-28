@@ -1,4 +1,5 @@
 #!/usr/bin/env nextflow
+
 nextflow.enable.dsl=2
 
 /*
@@ -25,6 +26,12 @@ params.fastqc_version          = "0.12.1"
 params.auto_install            = true
 params.tool_env_dir            = null
 
+/*
+ * If a pinned conda package installs but crashes, allow retrying with the latest
+ * available unpinned package. This improves portability across macOS/Linux/HPC.
+ */
+params.allow_unpinned_tool_fallback = true
+
 params.fastp_threads           = 4
 params.fastqc_threads          = 2
 params.threads                 = null
@@ -45,16 +52,16 @@ params.publish_trimmed_mode    = "symlink"
 params.compression             = 4
 
 /*
- * fastp trimming/filtering defaults.
+ * Conservative fastp defaults.
  *
- * Adapter trimming is enabled by fastp by default.
- * For paired-end data, --detect_adapter_for_pe improves adapter detection.
+ * fastp already performs basic adapter trimming and filtering by default.
+ * These extra trimming options are disabled by default to avoid overly aggressive trimming.
  */
-params.detect_adapter_for_pe   = true
-params.enable_correction       = true
+params.detect_adapter_for_pe   = false
+params.enable_correction       = false
 
-params.cut_front               = true
-params.cut_tail                = true
+params.cut_front               = false
+params.cut_tail                = false
 params.cut_window_size         = 4
 params.cut_mean_quality        = 20
 
@@ -64,7 +71,7 @@ params.n_base_limit            = 5
 params.length_required         = 15
 
 params.trim_poly_g             = false
-params.trim_poly_x             = true
+params.trim_poly_x             = false
 
 workflow {
     def manifest_file = params.input_manifest ?: "${params.module0_outdir}/naming/read_manifest.tsv"
@@ -128,9 +135,6 @@ workflow {
     FASTP_PAIRED(paired_reads_ch.combine(SETUP_MODULE1_TOOLS.out.status))
     FASTP_INTERLEAVED(interleaved_reads_ch.combine(SETUP_MODULE1_TOOLS.out.status))
 
-    /*
-     * Generate per-sample read count / trimming count summaries.
-     */
     TRIMMING_STATS_PAIRED(FASTP_PAIRED.out.trimmed_reads)
     TRIMMING_STATS_INTERLEAVED(FASTP_INTERLEAVED.out.trimmed_reads)
 
@@ -138,15 +142,6 @@ workflow {
 
     WRITE_TRIMMING_STATS_SUMMARY(all_trimming_stats_ch.collect())
 
-    /*
-     * Build FastQC input channel from trimmed primary reads.
-     *
-     * Paired:
-     *   Run FastQC on trimmed R1 and trimmed R2.
-     *
-     * Interleaved:
-     *   Run FastQC on trimmed interleaved file.
-     */
     def paired_fastqc_reads_ch = FASTP_PAIRED.out.trimmed_reads
         .flatMap { sample_id, _safe_id, read1_trimmed, read2_trimmed, _fastp_json ->
             return [
@@ -164,11 +159,6 @@ workflow {
 
     RUN_FASTQC_TRIMMED(trimmed_fastqc_input_ch.combine(SETUP_MODULE1_TOOLS.out.status))
 
-    /*
-     * Write a public manifest pointing to published module 1 output paths.
-     *
-     * Each FASTP process writes one small manifest-record TSV.
-     */
     def all_manifest_record_files_ch = FASTP_PAIRED.out.manifest_record.mix(FASTP_INTERLEAVED.out.manifest_record)
 
     WRITE_TRIMMED_MANIFEST(all_manifest_record_files_ch.collect())
@@ -186,47 +176,28 @@ process SETUP_MODULE1_TOOLS {
 
     script:
     def base_outdir = params.output_dir ?: params.outdir
-    def env_dir = params.tool_env_dir ?: "${base_outdir}/conda_envs/module1_tools"
+    def env_base = params.tool_env_dir ?: "${base_outdir}/conda_envs/module1_tools"
 
     """
     set -euo pipefail
 
     STATUS_FILE="module1_tools_status.env"
-    TOOL_ENV="${env_dir}"
+
+    TOOL_ENV_BASE="${env_base}"
+    FASTP_ENV="\$TOOL_ENV_BASE/fastp_env"
+    FASTQC_ENV="\$TOOL_ENV_BASE/fastqc_env"
+
+    FASTP_ENV_VALUE=""
+    FASTQC_ENV_VALUE=""
 
     echo "Module 1 tool setup started: \$(date)" > "\$STATUS_FILE"
     echo "Requested fastp version: ${params.fastp_version}" >> "\$STATUS_FILE"
     echo "Requested FastQC version: ${params.fastqc_version}" >> "\$STATUS_FILE"
-    echo "TOOL_ENV=\$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "Allow unpinned fallback: ${params.allow_unpinned_tool_fallback}" >> "\$STATUS_FILE"
+    echo "TOOL_ENV_BASE=\$TOOL_ENV_BASE" >> "\$STATUS_FILE"
+    echo "FASTP_ENV_TARGET=\$FASTP_ENV" >> "\$STATUS_FILE"
+    echo "FASTQC_ENV_TARGET=\$FASTQC_ENV" >> "\$STATUS_FILE"
     echo "----------------------------------------" >> "\$STATUS_FILE"
-
-    if [[ -x "\$TOOL_ENV/bin/fastp" && -x "\$TOOL_ENV/bin/fastqc" ]]; then
-        echo "Existing module-local environment detected." >> "\$STATUS_FILE"
-        echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
-        "\$TOOL_ENV/bin/fastp" --version >> "\$STATUS_FILE" 2>&1 || true
-        "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
-        echo "Module 1 tool setup finished: \$(date)" >> "\$STATUS_FILE"
-        exit 0
-    fi
-
-    if command -v fastp >/dev/null 2>&1 && command -v fastqc >/dev/null 2>&1; then
-        echo "System/runtime fastp and FastQC detected." >> "\$STATUS_FILE"
-        echo "fastp path: \$(command -v fastp)" >> "\$STATUS_FILE"
-        echo "fastqc path: \$(command -v fastqc)" >> "\$STATUS_FILE"
-        echo "ENV_DIR=SYSTEM" >> "\$STATUS_FILE"
-        fastp --version >> "\$STATUS_FILE" 2>&1 || true
-        fastqc --version >> "\$STATUS_FILE" 2>&1 || true
-        echo "Module 1 tool setup finished: \$(date)" >> "\$STATUS_FILE"
-        exit 0
-    fi
-
-    echo "fastp and/or FastQC not found in PATH." >> "\$STATUS_FILE"
-
-    if [[ "${params.auto_install}" != "true" ]]; then
-        echo "ERROR: Auto-install is disabled." >> "\$STATUS_FILE"
-        echo "Install fastp/FastQC manually or rerun with --auto_install true." >> "\$STATUS_FILE"
-        exit 1
-    fi
 
     INSTALLER=""
 
@@ -237,41 +208,266 @@ process SETUP_MODULE1_TOOLS {
         INSTALLER="conda"
         echo "Using conda: \$(command -v conda)" >> "\$STATUS_FILE"
     else
-        echo "ERROR: Neither mamba nor conda was found in PATH." >> "\$STATUS_FILE"
-        echo "Please install mamba/conda or install fastp/FastQC manually." >> "\$STATUS_FILE"
-        exit 1
+        echo "No mamba/conda detected in PATH." >> "\$STATUS_FILE"
     fi
 
-    mkdir -p "\$(dirname "\$TOOL_ENV")"
+    ########################################
+    # fastp setup
+    ########################################
 
-    echo "Creating module-local environment:" >> "\$STATUS_FILE"
-    echo "  \$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "" >> "\$STATUS_FILE"
+    echo "fastp setup" >> "\$STATUS_FILE"
+    echo "----------------------------------------" >> "\$STATUS_FILE"
 
-    "\$INSTALLER" create -y \\
-        -p "\$TOOL_ENV" \\
-        -c conda-forge \\
-        -c bioconda \\
-        "fastp=${params.fastp_version}" \\
-        "fastqc=${params.fastqc_version}" \\
-        >> "\$STATUS_FILE" 2>&1
+    if [[ -d "\$FASTP_ENV" ]]; then
+        echo "Existing fastp env detected: \$FASTP_ENV" >> "\$STATUS_FILE"
 
-    if [[ ! -x "\$TOOL_ENV/bin/fastp" ]]; then
-        echo "ERROR: fastp was not found after installation." >> "\$STATUS_FILE"
-        exit 1
+        if [[ -x "\$FASTP_ENV/bin/fastp" ]]; then
+            echo "Testing existing fastp env..." >> "\$STATUS_FILE"
+
+            set +e
+            "\$FASTP_ENV/bin/fastp" --version >> "\$STATUS_FILE" 2>&1
+            FASTP_TEST=\$?
+            set -e
+
+            if [[ "\$FASTP_TEST" -eq 0 ]]; then
+                echo "Existing fastp env passed." >> "\$STATUS_FILE"
+                FASTP_ENV_VALUE="\$FASTP_ENV"
+            else
+                echo "WARNING: Existing fastp env failed with code \$FASTP_TEST." >> "\$STATUS_FILE"
+                echo "Removing broken fastp env." >> "\$STATUS_FILE"
+                rm -rf "\$FASTP_ENV"
+            fi
+        else
+            echo "WARNING: Existing fastp env is incomplete." >> "\$STATUS_FILE"
+            echo "Removing incomplete fastp env." >> "\$STATUS_FILE"
+            rm -rf "\$FASTP_ENV"
+        fi
     fi
 
-    if [[ ! -x "\$TOOL_ENV/bin/fastqc" ]]; then
-        echo "ERROR: FastQC was not found after installation." >> "\$STATUS_FILE"
-        exit 1
+    if [[ -z "\$FASTP_ENV_VALUE" ]]; then
+        if command -v fastp >/dev/null 2>&1; then
+            echo "System/runtime fastp detected: \$(command -v fastp)" >> "\$STATUS_FILE"
+
+            set +e
+            fastp --version >> "\$STATUS_FILE" 2>&1
+            FASTP_SYSTEM_TEST=\$?
+            set -e
+
+            if [[ "\$FASTP_SYSTEM_TEST" -eq 0 ]]; then
+                echo "System/runtime fastp passed." >> "\$STATUS_FILE"
+                FASTP_ENV_VALUE="SYSTEM"
+            else
+                echo "WARNING: System/runtime fastp exists but failed with code \$FASTP_SYSTEM_TEST." >> "\$STATUS_FILE"
+            fi
+        fi
     fi
 
-    echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
-    echo "fastp installed at: \$TOOL_ENV/bin/fastp" >> "\$STATUS_FILE"
-    echo "FastQC installed at: \$TOOL_ENV/bin/fastqc" >> "\$STATUS_FILE"
+    if [[ -z "\$FASTP_ENV_VALUE" ]]; then
+        echo "fastp is not available as a working tool." >> "\$STATUS_FILE"
 
-    "\$TOOL_ENV/bin/fastp" --version >> "\$STATUS_FILE" 2>&1 || true
-    "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
+        if [[ "${params.auto_install}" != "true" ]]; then
+            echo "ERROR: Auto-install is disabled and fastp is missing." >> "\$STATUS_FILE"
+            exit 1
+        fi
 
+        if [[ -z "\$INSTALLER" ]]; then
+            echo "ERROR: Neither mamba nor conda was found in PATH." >> "\$STATUS_FILE"
+            exit 1
+        fi
+
+        mkdir -p "\$(dirname "\$FASTP_ENV")"
+
+        echo "Creating pinned fastp env:" >> "\$STATUS_FILE"
+        echo "  \$FASTP_ENV" >> "\$STATUS_FILE"
+
+        rm -rf "\$FASTP_ENV"
+
+        "\$INSTALLER" create -y \\
+            -p "\$FASTP_ENV" \\
+            -c conda-forge \\
+            -c bioconda \\
+            "fastp=${params.fastp_version}" \\
+            >> "\$STATUS_FILE" 2>&1
+
+        if [[ ! -x "\$FASTP_ENV/bin/fastp" ]]; then
+            echo "ERROR: fastp was not found after pinned installation." >> "\$STATUS_FILE"
+            exit 1
+        fi
+
+        echo "Testing pinned fastp env..." >> "\$STATUS_FILE"
+
+        set +e
+        "\$FASTP_ENV/bin/fastp" --version >> "\$STATUS_FILE" 2>&1
+        FASTP_PINNED_TEST=\$?
+        set -e
+
+        if [[ "\$FASTP_PINNED_TEST" -eq 0 ]]; then
+            echo "Pinned fastp env passed." >> "\$STATUS_FILE"
+            FASTP_ENV_VALUE="\$FASTP_ENV"
+        else
+            echo "WARNING: Pinned fastp env failed with code \$FASTP_PINNED_TEST." >> "\$STATUS_FILE"
+
+            if [[ "${params.allow_unpinned_tool_fallback}" == "true" ]]; then
+                echo "Attempting unpinned fastp fallback." >> "\$STATUS_FILE"
+                rm -rf "\$FASTP_ENV"
+
+                "\$INSTALLER" create -y \\
+                    -p "\$FASTP_ENV" \\
+                    -c conda-forge \\
+                    -c bioconda \\
+                    "fastp" \\
+                    >> "\$STATUS_FILE" 2>&1
+
+                if [[ ! -x "\$FASTP_ENV/bin/fastp" ]]; then
+                    echo "ERROR: fastp was not found after unpinned fallback installation." >> "\$STATUS_FILE"
+                    exit 1
+                fi
+
+                echo "Testing unpinned fastp fallback env..." >> "\$STATUS_FILE"
+                "\$FASTP_ENV/bin/fastp" --version >> "\$STATUS_FILE" 2>&1
+
+                echo "Unpinned fastp fallback passed." >> "\$STATUS_FILE"
+                FASTP_ENV_VALUE="\$FASTP_ENV"
+            else
+                echo "ERROR: Pinned fastp failed and unpinned fallback is disabled." >> "\$STATUS_FILE"
+                exit 1
+            fi
+        fi
+    fi
+
+    ########################################
+    # FastQC setup
+    ########################################
+
+    echo "" >> "\$STATUS_FILE"
+    echo "FastQC setup" >> "\$STATUS_FILE"
+    echo "----------------------------------------" >> "\$STATUS_FILE"
+
+    if [[ -d "\$FASTQC_ENV" ]]; then
+        echo "Existing FastQC env detected: \$FASTQC_ENV" >> "\$STATUS_FILE"
+
+        if [[ -x "\$FASTQC_ENV/bin/fastqc" ]]; then
+            echo "Testing existing FastQC env..." >> "\$STATUS_FILE"
+
+            set +e
+            "\$FASTQC_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1
+            FASTQC_TEST=\$?
+            set -e
+
+            if [[ "\$FASTQC_TEST" -eq 0 ]]; then
+                echo "Existing FastQC env passed." >> "\$STATUS_FILE"
+                FASTQC_ENV_VALUE="\$FASTQC_ENV"
+            else
+                echo "WARNING: Existing FastQC env failed with code \$FASTQC_TEST." >> "\$STATUS_FILE"
+                echo "Removing broken FastQC env." >> "\$STATUS_FILE"
+                rm -rf "\$FASTQC_ENV"
+            fi
+        else
+            echo "WARNING: Existing FastQC env is incomplete." >> "\$STATUS_FILE"
+            echo "Removing incomplete FastQC env." >> "\$STATUS_FILE"
+            rm -rf "\$FASTQC_ENV"
+        fi
+    fi
+
+    if [[ -z "\$FASTQC_ENV_VALUE" ]]; then
+        if command -v fastqc >/dev/null 2>&1; then
+            echo "System/runtime FastQC detected: \$(command -v fastqc)" >> "\$STATUS_FILE"
+
+            set +e
+            fastqc --version >> "\$STATUS_FILE" 2>&1
+            FASTQC_SYSTEM_TEST=\$?
+            set -e
+
+            if [[ "\$FASTQC_SYSTEM_TEST" -eq 0 ]]; then
+                echo "System/runtime FastQC passed." >> "\$STATUS_FILE"
+                FASTQC_ENV_VALUE="SYSTEM"
+            else
+                echo "WARNING: System/runtime FastQC exists but failed with code \$FASTQC_SYSTEM_TEST." >> "\$STATUS_FILE"
+            fi
+        fi
+    fi
+
+    if [[ -z "\$FASTQC_ENV_VALUE" ]]; then
+        echo "FastQC is not available as a working tool." >> "\$STATUS_FILE"
+
+        if [[ "${params.auto_install}" != "true" ]]; then
+            echo "ERROR: Auto-install is disabled and FastQC is missing." >> "\$STATUS_FILE"
+            exit 1
+        fi
+
+        if [[ -z "\$INSTALLER" ]]; then
+            echo "ERROR: Neither mamba nor conda was found in PATH." >> "\$STATUS_FILE"
+            exit 1
+        fi
+
+        mkdir -p "\$(dirname "\$FASTQC_ENV")"
+
+        echo "Creating pinned FastQC env:" >> "\$STATUS_FILE"
+        echo "  \$FASTQC_ENV" >> "\$STATUS_FILE"
+
+        rm -rf "\$FASTQC_ENV"
+
+        "\$INSTALLER" create -y \\
+            -p "\$FASTQC_ENV" \\
+            -c conda-forge \\
+            -c bioconda \\
+            "perl" \\
+            "fastqc=${params.fastqc_version}" \\
+            >> "\$STATUS_FILE" 2>&1
+
+        if [[ ! -x "\$FASTQC_ENV/bin/fastqc" ]]; then
+            echo "ERROR: FastQC was not found after pinned installation." >> "\$STATUS_FILE"
+            exit 1
+        fi
+
+        echo "Testing pinned FastQC env..." >> "\$STATUS_FILE"
+
+        set +e
+        "\$FASTQC_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1
+        FASTQC_PINNED_TEST=\$?
+        set -e
+
+        if [[ "\$FASTQC_PINNED_TEST" -eq 0 ]]; then
+            echo "Pinned FastQC env passed." >> "\$STATUS_FILE"
+            FASTQC_ENV_VALUE="\$FASTQC_ENV"
+        else
+            echo "WARNING: Pinned FastQC env failed with code \$FASTQC_PINNED_TEST." >> "\$STATUS_FILE"
+
+            if [[ "${params.allow_unpinned_tool_fallback}" == "true" ]]; then
+                echo "Attempting unpinned FastQC fallback." >> "\$STATUS_FILE"
+                rm -rf "\$FASTQC_ENV"
+
+                "\$INSTALLER" create -y \\
+                    -p "\$FASTQC_ENV" \\
+                    -c conda-forge \\
+                    -c bioconda \\
+                    "perl" \\
+                    "fastqc" \\
+                    >> "\$STATUS_FILE" 2>&1
+
+                if [[ ! -x "\$FASTQC_ENV/bin/fastqc" ]]; then
+                    echo "ERROR: FastQC was not found after unpinned fallback installation." >> "\$STATUS_FILE"
+                    exit 1
+                fi
+
+                echo "Testing unpinned FastQC fallback env..." >> "\$STATUS_FILE"
+                "\$FASTQC_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1
+
+                echo "Unpinned FastQC fallback passed." >> "\$STATUS_FILE"
+                FASTQC_ENV_VALUE="\$FASTQC_ENV"
+            else
+                echo "ERROR: Pinned FastQC failed and unpinned fallback is disabled." >> "\$STATUS_FILE"
+                exit 1
+            fi
+        fi
+    fi
+
+    echo "" >> "\$STATUS_FILE"
+    echo "Final tool environment summary" >> "\$STATUS_FILE"
+    echo "----------------------------------------" >> "\$STATUS_FILE"
+    echo "FASTP_ENV=\$FASTP_ENV_VALUE" >> "\$STATUS_FILE"
+    echo "FASTQC_ENV=\$FASTQC_ENV_VALUE" >> "\$STATUS_FILE"
     echo "Module 1 tool setup finished: \$(date)" >> "\$STATUS_FILE"
     """
 }
@@ -315,10 +511,10 @@ process FASTP_PAIRED {
     """
     set -euo pipefail
 
-    TOOLS_ENV="\$(grep '^ENV_DIR=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+    FASTP_ENV="\$(grep '^FASTP_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
 
-    if [[ -n "\$TOOLS_ENV" && "\$TOOLS_ENV" != "SYSTEM" ]]; then
-        export PATH="\$TOOLS_ENV/bin:\$PATH"
+    if [[ -n "\$FASTP_ENV" && "\$FASTP_ENV" != "SYSTEM" ]]; then
+        export PATH="\$FASTP_ENV/bin:\$PATH"
     fi
 
     if ! command -v fastp >/dev/null 2>&1; then
@@ -328,36 +524,37 @@ process FASTP_PAIRED {
         exit 1
     fi
 
-    FASTP_ARGS=()
+    FASTP_ARGS=""
 
     if [[ "${params.detect_adapter_for_pe.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--detect_adapter_for_pe)
+        FASTP_ARGS="\${FASTP_ARGS} --detect_adapter_for_pe"
     fi
 
     if [[ "${params.enable_correction.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--correction)
+        FASTP_ARGS="\${FASTP_ARGS} --correction"
     fi
 
     if [[ "${params.cut_front.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--cut_front)
+        FASTP_ARGS="\${FASTP_ARGS} --cut_front"
     fi
 
     if [[ "${params.cut_tail.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--cut_tail)
+        FASTP_ARGS="\${FASTP_ARGS} --cut_tail"
     fi
 
     if [[ "${params.trim_poly_g.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--trim_poly_g)
+        FASTP_ARGS="\${FASTP_ARGS} --trim_poly_g"
     fi
 
     if [[ "${params.trim_poly_x.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--trim_poly_x)
+        FASTP_ARGS="\${FASTP_ARGS} --trim_poly_x"
     fi
 
     echo "Running fastp paired-end trimming for sample: ${sample_id}"
     echo "Input R1: ${read1}"
     echo "Input R2: ${read2}"
     echo "Threads: ${task.cpus}"
+    echo "Optional fastp args:\${FASTP_ARGS}"
     echo "NOTE: Read merging is disabled. Output will be trimmed R1 and trimmed R2 only."
 
     fastp \\
@@ -376,7 +573,7 @@ process FASTP_PAIRED {
         --unqualified_percent_limit ${params.unqualified_percent} \\
         --n_base_limit ${params.n_base_limit} \\
         --length_required ${params.length_required} \\
-        "\${FASTP_ARGS[@]}" \\
+        \${FASTP_ARGS} \\
         > "${safe_id}_fastp.log" 2>&1
 
     printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
@@ -431,10 +628,10 @@ process FASTP_INTERLEAVED {
     """
     set -euo pipefail
 
-    TOOLS_ENV="\$(grep '^ENV_DIR=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+    FASTP_ENV="\$(grep '^FASTP_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
 
-    if [[ -n "\$TOOLS_ENV" && "\$TOOLS_ENV" != "SYSTEM" ]]; then
-        export PATH="\$TOOLS_ENV/bin:\$PATH"
+    if [[ -n "\$FASTP_ENV" && "\$FASTP_ENV" != "SYSTEM" ]]; then
+        export PATH="\$FASTP_ENV/bin:\$PATH"
     fi
 
     if ! command -v fastp >/dev/null 2>&1; then
@@ -444,36 +641,28 @@ process FASTP_INTERLEAVED {
         exit 1
     fi
 
-    FASTP_ARGS=()
-
-    # Do NOT add --detect_adapter_for_pe or --correction here.
-    #
-    # With interleaved input, fastp may try to open a missing/empty R2 filename
-    # when --detect_adapter_for_pe is used, causing:
-    #
-    #   ERROR: Failed to open file:
-    #
-    # Those options are kept only in FASTP_PAIRED.
+    FASTP_ARGS=""
 
     if [[ "${params.cut_front.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--cut_front)
+        FASTP_ARGS="\${FASTP_ARGS} --cut_front"
     fi
 
     if [[ "${params.cut_tail.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--cut_tail)
+        FASTP_ARGS="\${FASTP_ARGS} --cut_tail"
     fi
 
     if [[ "${params.trim_poly_g.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--trim_poly_g)
+        FASTP_ARGS="\${FASTP_ARGS} --trim_poly_g"
     fi
 
     if [[ "${params.trim_poly_x.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--trim_poly_x)
+        FASTP_ARGS="\${FASTP_ARGS} --trim_poly_x"
     fi
 
     echo "Running fastp interleaved trimming for sample: ${sample_id}" >&2
     echo "Input interleaved: ${interleaved}" >&2
     echo "Threads: ${task.cpus}" >&2
+    echo "Optional fastp args:\${FASTP_ARGS}" >&2
     echo "NOTE: --detect_adapter_for_pe and --correction are disabled for interleaved input." >&2
 
     fastp \\
@@ -490,7 +679,7 @@ process FASTP_INTERLEAVED {
         --unqualified_percent_limit ${params.unqualified_percent} \\
         --n_base_limit ${params.n_base_limit} \\
         --length_required ${params.length_required} \\
-        "\${FASTP_ARGS[@]}" \\
+        \${FASTP_ARGS} \\
         2> "${safe_id}_fastp.log" \\
         | gzip -${params.compression} > "${safe_id}_interleaved_trimmed.fastq.gz"
 
@@ -542,35 +731,26 @@ sample_id, safe_id, layout, read1_path, read2_path, merged_path, interleaved_pat
 def count_fastq_records(path):
     if path is None or str(path).strip() == "":
         return 0
-
     path = Path(path)
-
     if not path.exists():
         return 0
-
     if path.stat().st_size == 0:
         return 0
-
     opener = gzip.open if str(path).endswith(".gz") else open
-
     lines = 0
     with opener(path, "rt", errors="replace") as handle:
         for _ in handle:
             lines += 1
-
     if lines % 4 != 0:
         raise RuntimeError(f"FASTQ line count is not divisible by 4 for {path}: {lines} lines")
-
     return lines // 4
 
 def get_nested(data, keys, default="NA"):
     value = data
-
     for key in keys:
         if not isinstance(value, dict) or key not in value:
             return default
         value = value[key]
-
     return value
 
 with open(json_path) as handle:
@@ -597,8 +777,6 @@ final_interleaved_reads = 0
 final_merged_reads = 0
 
 final_fastq_records_total = final_r1_reads + final_r2_reads
-
-# Standard paired-end output. This is the number of complete paired records.
 final_pair_or_fragment_records = min(final_r1_reads, final_r2_reads)
 
 columns = [
@@ -677,35 +855,26 @@ sample_id, safe_id, layout, read1_path, read2_path, merged_path, interleaved_pat
 def count_fastq_records(path):
     if path is None or str(path).strip() == "":
         return 0
-
     path = Path(path)
-
     if not path.exists():
         return 0
-
     if path.stat().st_size == 0:
         return 0
-
     opener = gzip.open if str(path).endswith(".gz") else open
-
     lines = 0
     with opener(path, "rt", errors="replace") as handle:
         for _ in handle:
             lines += 1
-
     if lines % 4 != 0:
         raise RuntimeError(f"FASTQ line count is not divisible by 4 for {path}: {lines} lines")
-
     return lines // 4
 
 def get_nested(data, keys, default="NA"):
     value = data
-
     for key in keys:
         if not isinstance(value, dict) or key not in value:
             return default
         value = value[key]
-
     return value
 
 with open(json_path) as handle:
@@ -806,10 +975,10 @@ process RUN_FASTQC_TRIMMED {
     """
     set -euo pipefail
 
-    TOOLS_ENV="\$(grep '^ENV_DIR=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+    FASTQC_ENV="\$(grep '^FASTQC_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
 
-    if [[ -n "\$TOOLS_ENV" && "\$TOOLS_ENV" != "SYSTEM" ]]; then
-        export PATH="\$TOOLS_ENV/bin:\$PATH"
+    if [[ -n "\$FASTQC_ENV" && "\$FASTQC_ENV" != "SYSTEM" ]]; then
+        export PATH="\$FASTQC_ENV/bin:\$PATH"
     fi
 
     if ! command -v fastqc >/dev/null 2>&1; then

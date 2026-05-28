@@ -5,7 +5,7 @@ nextflow.enable.dsl=2
  * Module 0: Read naming validation, optional FASTQ structure validation,
  * and raw-read FastQC.
  *
- * This module auto-installs FastQC if it is missing, using mamba or conda.
+ * This module auto-installs FastQC if missing, using mamba or conda.
  */
 
 /*
@@ -100,24 +100,56 @@ process SETUP_MODULE0_TOOLS {
     echo "TOOL_ENV=\$TOOL_ENV" >> "\$STATUS_FILE"
     echo "----------------------------------------" >> "\$STATUS_FILE"
 
-    if [[ -x "\$TOOL_ENV/bin/fastqc" ]]; then
-        echo "Existing module-local environment detected." >> "\$STATUS_FILE"
-        echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
-        "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
-        echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
-        exit 0
+    if [[ -d "\$TOOL_ENV" ]]; then
+        echo "Existing module-local environment detected: \$TOOL_ENV" >> "\$STATUS_FILE"
+
+        if [[ -x "\$TOOL_ENV/bin/fastqc" ]]; then
+            echo "Testing existing FastQC environment..." >> "\$STATUS_FILE"
+
+            set +e
+            "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1
+            FASTQC_TEST=\$?
+            set -e
+
+            if [[ "\$FASTQC_TEST" -eq 0 ]]; then
+                echo "Existing module-local environment passed FastQC check." >> "\$STATUS_FILE"
+                echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
+                echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+                exit 0
+            else
+                echo "WARNING: Existing module-local environment failed FastQC check." >> "\$STATUS_FILE"
+                echo "FASTQC_TEST=\$FASTQC_TEST" >> "\$STATUS_FILE"
+                echo "Removing broken environment and recreating it." >> "\$STATUS_FILE"
+                rm -rf "\$TOOL_ENV"
+            fi
+        else
+            echo "WARNING: Existing module-local environment is incomplete." >> "\$STATUS_FILE"
+            echo "Removing incomplete environment and recreating it." >> "\$STATUS_FILE"
+            rm -rf "\$TOOL_ENV"
+        fi
     fi
 
     if command -v fastqc >/dev/null 2>&1; then
         echo "System/runtime FastQC detected." >> "\$STATUS_FILE"
         echo "fastqc path: \$(command -v fastqc)" >> "\$STATUS_FILE"
-        echo "ENV_DIR=SYSTEM" >> "\$STATUS_FILE"
-        fastqc --version >> "\$STATUS_FILE" 2>&1 || true
-        echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
-        exit 0
+
+        set +e
+        fastqc --version >> "\$STATUS_FILE" 2>&1
+        FASTQC_TEST=\$?
+        set -e
+
+        if [[ "\$FASTQC_TEST" -eq 0 ]]; then
+            echo "System/runtime FastQC passed check." >> "\$STATUS_FILE"
+            echo "ENV_DIR=SYSTEM" >> "\$STATUS_FILE"
+            echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+            exit 0
+        else
+            echo "WARNING: System/runtime FastQC was detected but failed check." >> "\$STATUS_FILE"
+            echo "Will attempt module-local installation." >> "\$STATUS_FILE"
+        fi
     fi
 
-    echo "FastQC not found in PATH." >> "\$STATUS_FILE"
+    echo "FastQC is not available as a working tool." >> "\$STATUS_FILE"
 
     if [[ "${params.auto_install}" != "true" ]]; then
         echo "ERROR: Auto-install is disabled." >> "\$STATUS_FILE"
@@ -148,6 +180,7 @@ process SETUP_MODULE0_TOOLS {
         -p "\$TOOL_ENV" \\
         -c conda-forge \\
         -c bioconda \\
+        "perl" \\
         "fastqc=${params.fastqc_version}" \\
         >> "\$STATUS_FILE" 2>&1
 
@@ -156,10 +189,11 @@ process SETUP_MODULE0_TOOLS {
         exit 1
     fi
 
+    echo "Testing newly created FastQC environment..." >> "\$STATUS_FILE"
+    "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1
+
     echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
     echo "FastQC installed at: \$TOOL_ENV/bin/fastqc" >> "\$STATUS_FILE"
-    "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
-
     echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
     """
 }
