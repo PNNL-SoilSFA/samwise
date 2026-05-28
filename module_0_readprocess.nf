@@ -3,11 +3,7 @@ nextflow.enable.dsl=2
 
 /*
  * Default parameters.
- * Command-line values override these.
- *
- * NOTE:
- *   FastQC is now managed using the Nextflow `conda` directive in RUN_FASTQC.
- *   Run with `-with-conda`, or configure conda/container support in nextflow.config.
+ * Command-line values will override.
  */
 params.input_dir       = null
 params.outdir          = "./results/module_0_readprocess"
@@ -33,7 +29,7 @@ workflow {
         type: 'file',
         checkIfExists: true
     )
-    .map { it.toAbsolutePath() }
+    .map { path -> path.toAbsolutePath() }
 
     CHECK_READ_NAMING(all_files_ch.collect())
 
@@ -110,10 +106,6 @@ warnings = 0
 #   sample_2.fastq.gz
 #   sample_S1_L001_R1_001.fastq.gz
 #   sample_S1_L001_R2_001.fastq.gz
-#
-# For Illumina-style names, the sample_id includes lane/index parts up to R1/R2.
-# Example:
-#   sample_S1_L001_R1_001.fastq.gz -> sample_id sample_S1_L001
 
 read1_patterns = [
     (re.compile(r'^(.+)_R1(?:_001)?\\.(fastq|fq)(\\.gz)?\\Z'), "R"),
