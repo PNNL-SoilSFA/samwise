@@ -52,9 +52,7 @@ workflow {
 
 
 process INSTALL_FASTQC {
-
     tag "check_fastqc"
-
     publishDir "${params.output_dir ?: params.outdir}/setup", mode: 'copy'
 
     output:
@@ -66,43 +64,61 @@ process INSTALL_FASTQC {
 
     STATUS_FILE="fastqc_install_status.txt"
 
+    echo "FastQC setup/check started: \$(date)" > "\$STATUS_FILE"
+    echo "----------------------------------------" >> "\$STATUS_FILE"
+
     if command -v fastqc >/dev/null 2>&1; then
-        echo "FastQC already installed: \$(command -v fastqc)" > "\$STATUS_FILE"
+        echo "FastQC already installed: \$(command -v fastqc)" >> "\$STATUS_FILE"
         fastqc --version >> "\$STATUS_FILE" 2>&1 || true
         exit 0
     fi
 
-    echo "FastQC not found in PATH." > "\$STATUS_FILE"
+    echo "FastQC not found in PATH." >> "\$STATUS_FILE"
 
     if [[ "${params.auto_install}" != "true" ]]; then
-        echo "Auto-install disabled. Please install FastQC manually or run with --auto_install true" >> "\$STATUS_FILE"
+        echo "Auto-install disabled." >> "\$STATUS_FILE"
+        echo "Please install FastQC manually or run with --auto_install true" >> "\$STATUS_FILE"
         exit 1
     fi
 
-    if ! command -v mamba >/dev/null 2>&1; then
-        echo "mamba not found. Please install mamba first." >> "\$STATUS_FILE"
-        exit 1
-    fi
+    INSTALLER=""
 
-    echo "Attempting to install FastQC using mamba..." >> "\$STATUS_FILE"
-
-    if mamba install -y -c bioconda -c conda-forge fastqc >> "\$STATUS_FILE" 2>&1; then
-        echo "FastQC installation successful." >> "\$STATUS_FILE"
+    if command -v mamba >/dev/null 2>&1; then
+        INSTALLER="mamba"
+        echo "mamba detected: \$(command -v mamba)" >> "\$STATUS_FILE"
+    elif command -v conda >/dev/null 2>&1; then
+        INSTALLER="conda"
+        echo "mamba not found." >> "\$STATUS_FILE"
+        echo "conda detected: \$(command -v conda)" >> "\$STATUS_FILE"
     else
-        echo "FastQC installation failed." >> "\$STATUS_FILE"
+        echo "Neither mamba nor conda was found in PATH." >> "\$STATUS_FILE"
+        echo "Please install FastQC manually, or install mamba/conda first." >> "\$STATUS_FILE"
         exit 1
     fi
+
+    echo "Attempting to install FastQC using \$INSTALLER..." >> "\$STATUS_FILE"
+
+    if "\$INSTALLER" install -y -c conda-forge -c bioconda fastqc >> "\$STATUS_FILE" 2>&1; then
+        echo "FastQC installation command completed successfully." >> "\$STATUS_FILE"
+    else
+        echo "FastQC installation failed using \$INSTALLER." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    hash -r || true
 
     if command -v fastqc >/dev/null 2>&1; then
-        echo "FastQC path: \$(command -v fastqc)" >> "\$STATUS_FILE"
+        echo "FastQC path after installation: \$(command -v fastqc)" >> "\$STATUS_FILE"
         fastqc --version >> "\$STATUS_FILE" 2>&1 || true
     else
         echo "FastQC still not detected after installation." >> "\$STATUS_FILE"
+        echo "The install may have succeeded, but the environment PATH may not have updated." >> "\$STATUS_FILE"
         exit 1
     fi
+
+    echo "FastQC setup/check finished: \$(date)" >> "\$STATUS_FILE"
     """
 }
-
 
 process CHECK_READ_NAMING {
 
