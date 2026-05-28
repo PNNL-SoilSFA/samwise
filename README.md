@@ -97,18 +97,20 @@ nextflow run module_0_readprocess.nf \
 This module performs the following steps:
 
 1. **Trims reads using fastp**
-   - Looks for `fastqc` in the current environment.
-   - If missing, attempts to install FastQC using `mamba`.
+   - Looks for `fastp` in the current environment.
+   - If missing, attempts to install FastP using `mamba`.
+   - Trims reads using fastp default trimming parameters - highly customizable with any and all fastp flags if needed.
 
 2. **Provides trimming statistics**
-   - Pre / Post trimming read quality statitsitcs
+   - Pre / Post trimming read quality statitsitcs in tabulated format
 
 3. **Re-runs fastqc on trimmed reads**
+   - Re-analysis of the fastqc outputs to confirm succesful trimming.
 
 
 ```bash
 nextflow run module_1_readtrimming.nf \
-  --input_manifest ./naming/read_manifest.tsv \
-  --output_dir ./module_1_output \
-  -with-conda
+--input_manifest /Volumes/Macintosh\ HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_out/naming/read_manifest.tsv \
+--outdir /Volumes/Macintosh\ HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_out \
+--threads 6
 ```
