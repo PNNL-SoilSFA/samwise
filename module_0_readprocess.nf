@@ -2,8 +2,15 @@
 nextflow.enable.dsl=2
 
 /*
+ * Module 0: Read naming validation, optional FASTQ structure validation,
+ * and raw-read FastQC.
+ *
+ * This module auto-installs FastQC if it is missing, using mamba or conda.
+ */
+
+/*
  * Default parameters.
- * Command-line values will override.
+ * Command-line values override these.
  */
 params.input_dir       = null
 params.outdir          = "./results/module_0_readprocess"
@@ -12,7 +19,10 @@ params.file_pattern    = "*.{fastq.gz,fq.gz,fastq,fq}"
 params.fastqc_threads  = 2
 params.threads         = null
 params.skip_validate   = false
+
 params.fastqc_version  = "0.12.1"
+params.auto_install    = true
+params.tool_env_dir    = null
 
 workflow {
     if( !params.input_dir ) {
@@ -20,20 +30,22 @@ workflow {
         Missing required parameter: --input_dir
 
         Example:
-          nextflow run module_0_readprocess.nf --input_dir ./reads -with-conda
+          nextflow run module_0_readprocess.nf --input_dir ./reads
         """.stripIndent()
     }
 
-    all_files_ch = channel.fromPath(
+    def all_files_ch = channel.fromPath(
         "${params.input_dir}/${params.file_pattern}",
         type: 'file',
         checkIfExists: true
     )
     .map { path -> path.toAbsolutePath() }
 
+    SETUP_MODULE0_TOOLS()
+
     CHECK_READ_NAMING(all_files_ch.collect())
 
-    valid_named_reads_ch = CHECK_READ_NAMING.out.manifest
+    def valid_named_reads_ch = CHECK_READ_NAMING.out.manifest
         .splitCsv(header: true, sep: '\t')
         .flatMap { row ->
             if( row.layout == 'paired' ) {
@@ -47,6 +59,8 @@ workflow {
             }
         }
 
+    def reads_ready_for_fastqc_ch
+
     if( params.skip_validate.toString().toBoolean() ) {
         SKIP_VALIDATE_READS(valid_named_reads_ch)
         reads_ready_for_fastqc_ch = SKIP_VALIDATE_READS.out
@@ -56,7 +70,98 @@ workflow {
         reads_ready_for_fastqc_ch = VALIDATE_READS.out
     }
 
-    RUN_FASTQC(reads_ready_for_fastqc_ch)
+    def reads_ready_with_tools_ch = reads_ready_for_fastqc_ch.combine(SETUP_MODULE0_TOOLS.out.status)
+
+    RUN_FASTQC(reads_ready_with_tools_ch)
+}
+
+process SETUP_MODULE0_TOOLS {
+    tag "setup_fastqc"
+
+    publishDir "${params.output_dir ?: params.outdir}/setup",
+        mode: 'copy',
+        pattern: "module0_tools_status.env"
+
+    output:
+    path "module0_tools_status.env", emit: status
+
+    script:
+    def base_outdir = params.output_dir ?: params.outdir
+    def env_dir = params.tool_env_dir ?: "${base_outdir}/conda_envs/module0_tools"
+
+    """
+    set -euo pipefail
+
+    STATUS_FILE="module0_tools_status.env"
+    TOOL_ENV="${env_dir}"
+
+    echo "Module 0 tool setup started: \$(date)" > "\$STATUS_FILE"
+    echo "Requested FastQC version: ${params.fastqc_version}" >> "\$STATUS_FILE"
+    echo "TOOL_ENV=\$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "----------------------------------------" >> "\$STATUS_FILE"
+
+    if [[ -x "\$TOOL_ENV/bin/fastqc" ]]; then
+        echo "Existing module-local environment detected." >> "\$STATUS_FILE"
+        echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
+        "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
+        echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+        exit 0
+    fi
+
+    if command -v fastqc >/dev/null 2>&1; then
+        echo "System/runtime FastQC detected." >> "\$STATUS_FILE"
+        echo "fastqc path: \$(command -v fastqc)" >> "\$STATUS_FILE"
+        echo "ENV_DIR=SYSTEM" >> "\$STATUS_FILE"
+        fastqc --version >> "\$STATUS_FILE" 2>&1 || true
+        echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+        exit 0
+    fi
+
+    echo "FastQC not found in PATH." >> "\$STATUS_FILE"
+
+    if [[ "${params.auto_install}" != "true" ]]; then
+        echo "ERROR: Auto-install is disabled." >> "\$STATUS_FILE"
+        echo "Install FastQC manually or rerun with --auto_install true." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    INSTALLER=""
+
+    if command -v mamba >/dev/null 2>&1; then
+        INSTALLER="mamba"
+        echo "Using mamba: \$(command -v mamba)" >> "\$STATUS_FILE"
+    elif command -v conda >/dev/null 2>&1; then
+        INSTALLER="conda"
+        echo "Using conda: \$(command -v conda)" >> "\$STATUS_FILE"
+    else
+        echo "ERROR: Neither mamba nor conda was found in PATH." >> "\$STATUS_FILE"
+        echo "Please install mamba/conda or install FastQC manually." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    mkdir -p "\$(dirname "\$TOOL_ENV")"
+
+    echo "Creating module-local environment:" >> "\$STATUS_FILE"
+    echo "  \$TOOL_ENV" >> "\$STATUS_FILE"
+
+    "\$INSTALLER" create -y \\
+        -p "\$TOOL_ENV" \\
+        -c conda-forge \\
+        -c bioconda \\
+        "fastqc=${params.fastqc_version}" \\
+        >> "\$STATUS_FILE" 2>&1
+
+    if [[ ! -x "\$TOOL_ENV/bin/fastqc" ]]; then
+        echo "ERROR: FastQC was not found after installation." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "FastQC installed at: \$TOOL_ENV/bin/fastqc" >> "\$STATUS_FILE"
+    "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
+
+    echo "Module 0 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+    """
 }
 
 process CHECK_READ_NAMING {
@@ -98,14 +203,6 @@ r2_style = {}
 
 errors = 0
 warnings = 0
-
-# Supported paired-end naming examples:
-#   sample_R1.fastq.gz
-#   sample_R2.fastq.gz
-#   sample_1.fastq.gz
-#   sample_2.fastq.gz
-#   sample_S1_L001_R1_001.fastq.gz
-#   sample_S1_L001_R2_001.fastq.gz
 
 read1_patterns = [
     (re.compile(r'^(.+)_R1(?:_001)?\\.(fastq|fq)(\\.gz)?\\Z'), "R"),
@@ -305,6 +402,8 @@ PY
 process VALIDATE_READS {
     tag { read_file.simpleName }
 
+    stageInMode 'symlink'
+
     publishDir "${params.output_dir ?: params.outdir}/validation",
         mode: 'copy',
         pattern: "*_validation*.txt"
@@ -413,6 +512,8 @@ process VALIDATE_READS {
 process SKIP_VALIDATE_READS {
     tag { read_file.simpleName }
 
+    stageInMode 'symlink'
+
     publishDir "${params.output_dir ?: params.outdir}/validation",
         mode: 'copy',
         pattern: "*_validation*.txt"
@@ -442,10 +543,10 @@ process SKIP_VALIDATE_READS {
 process RUN_FASTQC {
     tag { read_file.simpleName }
 
+    stageInMode 'symlink'
+
     publishDir "${params.output_dir ?: params.outdir}/fastqc",
         mode: 'copy'
-
-    conda "bioconda::fastqc=${params.fastqc_version}"
 
     cpus {
         params.threads != null
@@ -454,7 +555,7 @@ process RUN_FASTQC {
     }
 
     input:
-    tuple path(read_file), path(validation_report)
+    tuple path(read_file), path(validation_report), path(tools_status)
 
     output:
     path "*_fastqc.html"
@@ -464,9 +565,16 @@ process RUN_FASTQC {
     """
     set -euo pipefail
 
+    TOOLS_ENV="\$(grep '^ENV_DIR=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+
+    if [[ -n "\$TOOLS_ENV" && "\$TOOLS_ENV" != "SYSTEM" ]]; then
+        export PATH="\$TOOLS_ENV/bin:\$PATH"
+    fi
+
     if ! command -v fastqc >/dev/null 2>&1; then
-        echo "ERROR: FastQC is not available in PATH." >&2
-        echo "Use '-with-conda', configure conda/container support, or install FastQC in the runtime environment." >&2
+        echo "ERROR: FastQC is not available in PATH after setup." >&2
+        echo "Tool setup status:" >&2
+        cat "${tools_status}" >&2 || true
         exit 1
     fi
 

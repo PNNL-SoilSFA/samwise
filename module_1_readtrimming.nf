@@ -1,5 +1,4 @@
 #!/usr/bin/env nextflow
-
 nextflow.enable.dsl=2
 
 /*
@@ -8,10 +7,7 @@ nextflow.enable.dsl=2
  * Input:
  *   The read_manifest.tsv produced by module 0.
  *
- * Example:
- *   nextflow run module_1_readtrimming.nf \
- *     --input_manifest ./results/module_0_readprocess/naming/read_manifest.tsv \
- *     -with-conda
+ * This module auto-installs fastp and FastQC if missing, using mamba or conda.
  */
 
 /*
@@ -25,6 +21,9 @@ params.output_dir              = null
 
 params.fastp_version           = "0.23.4"
 params.fastqc_version          = "0.12.1"
+
+params.auto_install            = true
+params.tool_env_dir            = null
 
 params.fastp_threads           = 4
 params.fastqc_threads          = 2
@@ -67,16 +66,8 @@ params.length_required         = 15
 params.trim_poly_g             = false
 params.trim_poly_x             = true
 
-/*
- * Paired reads are run with fastp merge mode.
- * The merged output is produced, but FastQC is not run on it by default because
- * merged output can sometimes be empty or very small depending on overlap.
- */
-params.fastqc_merged           = false
-
 workflow {
     def manifest_file = params.input_manifest ?: "${params.module0_outdir}/naming/read_manifest.tsv"
-    def outbase       = params.output_dir ?: params.outdir
 
     def manifest_ch = channel.fromPath(
         manifest_file,
@@ -132,8 +123,10 @@ workflow {
             tuple(sample_id, safe_id, interleaved)
         }
 
-    FASTP_PAIRED(paired_reads_ch)
-    FASTP_INTERLEAVED(interleaved_reads_ch)
+    SETUP_MODULE1_TOOLS()
+
+    FASTP_PAIRED(paired_reads_ch.combine(SETUP_MODULE1_TOOLS.out.status))
+    FASTP_INTERLEAVED(interleaved_reads_ch.combine(SETUP_MODULE1_TOOLS.out.status))
 
     /*
      * Generate per-sample read count / trimming count summaries.
@@ -153,22 +146,13 @@ workflow {
      *
      * Interleaved:
      *   Run FastQC on trimmed interleaved file.
-     *
-     * Optional:
-     *   If --fastqc_merged true, also run FastQC on paired merged output.
      */
     def paired_fastqc_reads_ch = FASTP_PAIRED.out.trimmed_reads
-        .flatMap { sample_id, _safe_id, read1_trimmed, read2_trimmed, merged_trimmed, _fastp_json ->
-            def reads = [
+        .flatMap { sample_id, _safe_id, read1_trimmed, read2_trimmed, _fastp_json ->
+            return [
                 tuple(sample_id, read1_trimmed),
                 tuple(sample_id, read2_trimmed)
             ]
-
-            if( params.fastqc_merged.toString().toBoolean() ) {
-                reads << tuple(sample_id, merged_trimmed)
-            }
-
-            return reads
         }
 
     def interleaved_fastqc_reads_ch = FASTP_INTERLEAVED.out.trimmed_reads
@@ -178,44 +162,118 @@ workflow {
 
     def trimmed_fastqc_input_ch = paired_fastqc_reads_ch.mix(interleaved_fastqc_reads_ch)
 
-    RUN_FASTQC_TRIMMED(trimmed_fastqc_input_ch)
+    RUN_FASTQC_TRIMMED(trimmed_fastqc_input_ch.combine(SETUP_MODULE1_TOOLS.out.status))
 
     /*
      * Write a public manifest pointing to published module 1 output paths.
+     *
+     * Each FASTP process writes one small manifest-record TSV.
      */
-    def paired_manifest_records_ch = FASTP_PAIRED.out.manifest_record
-        .map { sample_id, safe_id, layout, read1_name, read2_name, _interleaved_name, merged_name, html_name, json_name ->
-            tuple(
-                sample_id,
-                safe_id,
-                layout,
-                "${outbase}/trimmed_reads/${read1_name}",
-                "${outbase}/trimmed_reads/${read2_name}",
-                "",
-                "${outbase}/trimmed_reads/${merged_name}",
-                "${outbase}/fastp_reports/${html_name}",
-                "${outbase}/fastp_reports/${json_name}"
-            )
-        }
+    def all_manifest_record_files_ch = FASTP_PAIRED.out.manifest_record.mix(FASTP_INTERLEAVED.out.manifest_record)
 
-    def interleaved_manifest_records_ch = FASTP_INTERLEAVED.out.manifest_record
-        .map { sample_id, safe_id, layout, _read1_name, _read2_name, interleaved_name, _merged_name, html_name, json_name ->
-            tuple(
-                sample_id,
-                safe_id,
-                layout,
-                "",
-                "",
-                "${outbase}/trimmed_reads/${interleaved_name}",
-                "",
-                "${outbase}/fastp_reports/${html_name}",
-                "${outbase}/fastp_reports/${json_name}"
-            )
-        }
+    WRITE_TRIMMED_MANIFEST(all_manifest_record_files_ch.collect())
+}
 
-    def all_manifest_records_ch = paired_manifest_records_ch.mix(interleaved_manifest_records_ch)
+process SETUP_MODULE1_TOOLS {
+    tag "setup_fastp_fastqc"
 
-    WRITE_TRIMMED_MANIFEST(all_manifest_records_ch.collect())
+    publishDir "${params.output_dir ?: params.outdir}/setup",
+        mode: 'copy',
+        pattern: "module1_tools_status.env"
+
+    output:
+    path "module1_tools_status.env", emit: status
+
+    script:
+    def base_outdir = params.output_dir ?: params.outdir
+    def env_dir = params.tool_env_dir ?: "${base_outdir}/conda_envs/module1_tools"
+
+    """
+    set -euo pipefail
+
+    STATUS_FILE="module1_tools_status.env"
+    TOOL_ENV="${env_dir}"
+
+    echo "Module 1 tool setup started: \$(date)" > "\$STATUS_FILE"
+    echo "Requested fastp version: ${params.fastp_version}" >> "\$STATUS_FILE"
+    echo "Requested FastQC version: ${params.fastqc_version}" >> "\$STATUS_FILE"
+    echo "TOOL_ENV=\$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "----------------------------------------" >> "\$STATUS_FILE"
+
+    if [[ -x "\$TOOL_ENV/bin/fastp" && -x "\$TOOL_ENV/bin/fastqc" ]]; then
+        echo "Existing module-local environment detected." >> "\$STATUS_FILE"
+        echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
+        "\$TOOL_ENV/bin/fastp" --version >> "\$STATUS_FILE" 2>&1 || true
+        "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
+        echo "Module 1 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+        exit 0
+    fi
+
+    if command -v fastp >/dev/null 2>&1 && command -v fastqc >/dev/null 2>&1; then
+        echo "System/runtime fastp and FastQC detected." >> "\$STATUS_FILE"
+        echo "fastp path: \$(command -v fastp)" >> "\$STATUS_FILE"
+        echo "fastqc path: \$(command -v fastqc)" >> "\$STATUS_FILE"
+        echo "ENV_DIR=SYSTEM" >> "\$STATUS_FILE"
+        fastp --version >> "\$STATUS_FILE" 2>&1 || true
+        fastqc --version >> "\$STATUS_FILE" 2>&1 || true
+        echo "Module 1 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+        exit 0
+    fi
+
+    echo "fastp and/or FastQC not found in PATH." >> "\$STATUS_FILE"
+
+    if [[ "${params.auto_install}" != "true" ]]; then
+        echo "ERROR: Auto-install is disabled." >> "\$STATUS_FILE"
+        echo "Install fastp/FastQC manually or rerun with --auto_install true." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    INSTALLER=""
+
+    if command -v mamba >/dev/null 2>&1; then
+        INSTALLER="mamba"
+        echo "Using mamba: \$(command -v mamba)" >> "\$STATUS_FILE"
+    elif command -v conda >/dev/null 2>&1; then
+        INSTALLER="conda"
+        echo "Using conda: \$(command -v conda)" >> "\$STATUS_FILE"
+    else
+        echo "ERROR: Neither mamba nor conda was found in PATH." >> "\$STATUS_FILE"
+        echo "Please install mamba/conda or install fastp/FastQC manually." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    mkdir -p "\$(dirname "\$TOOL_ENV")"
+
+    echo "Creating module-local environment:" >> "\$STATUS_FILE"
+    echo "  \$TOOL_ENV" >> "\$STATUS_FILE"
+
+    "\$INSTALLER" create -y \\
+        -p "\$TOOL_ENV" \\
+        -c conda-forge \\
+        -c bioconda \\
+        "fastp=${params.fastp_version}" \\
+        "fastqc=${params.fastqc_version}" \\
+        >> "\$STATUS_FILE" 2>&1
+
+    if [[ ! -x "\$TOOL_ENV/bin/fastp" ]]; then
+        echo "ERROR: fastp was not found after installation." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    if [[ ! -x "\$TOOL_ENV/bin/fastqc" ]]; then
+        echo "ERROR: FastQC was not found after installation." >> "\$STATUS_FILE"
+        exit 1
+    fi
+
+    echo "ENV_DIR=\$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "fastp installed at: \$TOOL_ENV/bin/fastp" >> "\$STATUS_FILE"
+    echo "FastQC installed at: \$TOOL_ENV/bin/fastqc" >> "\$STATUS_FILE"
+
+    "\$TOOL_ENV/bin/fastp" --version >> "\$STATUS_FILE" 2>&1 || true
+    "\$TOOL_ENV/bin/fastqc" --version >> "\$STATUS_FILE" 2>&1 || true
+
+    echo "Module 1 tool setup finished: \$(date)" >> "\$STATUS_FILE"
+    """
 }
 
 process FASTP_PAIRED {
@@ -231,8 +289,6 @@ process FASTP_PAIRED {
         mode: 'copy',
         pattern: "*_fastp.*"
 
-    conda "bioconda::fastp=${params.fastp_version}"
-
     cpus {
         params.threads != null
             ? params.threads as int
@@ -240,27 +296,17 @@ process FASTP_PAIRED {
     }
 
     input:
-    tuple val(sample_id), val(safe_id), path(read1), path(read2)
+    tuple val(sample_id), val(safe_id), path(read1), path(read2), path(tools_status)
 
     output:
     tuple val(sample_id),
           val(safe_id),
           path("${safe_id}_R1_trimmed.fastq.gz"),
           path("${safe_id}_R2_trimmed.fastq.gz"),
-          path("${safe_id}_merged_trimmed.fastq.gz"),
           path("${safe_id}_fastp.json"),
           emit: trimmed_reads
 
-    tuple val(sample_id),
-          val(safe_id),
-          val("paired"),
-          val("${safe_id}_R1_trimmed.fastq.gz"),
-          val("${safe_id}_R2_trimmed.fastq.gz"),
-          val(""),
-          val("${safe_id}_merged_trimmed.fastq.gz"),
-          val("${safe_id}_fastp.html"),
-          val("${safe_id}_fastp.json"),
-          emit: manifest_record
+    path "${safe_id}_trimmed_manifest_record.tsv", emit: manifest_record
 
     path "${safe_id}_fastp.html", emit: html
     path "${safe_id}_fastp.log",  emit: log
@@ -269,9 +315,16 @@ process FASTP_PAIRED {
     """
     set -euo pipefail
 
+    TOOLS_ENV="\$(grep '^ENV_DIR=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+
+    if [[ -n "\$TOOLS_ENV" && "\$TOOLS_ENV" != "SYSTEM" ]]; then
+        export PATH="\$TOOLS_ENV/bin:\$PATH"
+    fi
+
     if ! command -v fastp >/dev/null 2>&1; then
-        echo "ERROR: fastp is not available in PATH." >&2
-        echo "Use '-with-conda', configure conda/mamba support, or install fastp in the runtime environment." >&2
+        echo "ERROR: fastp is not available in PATH after setup." >&2
+        echo "Tool setup status:" >&2
+        cat "${tools_status}" >&2 || true
         exit 1
     fi
 
@@ -305,14 +358,13 @@ process FASTP_PAIRED {
     echo "Input R1: ${read1}"
     echo "Input R2: ${read2}"
     echo "Threads: ${task.cpus}"
+    echo "NOTE: Read merging is disabled. Output will be trimmed R1 and trimmed R2 only."
 
     fastp \\
         -i "${read1}" \\
         -I "${read2}" \\
         -o "${safe_id}_R1_trimmed.fastq.gz" \\
         -O "${safe_id}_R2_trimmed.fastq.gz" \\
-        -m \\
-        --merged_out "${safe_id}_merged_trimmed.fastq.gz" \\
         --html "${safe_id}_fastp.html" \\
         --json "${safe_id}_fastp.json" \\
         --report_title "fastp report: ${sample_id}" \\
@@ -327,11 +379,17 @@ process FASTP_PAIRED {
         "\${FASTP_ARGS[@]}" \\
         > "${safe_id}_fastp.log" 2>&1
 
-    # Be defensive: if fastp completes successfully but produces no merged reads,
-    # ensure the declared merged output exists as a valid empty gzip FASTQ.
-    if [[ ! -f "${safe_id}_merged_trimmed.fastq.gz" ]]; then
-        gzip -c /dev/null > "${safe_id}_merged_trimmed.fastq.gz"
-    fi
+    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+        "${sample_id}" \\
+        "${safe_id}" \\
+        "paired" \\
+        "${params.output_dir ?: params.outdir}/trimmed_reads/${safe_id}_R1_trimmed.fastq.gz" \\
+        "${params.output_dir ?: params.outdir}/trimmed_reads/${safe_id}_R2_trimmed.fastq.gz" \\
+        "" \\
+        "" \\
+        "${params.output_dir ?: params.outdir}/fastp_reports/${safe_id}_fastp.html" \\
+        "${params.output_dir ?: params.outdir}/fastp_reports/${safe_id}_fastp.json" \\
+        > "${safe_id}_trimmed_manifest_record.tsv"
     """
 }
 
@@ -348,8 +406,6 @@ process FASTP_INTERLEAVED {
         mode: 'copy',
         pattern: "*_fastp.*"
 
-    conda "bioconda::fastp=${params.fastp_version}"
-
     cpus {
         params.threads != null
             ? params.threads as int
@@ -357,7 +413,7 @@ process FASTP_INTERLEAVED {
     }
 
     input:
-    tuple val(sample_id), val(safe_id), path(interleaved)
+    tuple val(sample_id), val(safe_id), path(interleaved), path(tools_status)
 
     output:
     tuple val(sample_id),
@@ -366,16 +422,7 @@ process FASTP_INTERLEAVED {
           path("${safe_id}_fastp.json"),
           emit: trimmed_reads
 
-    tuple val(sample_id),
-          val(safe_id),
-          val("interleaved"),
-          val(""),
-          val(""),
-          val("${safe_id}_interleaved_trimmed.fastq.gz"),
-          val(""),
-          val("${safe_id}_fastp.html"),
-          val("${safe_id}_fastp.json"),
-          emit: manifest_record
+    path "${safe_id}_trimmed_manifest_record.tsv", emit: manifest_record
 
     path "${safe_id}_fastp.html", emit: html
     path "${safe_id}_fastp.log",  emit: log
@@ -384,21 +431,29 @@ process FASTP_INTERLEAVED {
     """
     set -euo pipefail
 
+    TOOLS_ENV="\$(grep '^ENV_DIR=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+
+    if [[ -n "\$TOOLS_ENV" && "\$TOOLS_ENV" != "SYSTEM" ]]; then
+        export PATH="\$TOOLS_ENV/bin:\$PATH"
+    fi
+
     if ! command -v fastp >/dev/null 2>&1; then
-        echo "ERROR: fastp is not available in PATH." >&2
-        echo "Use '-with-conda', configure conda/mamba support, or install fastp in the runtime environment." >&2
+        echo "ERROR: fastp is not available in PATH after setup." >&2
+        echo "Tool setup status:" >&2
+        cat "${tools_status}" >&2 || true
         exit 1
     fi
 
     FASTP_ARGS=()
 
-    if [[ "${params.detect_adapter_for_pe.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--detect_adapter_for_pe)
-    fi
-
-    if [[ "${params.enable_correction.toString().toLowerCase()}" == "true" ]]; then
-        FASTP_ARGS+=(--correction)
-    fi
+    # Do NOT add --detect_adapter_for_pe or --correction here.
+    #
+    # With interleaved input, fastp may try to open a missing/empty R2 filename
+    # when --detect_adapter_for_pe is used, causing:
+    #
+    #   ERROR: Failed to open file:
+    #
+    # Those options are kept only in FASTP_PAIRED.
 
     if [[ "${params.cut_front.toString().toLowerCase()}" == "true" ]]; then
         FASTP_ARGS+=(--cut_front)
@@ -419,6 +474,7 @@ process FASTP_INTERLEAVED {
     echo "Running fastp interleaved trimming for sample: ${sample_id}" >&2
     echo "Input interleaved: ${interleaved}" >&2
     echo "Threads: ${task.cpus}" >&2
+    echo "NOTE: --detect_adapter_for_pe and --correction are disabled for interleaved input." >&2
 
     fastp \\
         -i "${interleaved}" \\
@@ -437,6 +493,18 @@ process FASTP_INTERLEAVED {
         "\${FASTP_ARGS[@]}" \\
         2> "${safe_id}_fastp.log" \\
         | gzip -${params.compression} > "${safe_id}_interleaved_trimmed.fastq.gz"
+
+    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+        "${sample_id}" \\
+        "${safe_id}" \\
+        "interleaved" \\
+        "" \\
+        "" \\
+        "${params.output_dir ?: params.outdir}/trimmed_reads/${safe_id}_interleaved_trimmed.fastq.gz" \\
+        "" \\
+        "${params.output_dir ?: params.outdir}/fastp_reports/${safe_id}_fastp.html" \\
+        "${params.output_dir ?: params.outdir}/fastp_reports/${safe_id}_fastp.json" \\
+        > "${safe_id}_trimmed_manifest_record.tsv"
     """
 }
 
@@ -454,7 +522,6 @@ process TRIMMING_STATS_PAIRED {
           val(safe_id),
           path(read1_trimmed),
           path(read2_trimmed),
-          path(merged_trimmed),
           path(fastp_json)
 
     output:
@@ -464,7 +531,7 @@ process TRIMMING_STATS_PAIRED {
     """
     set -euo pipefail
 
-    python3 - "${sample_id}" "${safe_id}" "paired" "${read1_trimmed}" "${read2_trimmed}" "${merged_trimmed}" "" "${fastp_json}" "${safe_id}_trimming_stats.tsv" <<'PY'
+    python3 - "${sample_id}" "${safe_id}" "paired" "${read1_trimmed}" "${read2_trimmed}" "" "" "${fastp_json}" "${safe_id}_trimming_stats.tsv" <<'PY'
 import gzip
 import json
 import sys
@@ -473,6 +540,9 @@ from pathlib import Path
 sample_id, safe_id, layout, read1_path, read2_path, merged_path, interleaved_path, json_path, out_tsv = sys.argv[1:]
 
 def count_fastq_records(path):
+    if path is None or str(path).strip() == "":
+        return 0
+
     path = Path(path)
 
     if not path.exists():
@@ -495,10 +565,12 @@ def count_fastq_records(path):
 
 def get_nested(data, keys, default="NA"):
     value = data
+
     for key in keys:
         if not isinstance(value, dict) or key not in value:
             return default
         value = value[key]
+
     return value
 
 with open(json_path) as handle:
@@ -506,7 +578,6 @@ with open(json_path) as handle:
 
 raw_reads = get_nested(data, ["summary", "before_filtering", "total_reads"])
 after_filtering_reads = get_nested(data, ["summary", "after_filtering", "total_reads"])
-passed_filter_reads = get_nested(data, ["filtering_result", "passed_filter_reads"], after_filtering_reads)
 adapter_trimmed_reads = get_nested(data, ["adapter_cutting", "adapter_trimmed_reads"])
 
 try:
@@ -521,15 +592,14 @@ except Exception:
 
 final_r1_reads = count_fastq_records(read1_path)
 final_r2_reads = count_fastq_records(read2_path)
-final_merged_reads = count_fastq_records(merged_path)
+
 final_interleaved_reads = 0
+final_merged_reads = 0
 
-final_fastq_records_total = final_r1_reads + final_r2_reads + final_merged_reads
+final_fastq_records_total = final_r1_reads + final_r2_reads
 
-# For paired output with merge mode:
-#   each unmerged pair contributes one R1 record and one R2 record
-#   each merged pair contributes one merged record
-final_pair_or_fragment_records = min(final_r1_reads, final_r2_reads) + final_merged_reads
+# Standard paired-end output. This is the number of complete paired records.
+final_pair_or_fragment_records = min(final_r1_reads, final_r2_reads)
 
 columns = [
     "sample_id",
@@ -605,6 +675,9 @@ from pathlib import Path
 sample_id, safe_id, layout, read1_path, read2_path, merged_path, interleaved_path, json_path, out_tsv = sys.argv[1:]
 
 def count_fastq_records(path):
+    if path is None or str(path).strip() == "":
+        return 0
+
     path = Path(path)
 
     if not path.exists():
@@ -627,10 +700,12 @@ def count_fastq_records(path):
 
 def get_nested(data, keys, default="NA"):
     value = data
+
     for key in keys:
         if not isinstance(value, dict) or key not in value:
             return default
         value = value[key]
+
     return value
 
 with open(json_path) as handle:
@@ -638,7 +713,6 @@ with open(json_path) as handle:
 
 raw_reads = get_nested(data, ["summary", "before_filtering", "total_reads"])
 after_filtering_reads = get_nested(data, ["summary", "after_filtering", "total_reads"])
-passed_filter_reads = get_nested(data, ["filtering_result", "passed_filter_reads"], after_filtering_reads)
 adapter_trimmed_reads = get_nested(data, ["adapter_cutting", "adapter_trimmed_reads"])
 
 try:
@@ -715,8 +789,6 @@ process RUN_FASTQC_TRIMMED {
     publishDir "${params.output_dir ?: params.outdir}/fastqc_trimmed",
         mode: 'copy'
 
-    conda "bioconda::fastqc=${params.fastqc_version}"
-
     cpus {
         params.threads != null
             ? params.threads as int
@@ -724,7 +796,7 @@ process RUN_FASTQC_TRIMMED {
     }
 
     input:
-    tuple val(sample_id), path(read_file)
+    tuple val(sample_id), path(read_file), path(tools_status)
 
     output:
     path "*_fastqc.html"
@@ -734,9 +806,16 @@ process RUN_FASTQC_TRIMMED {
     """
     set -euo pipefail
 
+    TOOLS_ENV="\$(grep '^ENV_DIR=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+
+    if [[ -n "\$TOOLS_ENV" && "\$TOOLS_ENV" != "SYSTEM" ]]; then
+        export PATH="\$TOOLS_ENV/bin:\$PATH"
+    fi
+
     if ! command -v fastqc >/dev/null 2>&1; then
-        echo "ERROR: FastQC is not available in PATH." >&2
-        echo "Use '-with-conda', configure conda/mamba support, or install FastQC in the runtime environment." >&2
+        echo "ERROR: FastQC is not available in PATH after setup." >&2
+        echo "Tool setup status:" >&2
+        cat "${tools_status}" >&2 || true
         exit 1
     fi
 
@@ -759,23 +838,30 @@ process WRITE_TRIMMED_MANIFEST {
         pattern: "trimmed_manifest.tsv"
 
     input:
-    val records
+    path manifest_records
 
     output:
     path "trimmed_manifest.tsv", emit: manifest
 
     script:
-    def rows = records
-        .collect { record -> record.join('\t') }
-        .join('\n')
+    def files = manifest_records.collect { record_file -> record_file.name }.join(' ')
 
     """
     set -euo pipefail
 
-    cat > trimmed_manifest.tsv <<'EOF'
-sample_id\tsafe_sample_id\tlayout\tread1\tread2\tinterleaved\tmerged\tfastp_html\tfastp_json
-${rows}
-EOF
+    printf 'sample_id\\tsafe_sample_id\\tlayout\\tread1\\tread2\\tinterleaved\\tmerged\\tfastp_html\\tfastp_json\\n' > trimmed_manifest.tsv
+
+    if [[ -z "${files}" ]]; then
+        echo "ERROR: No trimmed manifest record files were received." >&2
+        exit 1
+    fi
+
+    for f in ${files}; do
+        cat "\$f" >> trimmed_manifest.tsv
+    done
+
+    echo "Wrote trimmed manifest:"
+    cat trimmed_manifest.tsv
     """
 }
 
