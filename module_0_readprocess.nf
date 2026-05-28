@@ -6,6 +6,7 @@ nextflow.enable.dsl=2
  * Default parameters.
  * Command-line values override these.
  */
+
 params.input_dir       = null
 params.outdir          = "./results/module_0_readprocess"
 params.output_dir      = null
@@ -13,14 +14,13 @@ params.auto_install    = true
 params.file_pattern    = "*"
 params.fastqc_threads  = 2
 params.threads         = null
+params.skip_validate   = false
 
 
 workflow {
-
     if( !params.input_dir ) {
         error """
         Missing required parameter: --input_dir
-
         Example:
           nextflow run module_0_readprocess.nf --input_dir ./reads
         """.stripIndent()
@@ -38,9 +38,14 @@ workflow {
 
     valid_named_reads_ch = CHECK_READ_NAMING.out.reads.flatten()
 
-    VALIDATE_READS(valid_named_reads_ch)
-
-    reads_ready_for_fastqc_ch = VALIDATE_READS.out.combine(INSTALL_FASTQC.out)
+    if( params.skip_validate.toString() == 'true' ) {
+        SKIP_VALIDATE_READS(valid_named_reads_ch)
+        reads_ready_for_fastqc_ch = SKIP_VALIDATE_READS.out.combine(INSTALL_FASTQC.out)
+    }
+    else {
+        VALIDATE_READS(valid_named_reads_ch)
+        reads_ready_for_fastqc_ch = VALIDATE_READS.out.combine(INSTALL_FASTQC.out)
+    }
 
     RUN_FASTQC(reads_ready_for_fastqc_ch)
 }
@@ -470,6 +475,32 @@ process VALIDATE_READS {
     """
 }
 
+process SKIP_VALIDATE_READS {
+    tag { read_file.simpleName }
+
+    publishDir "${params.output_dir ?: params.outdir}/validation", mode: 'copy'
+
+    input:
+    path read_file
+
+    output:
+    tuple path(read_file), path("${read_file.simpleName}_validation_skipped.txt")
+
+    script:
+    """
+    set -euo pipefail
+
+    report="${read_file.simpleName}_validation_skipped.txt"
+
+    echo "Validation skipped for: ${read_file}" > "\$report"
+    echo "Started: \$(date)" >> "\$report"
+    echo "----------------------------------------" >> "\$report"
+    echo "INFO: FASTQ structure validation was skipped because --skip_validate true was used." >> "\$report"
+    echo "INFO: File naming and extension checks were still performed by CHECK_READ_NAMING." >> "\$report"
+    echo "INFO: This file was passed directly to FastQC." >> "\$report"
+    echo "Finished: \$(date)" >> "\$report"
+    """
+}
 
 process RUN_FASTQC {
 
@@ -498,7 +529,7 @@ process RUN_FASTQC {
     fi
 
     echo "Running FastQC on: ${read_file}"
-    echo "Validation report: ${validation_report}"
+    echo "Validation/skipping report: ${validation_report}"
     echo "FastQC threads: ${task.cpus}"
 
     fastqc \\
