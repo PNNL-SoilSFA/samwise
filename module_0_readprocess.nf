@@ -1,28 +1,30 @@
 #!/usr/bin/env nextflow
-
 nextflow.enable.dsl=2
 
 /*
  * Default parameters.
  * Command-line values override these.
+ *
+ * NOTE:
+ *   FastQC is now managed using the Nextflow `conda` directive in RUN_FASTQC.
+ *   Run with `-with-conda`, or configure conda/container support in nextflow.config.
  */
-
 params.input_dir       = null
 params.outdir          = "./results/module_0_readprocess"
 params.output_dir      = null
-params.auto_install    = true
-params.file_pattern    = "*"
+params.file_pattern    = "*.{fastq.gz,fq.gz,fastq,fq}"
 params.fastqc_threads  = 2
 params.threads         = null
 params.skip_validate   = false
-
+params.fastqc_version  = "0.12.1"
 
 workflow {
     if( !params.input_dir ) {
         error """
         Missing required parameter: --input_dir
+
         Example:
-          nextflow run module_0_readprocess.nf --input_dir ./reads
+          nextflow run module_0_readprocess.nf --input_dir ./reads -with-conda
         """.stripIndent()
     }
 
@@ -31,169 +33,119 @@ workflow {
         type: 'file',
         checkIfExists: true
     )
-
-    INSTALL_FASTQC()
+    .map { it.toAbsolutePath() }
 
     CHECK_READ_NAMING(all_files_ch.collect())
 
-    valid_named_reads_ch = CHECK_READ_NAMING.out.reads.flatten()
+    valid_named_reads_ch = CHECK_READ_NAMING.out.manifest
+        .splitCsv(header: true, sep: '\t')
+        .flatMap { row ->
+            if( row.layout == 'paired' ) {
+                return [ file(row.read1), file(row.read2) ]
+            }
+            else if( row.layout == 'interleaved' ) {
+                return [ file(row.interleaved) ]
+            }
+            else {
+                return []
+            }
+        }
 
-    if( params.skip_validate.toString() == 'true' ) {
+    if( params.skip_validate.toString().toBoolean() ) {
         SKIP_VALIDATE_READS(valid_named_reads_ch)
-        reads_ready_for_fastqc_ch = SKIP_VALIDATE_READS.out.combine(INSTALL_FASTQC.out)
+        reads_ready_for_fastqc_ch = SKIP_VALIDATE_READS.out
     }
     else {
         VALIDATE_READS(valid_named_reads_ch)
-        reads_ready_for_fastqc_ch = VALIDATE_READS.out.combine(INSTALL_FASTQC.out)
+        reads_ready_for_fastqc_ch = VALIDATE_READS.out
     }
 
     RUN_FASTQC(reads_ready_for_fastqc_ch)
 }
 
-
-process INSTALL_FASTQC {
-    tag "check_fastqc"
-    publishDir "${params.output_dir ?: params.outdir}/setup", mode: 'copy'
-
-    output:
-    path "fastqc_install_status.txt"
-
-    script:
-    """
-    set -euo pipefail
-
-    STATUS_FILE="fastqc_install_status.txt"
-
-    echo "FastQC setup/check started: \$(date)" > "\$STATUS_FILE"
-    echo "----------------------------------------" >> "\$STATUS_FILE"
-
-    if command -v fastqc >/dev/null 2>&1; then
-        echo "FastQC already installed: \$(command -v fastqc)" >> "\$STATUS_FILE"
-        fastqc --version >> "\$STATUS_FILE" 2>&1 || true
-        exit 0
-    fi
-
-    echo "FastQC not found in PATH." >> "\$STATUS_FILE"
-
-    if [[ "${params.auto_install}" != "true" ]]; then
-        echo "Auto-install disabled." >> "\$STATUS_FILE"
-        echo "Please install FastQC manually or run with --auto_install true" >> "\$STATUS_FILE"
-        exit 1
-    fi
-
-    INSTALLER=""
-
-    if command -v mamba >/dev/null 2>&1; then
-        INSTALLER="mamba"
-        echo "mamba detected: \$(command -v mamba)" >> "\$STATUS_FILE"
-    elif command -v conda >/dev/null 2>&1; then
-        INSTALLER="conda"
-        echo "mamba not found." >> "\$STATUS_FILE"
-        echo "conda detected: \$(command -v conda)" >> "\$STATUS_FILE"
-    else
-        echo "Neither mamba nor conda was found in PATH." >> "\$STATUS_FILE"
-        echo "Please install FastQC manually, or install mamba/conda first." >> "\$STATUS_FILE"
-        exit 1
-    fi
-
-    echo "Attempting to install FastQC using \$INSTALLER..." >> "\$STATUS_FILE"
-
-    if "\$INSTALLER" install -y -c conda-forge -c bioconda fastqc >> "\$STATUS_FILE" 2>&1; then
-        echo "FastQC installation command completed successfully." >> "\$STATUS_FILE"
-    else
-        echo "FastQC installation failed using \$INSTALLER." >> "\$STATUS_FILE"
-        exit 1
-    fi
-
-    hash -r || true
-
-    if command -v fastqc >/dev/null 2>&1; then
-        echo "FastQC path after installation: \$(command -v fastqc)" >> "\$STATUS_FILE"
-        fastqc --version >> "\$STATUS_FILE" 2>&1 || true
-    else
-        echo "FastQC still not detected after installation." >> "\$STATUS_FILE"
-        echo "The install may have succeeded, but the environment PATH may not have updated." >> "\$STATUS_FILE"
-        exit 1
-    fi
-
-    echo "FastQC setup/check finished: \$(date)" >> "\$STATUS_FILE"
-    """
-}
-
 process CHECK_READ_NAMING {
-
     tag "check_read_naming"
 
-    publishDir "${params.output_dir ?: params.outdir}/naming", mode: 'copy', pattern: "*.{txt,tsv}"
+    publishDir "${params.output_dir ?: params.outdir}/naming",
+        mode: 'copy',
+        pattern: "*.{txt,tsv}"
 
     input:
-    path read_files
+    val read_files
 
     output:
     path "read_naming_report.txt", emit: report
     path "read_manifest.tsv", emit: manifest
-    path "valid_reads/*", emit: reads
 
     script:
     """
     set -euo pipefail
 
-    mkdir -p valid_reads
-
-    cat > staged_files.list <<'EOF'
+    cat > input_files.list <<'EOF'
 ${read_files.join('\n')}
 EOF
 
     python3 - <<'PY'
-import os
 import re
 import sys
 from pathlib import Path
 
 report_path = Path("read_naming_report.txt")
 manifest_path = Path("read_manifest.tsv")
-valid_reads_dir = Path("valid_reads")
-valid_reads_dir.mkdir(exist_ok=True)
 
 r1_files = {}
 r2_files = {}
 interleaved_files = {}
+
 r1_style = {}
 r2_style = {}
 
 errors = 0
 warnings = 0
 
-read1_re = re.compile(r'^(.+)_(R1|1)\\.(fastq|fq)(\\.gz)?\\Z')
-read2_re = re.compile(r'^(.+)_(R2|2)\\.(fastq|fq)(\\.gz)?\\Z')
+# Supported paired-end naming examples:
+#   sample_R1.fastq.gz
+#   sample_R2.fastq.gz
+#   sample_1.fastq.gz
+#   sample_2.fastq.gz
+#   sample_S1_L001_R1_001.fastq.gz
+#   sample_S1_L001_R2_001.fastq.gz
+#
+# For Illumina-style names, the sample_id includes lane/index parts up to R1/R2.
+# Example:
+#   sample_S1_L001_R1_001.fastq.gz -> sample_id sample_S1_L001
+
+read1_patterns = [
+    (re.compile(r'^(.+)_R1(?:_001)?\\.(fastq|fq)(\\.gz)?\\Z'), "R"),
+    (re.compile(r'^(.+)_1\\.(fastq|fq)(\\.gz)?\\Z'), "numeric"),
+]
+
+read2_patterns = [
+    (re.compile(r'^(.+)_R2(?:_001)?\\.(fastq|fq)(\\.gz)?\\Z'), "R"),
+    (re.compile(r'^(.+)_2\\.(fastq|fq)(\\.gz)?\\Z'), "numeric"),
+]
+
 interleaved_re = re.compile(r'^(.+)_interleaved\\.(fastq|fq)(\\.gz)?\\Z')
 fastq_like_re = re.compile(r'.*\\.(fastq|fq)(\\.gz)?\\Z')
 
+def classify_read(name):
+    for regex, style in read1_patterns:
+        m = regex.match(name)
+        if m:
+            return "R1", m.group(1), style
 
-def normalize_read_name(filename):
-    if filename.endswith(".fastq.gz"):
-        return filename
-    if filename.endswith(".fq.gz"):
-        return filename[:-6] + ".fastq.gz"
-    if filename.endswith(".fastq"):
-        return filename
-    if filename.endswith(".fq"):
-        return filename[:-3] + ".fastq"
-    return filename
+    for regex, style in read2_patterns:
+        m = regex.match(name)
+        if m:
+            return "R2", m.group(1), style
 
+    m = interleaved_re.match(name)
+    if m:
+        return "interleaved", m.group(1), "interleaved"
 
-def safe_symlink(src, dest):
-    src_real = os.path.realpath(src)
-    dest = Path(dest)
-
-    if dest.exists() or dest.is_symlink():
-        dest.unlink()
-
-    os.symlink(src_real, dest)
-
+    return None, None, None
 
 with report_path.open("w") as report, manifest_path.open("w") as manifest:
-
     def log(message=""):
         print(message, file=report)
 
@@ -204,67 +156,56 @@ with report_path.open("w") as report, manifest_path.open("w") as manifest:
     log("----------------------------------------")
     log("")
 
-    with open("staged_files.list") as handle:
-        staged_files = [line.strip() for line in handle if line.strip()]
+    with open("input_files.list") as handle:
+        input_files = [line.strip() for line in handle if line.strip()]
 
-    if not staged_files:
+    if not input_files:
         log("ERROR: No files were found in the input directory.")
         errors += 1
 
     log("Files detected:")
-    for f in staged_files:
+    for f in input_files:
         log("  {}".format(f))
     log("")
 
-    for file_path in staged_files:
+    for file_path in input_files:
         path = Path(file_path)
         name = path.name
 
-        m1 = read1_re.match(name)
-        m2 = read2_re.match(name)
-        mi = interleaved_re.match(name)
+        read_type, sample, style = classify_read(name)
 
-        if mi:
-            sample = mi.group(1)
-
+        if read_type == "interleaved":
             if sample in interleaved_files:
                 log("ERROR: Duplicate interleaved file for sample '{}': {}".format(sample, name))
                 errors += 1
-
             interleaved_files[sample] = file_path
             continue
 
-        if m1:
-            sample = m1.group(1)
-            style = m1.group(2)
-
+        if read_type == "R1":
             if sample in r1_files:
                 log("ERROR: Duplicate R1 file for sample '{}': {}".format(sample, name))
                 errors += 1
-
             r1_files[sample] = file_path
             r1_style[sample] = style
             continue
 
-        if m2:
-            sample = m2.group(1)
-            style = m2.group(2)
-
+        if read_type == "R2":
             if sample in r2_files:
                 log("ERROR: Duplicate R2 file for sample '{}': {}".format(sample, name))
                 errors += 1
-
             r2_files[sample] = file_path
             r2_style[sample] = style
             continue
 
         if fastq_like_re.match(name):
             log("ERROR: FASTQ file has unsupported naming convention: {}".format(name))
-            log("       Expected:")
+            log("       Expected examples:")
             log("         sample_R1.fastq or sample_R1.fastq.gz")
             log("         sample_R2.fastq or sample_R2.fastq.gz")
             log("         sample_1.fastq  or sample_1.fastq.gz")
             log("         sample_2.fastq  or sample_2.fastq.gz")
+            log("         sample_S1_L001_R1_001.fastq.gz")
+            log("         sample_S1_L001_R2_001.fastq.gz")
             log("         sample_interleaved.fastq or sample_interleaved.fastq.gz")
             errors += 1
         else:
@@ -274,6 +215,8 @@ with report_path.open("w") as report, manifest_path.open("w") as manifest:
     log("")
     log("Pair/interleaved checks:")
     log("----------------------------------------")
+
+    emitted_files = []
 
     all_paired_samples = sorted(set(r1_files) | set(r2_files))
 
@@ -296,75 +239,59 @@ with report_path.open("w") as report, manifest_path.open("w") as manifest:
             errors += 1
             continue
 
-        if r1_style[sample] == "R1" and r2_style[sample] != "R2":
+        if r1_style[sample] != r2_style[sample]:
             log("ERROR: Sample '{}' mixes R1/R2 and 1/2 naming styles.".format(sample))
             errors += 1
             continue
 
-        if r1_style[sample] == "1" and r2_style[sample] != "2":
-            log("ERROR: Sample '{}' mixes 1/2 and R1/R2 naming styles.".format(sample))
-            errors += 1
-            continue
-
-        r1_src = r1_files[sample]
-        r2_src = r2_files[sample]
-
-        r1_name = normalize_read_name(Path(r1_src).name)
-        r2_name = normalize_read_name(Path(r2_src).name)
-
-        r1_dest = valid_reads_dir / r1_name
-        r2_dest = valid_reads_dir / r2_name
-
-        safe_symlink(r1_src, r1_dest)
-        safe_symlink(r2_src, r2_dest)
+        r1_src = str(Path(r1_files[sample]).resolve())
+        r2_src = str(Path(r2_files[sample]).resolve())
 
         print(
             sample,
             "paired",
-            str(r1_dest),
-            str(r2_dest),
+            r1_src,
+            r2_src,
             "",
             sep="\\t",
             file=manifest
         )
 
+        emitted_files.extend([r1_src, r2_src])
+
         log("PASS: Paired sample '{}'".format(sample))
-        log("      R1: {} -> {}".format(Path(r1_src).name, r1_dest))
-        log("      R2: {} -> {}".format(Path(r2_src).name, r2_dest))
+        log("      R1: {}".format(r1_src))
+        log("      R2: {}".format(r2_src))
 
     for sample in sorted(interleaved_files):
         if sample in r1_files or sample in r2_files:
             continue
 
-        src = interleaved_files[sample]
-        norm_name = normalize_read_name(Path(src).name)
-        dest = valid_reads_dir / norm_name
-
-        safe_symlink(src, dest)
+        src = str(Path(interleaved_files[sample]).resolve())
 
         print(
             sample,
             "interleaved",
             "",
             "",
-            str(dest),
+            src,
             sep="\\t",
             file=manifest
         )
 
-        log("PASS: Interleaved sample '{}'".format(sample))
-        log("      Interleaved: {} -> {}".format(Path(src).name, dest))
+        emitted_files.append(src)
 
-    valid_outputs = list(valid_reads_dir.glob("*"))
+        log("PASS: Interleaved sample '{}'".format(sample))
+        log("      Interleaved: {}".format(src))
 
     log("")
     log("Summary:")
     log("----------------------------------------")
     log("Errors: {}".format(errors))
     log("Warnings: {}".format(warnings))
-    log("Valid read files emitted: {}".format(len(valid_outputs)))
+    log("Valid read files emitted: {}".format(len(emitted_files)))
 
-    for p in valid_outputs:
+    for p in emitted_files:
         log("  {}".format(p))
 
     if errors > 0:
@@ -372,7 +299,7 @@ with report_path.open("w") as report, manifest_path.open("w") as manifest:
         log("FAIL: Read naming validation failed.")
         sys.exit(1)
 
-    if not valid_outputs:
+    if not emitted_files:
         log("")
         log("FAIL: No valid read files were produced.")
         sys.exit(1)
@@ -383,12 +310,12 @@ PY
     """
 }
 
-
 process VALIDATE_READS {
-
     tag { read_file.simpleName }
 
-    publishDir "${params.output_dir ?: params.outdir}/validation", mode: 'copy'
+    publishDir "${params.output_dir ?: params.outdir}/validation",
+        mode: 'copy',
+        pattern: "*_validation*.txt"
 
     input:
     path read_file
@@ -408,11 +335,11 @@ process VALIDATE_READS {
     echo "----------------------------------------" >> "\$report"
 
     case "\$infile" in
-        *.fastq|*.fastq.gz)
-            echo "PASS: File extension appears valid after normalization." >> "\$report"
+        *.fastq|*.fastq.gz|*.fq|*.fq.gz)
+            echo "PASS: File extension appears valid." >> "\$report"
             ;;
         *)
-            echo "ERROR: Unsupported file extension after normalization. Expected .fastq or .fastq.gz" >> "\$report"
+            echo "ERROR: Unsupported file extension. Expected .fastq, .fastq.gz, .fq, or .fq.gz" >> "\$report"
             cat "\$report" >&2
             exit 1
             ;;
@@ -494,7 +421,9 @@ process VALIDATE_READS {
 process SKIP_VALIDATE_READS {
     tag { read_file.simpleName }
 
-    publishDir "${params.output_dir ?: params.outdir}/validation", mode: 'copy'
+    publishDir "${params.output_dir ?: params.outdir}/validation",
+        mode: 'copy',
+        pattern: "*_validation*.txt"
 
     input:
     path read_file
@@ -519,15 +448,21 @@ process SKIP_VALIDATE_READS {
 }
 
 process RUN_FASTQC {
-
     tag { read_file.simpleName }
 
-    publishDir "${params.output_dir ?: params.outdir}/fastqc", mode: 'copy'
+    publishDir "${params.output_dir ?: params.outdir}/fastqc",
+        mode: 'copy'
 
-    cpus { (params.threads ?: params.fastqc_threads) as int }
+    conda "bioconda::fastqc=${params.fastqc_version}"
+
+    cpus {
+        params.threads != null
+            ? params.threads as int
+            : params.fastqc_threads as int
+    }
 
     input:
-    tuple path(read_file), path(validation_report), path(fastqc_status)
+    tuple path(read_file), path(validation_report)
 
     output:
     path "*_fastqc.html"
@@ -538,9 +473,8 @@ process RUN_FASTQC {
     set -euo pipefail
 
     if ! command -v fastqc >/dev/null 2>&1; then
-        echo "ERROR: FastQC is not available in PATH."
-        echo "FastQC install/check status file:"
-        cat "${fastqc_status}" || true
+        echo "ERROR: FastQC is not available in PATH." >&2
+        echo "Use '-with-conda', configure conda/container support, or install FastQC in the runtime environment." >&2
         exit 1
     fi
 
