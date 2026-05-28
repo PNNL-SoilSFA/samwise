@@ -88,3 +88,27 @@ nextflow run module_0_readprocess.nf \
   --input_dir ./readsDir \
   --output_dir ./module_0_output \
   --fastqc_threads 8
+```
+
+# Step 1: module_1_readtrimming.nf
+
+`module_1_readtrimming.nf` is a workflow for trimming of reads that have been validated in module 0.
+
+This module performs the following steps:
+
+1. **Trims reads using fastp**
+   - Looks for `fastqc` in the current environment.
+   - If missing, attempts to install FastQC using `mamba`.
+
+2. **Provides trimming statistics**
+   - Pre / Post trimming read quality statitsitcs
+
+3. **Re-runs fastqc on trimmed reads**
+
+
+```bash
+nextflow run module_1_readtrimming.nf \
+  --input_manifest ./naming/read_manifest.tsv \
+  --output_dir ./module_1_output \
+  -with-conda
+```
