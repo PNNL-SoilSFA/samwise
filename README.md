@@ -35,7 +35,11 @@ This module performs the following steps:
    - Internally normalizes them to `.fastq` and `.fastq.gz` using symlinks.
    - Original input files are not modified.
 
-*IMPORTANT: It is important to note that your reads MUST be in one of the naming formats shown in 4 and 5, and they are allowed to be gzipped or unzipped. For example, this is a valid dir structure:
+*IMPORTANT*
+Your reads MUST be in one of the naming formats shown in 4 and 5.
+They are allowed to be gzipped or unzipped.
+
+For example, this is a valid dir structure:
 
 reads/
 ├── SampleA_R1.fastq.gz
