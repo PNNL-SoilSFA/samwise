@@ -15,7 +15,7 @@ SAMWISE is an automated, end-to-end metagenomic read processing program. Here is
 
 This module performs the following steps:
 
-```
+
 1. **Checks for FastQC**
    - Looks for `fastqc` in the current environment.
    - If missing, attempts to install FastQC using `mamba`.
@@ -32,22 +32,24 @@ This module performs the following steps:
 
 4. **Normalizes `.fq` filenames**
    - Accepts `.fq` and `.fq.gz`.
-   - Internally normalizes them to `.fastq` and `.fastq.gz` using symlinks.
+   - Internally normalizes them to `.fastq` and `.fastq.gz` using symlinks for downstream.
    - Original input files are not modified.
 
+```
 *IMPORTANT*
 Your reads MUST be in one of the naming formats shown in 4 and 5.
 They are allowed to be gzipped or unzipped.
+```
 
 For example, this is a valid dir structure:
-
+```
 reads/
 ├── SampleA_R1.fastq.gz
 ├── SampleA_R2.fastq.gz
 ├── SampleB_1.fq
 ├── SampleB_2.fq
 └── SampleC_interleaved.fastq
-
+```
 5. **Checks read pairing**
    - Ensures every read 1 file has a matching read 2 file.
    - Ensures samples are not supplied as both paired-end and interleaved.
@@ -58,12 +60,14 @@ reads/
    - Checks separator lines start with `+`.
    - Checks sequence and quality strings are the same length.
 
+```
 *Note that this process can be very slow if files are gzipped.
 *If you are certain that your file is a fastq file, you can safely skip this step with the flag --skip_validate
+```
 
 7. **Runs FastQC**
    - Runs FastQC on validated, normalized read files.
-```
+
 ---
 
 ## Requirements
