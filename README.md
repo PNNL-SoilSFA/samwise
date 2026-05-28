@@ -9,7 +9,7 @@ SAMWISE is an automated, end-to-end metagenomic read processing program. Here is
 
 # module_0_readprocess.nf
 
-`module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure, and runs FastQC.
+`module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
 
 ---
 
@@ -46,6 +46,8 @@ This module performs the following steps:
    - Checks separator lines start with `+`.
    - Checks sequence and quality strings are the same length.
 
+*Note that this process can be very slow if files are gzipped. If you are certain that your file is a fastq file, you can safely skip this step with the flag --skip_validate
+
 7. **Runs FastQC**
    - Runs FastQC on validated, normalized read files.
 
@@ -66,6 +68,6 @@ The workflow requires an input directory containing sequencing read files.
 
 ```bash
 nextflow run module_0_readprocess.nf \
-  --input_dir ./reads \
+  --input_dir ./readsDir \
+  --output_dir ./module_0_output \
   --fastqc_threads 8 \
-  --output_dir ./fastqc_out
