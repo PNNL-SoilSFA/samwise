@@ -9,6 +9,14 @@ SAMWISE is an automated, end-to-end metagenomic read processing program. Here is
 
 ---
 
+## Requirements
+
+- [Nextflow](https://www.nextflow.io/)
+- Java, required by Nextflow
+- `mamba` (or `conda`), if using automatic package installation
+  
+---
+
 # Step 0: module_0_readprocess.nf
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
@@ -68,26 +76,15 @@ reads/
 7. **Runs FastQC**
    - Runs FastQC on validated, normalized read files.
 
----
-
-## Requirements
-
-- [Nextflow](https://www.nextflow.io/)
-- Java, required by Nextflow
-- `mamba`, if using automatic FastQC installation
-- `fastqc`, if automatic installation is disabled
-
----
-
 ## Usage:
 
 The workflow requires an input directory containing sequencing read files.
 
 ```bash
 nextflow run module_0_readprocess.nf \
-  --input_dir ./readsDir \
-  --output_dir ./module_0_output \
-  --fastqc_threads 8
+--input_dir ./reads_dir \
+--threads 6 \
+--working_dir ./output_samwise
 ```
 
 # Step 1: module_1_readtrimming.nf
@@ -107,10 +104,69 @@ This module performs the following steps:
 3. **Re-runs fastqc on trimmed reads**
    - Re-analysis of the fastqc outputs to confirm succesful trimming.
 
+This workflow takes in the same working directory that was generated above and finds whatever files it needs.
 
+## Usage:
 ```bash
 nextflow run module_1_readtrimming.nf \
---input_manifest /Volumes/Macintosh\ HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_out/naming/read_manifest.tsv \
---outdir /Volumes/Macintosh\ HD/Users/rodr771/Library/CloudStorage/OneDrive-PNNL/Documents/Proposals/SAMWISE/test_out \
+--working_dir ./output_samwise
 --threads 6
+
+```
+
+# Step 2: module_2_readassembly.nf
+
+`module_2_readassembly.nf` is a workflow for assembly of reads that have been trimmed in module 1.
+
+This module performs the following steps:
+
+1. **Checks for assembly software and installs if necessary**
+   - Looks for metahit and metaSPAdes and installs into a local conda environment if needed.
+   
+2. **Assembles using multiple assemblers and assembly methods**
+   - Users can choose either assembler or both: with flags `--megahit` and `--metaspades`
+   - This step can also perform rarefied assemblies by adding the flag `--rarefied_assembly TRUE` and specifying how many "fragments" you want the reads to be split into with `--rarefaction_splits #` (default is 2). Tl;dr - this will split the fastq files into # of split files and assemble them individually via a round robin by pair index approach.  
+     
+3. **Renames scaffold outputs and provides assembly statistics**
+   - Implements naming scheme specifically:
+
+```bash
+   MEGAHIT single assembly:
+   SampleID_A_k###_#
+    
+metaSPAdes single assembly:
+   SampleID_B_NODE_#
+
+MEGAHIT rarefied assembly:
+   SampleIDa_C_k###_#
+   SampleIDb_C_k###_#
+   SampleIDc_C_k###_#
+
+metaSPAdes rarefied assembly:
+   SampleIDa_D_NODE_#
+   SampleIDb_D_NODE_#
+   SampleIDc_D_NODE_#
+```   
+
+This workflow takes in the same working directory that was generated above and finds whatever files it needs.
+
+## Usage:
+```bash
+## metaspades only run:
+
+nextflow run module_2_readassembly.nf \
+--working_dir ./output_samwise
+--threads 6 \
+--metaspades
+
+## metaspades and megahit with rarefied assemblies:
+
+nextflow run module_2_readassembly.nf \
+--working_dir ./output_samwise
+--threads 5 \
+--megahit \
+--metaspades \
+--megahit_threads 1 \
+--rarefied_assembly TRUE \
+--rarefaction_splits 2
 ```
