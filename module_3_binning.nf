@@ -1,4 +1,5 @@
 #!/usr/bin/env nextflow
+
 nextflow.enable.dsl=2
 
 /*
@@ -49,6 +50,7 @@ params.binning_threads = 4
 /*
  * Tool versions.
  */
+
 params.seqkit_version   = "2.8.2"
 params.bbmap_version    = "39.81"
 params.samtools_version = "1.23.1"
@@ -62,12 +64,16 @@ params.min_scaffold_length = 2500
 
 /*
  * BBMap mapping parameters.
+ *
+ * bbmap_xmx is only used for the direct Java BBMap call. This avoids the
+ * bbmap.sh wrapper classpath bug when the env is inside a path with spaces.
  */
 params.bbmap_minid      = 0.90
 params.bbmap_maxindel   = 10
 params.bbmap_ambig      = "random"
 params.bbmap_mateqtag   = true
 params.bbmap_extra_args = ""
+params.bbmap_xmx        = "4g"
 
 /*
  * MetaBAT2 parameters.
@@ -108,6 +114,7 @@ params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module2_outdir = "${params.results_dir}/module_2_readassembly"
 params.outdir         = "${params.results_dir}/module_3_binning"
 
+
 def absOrEmpty(value) {
     def s = value == null ? "" : value.toString().trim()
 
@@ -117,6 +124,7 @@ def absOrEmpty(value) {
 
     return java.nio.file.Paths.get(s).toAbsolutePath().normalize().toString()
 }
+
 
 workflow {
 
@@ -145,6 +153,7 @@ workflow {
     log.info "Using Module 2 assembly manifest: ${assembly_manifest_file}"
     log.info "Using Module 1 trimmed manifest: ${trimmed_manifest_file}"
     log.info "Writing Module 3 outputs to: ${params.outdir}"
+    log.info "Module 3 conda environments directory: ${params.tool_env_dir ?: "${params.outdir}/conda_envs"}"
     log.info "Minimum scaffold length for binning: ${params.min_scaffold_length}"
     log.info "Binners selected: MetaBAT2=${use_metabat2}, QuickBin=${use_quickbin}, MaxBin2=${use_maxbin2}"
 
@@ -160,6 +169,18 @@ workflow {
         checkIfExists: true
     )
 
+    /*
+     * Module 2 assembly manifest columns:
+     *
+     * sample_id
+     * safe_sample_id
+     * assembly_sample_id
+     * assembler
+     * assembly_mode
+     * rarefaction_label
+     * assembly_strategy
+     * renamed_fasta
+     */
     def assemblies_ch = assembly_manifest_ch
         .splitCsv(header: true, sep: '\t')
         .map { row ->
@@ -171,10 +192,23 @@ workflow {
                 row.assembly_mode.toString(),
                 row.rarefaction_label.toString(),
                 row.assembly_strategy.toString(),
-                file(row.renamed_fasta.toString())
+                file(absOrEmpty(row.renamed_fasta))
             )
         }
 
+    /*
+     * Module 1 trimmed manifest columns:
+     *
+     * sample_id
+     * safe_sample_id
+     * layout
+     * read1
+     * read2
+     * interleaved
+     * merged
+     * fastp_html
+     * fastp_json
+     */
     def trimmed_reads_ch = trimmed_manifest_ch
         .splitCsv(header: true, sep: '\t')
         .map { row ->
@@ -187,6 +221,9 @@ workflow {
             )
         }
 
+    /*
+     * Join assemblies to their original sample reads by sample_id.
+     */
     def binning_jobs_ch = assemblies_ch
         .join(trimmed_reads_ch)
         .map {
@@ -284,9 +321,7 @@ workflow {
     )
 }
 
-
 process SETUP_MODULE3_TOOLS {
-
     tag "setup_binning_tools"
 
     publishDir "${params.outdir}/setup",
@@ -298,7 +333,6 @@ process SETUP_MODULE3_TOOLS {
 
     script:
     def base_env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs"
-
     def mapping_env_dir  = "${base_env_dir}/module3_mapping_tools"
     def metabat2_env_dir = "${base_env_dir}/module3_metabat2_tools"
     def maxbin2_env_dir  = "${base_env_dir}/module3_maxbin2_tools"
@@ -308,25 +342,6 @@ process SETUP_MODULE3_TOOLS {
     def want_maxbin2  = params.maxbin2.toString().toBoolean()
 
     def need_jgi_depth = want_metabat2 || want_maxbin2
-
-    def mapping_packages = []
-    mapping_packages << "python"
-    mapping_packages << "seqkit=${params.seqkit_version}"
-    mapping_packages << "bbmap=${params.bbmap_version}"
-    mapping_packages << "samtools>=${params.samtools_version},<2.0a0"
-
-    def metabat2_packages = []
-    metabat2_packages << "python"
-    metabat2_packages << "metabat2=${params.metabat2_version}"
-
-    def maxbin2_packages = []
-    maxbin2_packages << "python"
-    maxbin2_packages << "perl"
-    maxbin2_packages << "maxbin2=${params.maxbin2_version}"
-
-    def mapping_package_string = mapping_packages.collect { pkg -> "\"${pkg}\"" }.join(" \\\n        ")
-    def metabat2_package_string = metabat2_packages.collect { pkg -> "\"${pkg}\"" }.join(" \\\n        ")
-    def maxbin2_package_string = maxbin2_packages.collect { pkg -> "\"${pkg}\"" }.join(" \\\n        ")
 
     """
     set -euo pipefail
@@ -342,21 +357,56 @@ process SETUP_MODULE3_TOOLS {
     WANT_MAXBIN2="${want_maxbin2}"
     NEED_JGI_DEPTH="${need_jgi_depth}"
 
+    # Use bash arrays so package names are passed to mamba/conda reliably.
+    # IMPORTANT FIX:
+    # openjdk=17.* is explicitly included in MAPPING_PACKAGES.
+    MAPPING_PACKAGES=(
+        "python=3.*"
+        "openjdk=17.*"
+        "seqkit=${params.seqkit_version}"
+        "bbmap=${params.bbmap_version}"
+        "samtools>=${params.samtools_version},<2.0a0"
+    )
+
+    METABAT2_PACKAGES=(
+        "python=3.*"
+        "metabat2=${params.metabat2_version}"
+    )
+
+    MAXBIN2_PACKAGES=(
+        "python=3.*"
+        "perl"
+        "maxbin2=${params.maxbin2_version}"
+    )
+
     echo "Module 3 tool setup started: \$(date)" > "\$STATUS_FILE"
     echo "Requested MetaBAT2: \$WANT_METABAT2" >> "\$STATUS_FILE"
     echo "Requested QuickBin: \$WANT_QUICKBIN" >> "\$STATUS_FILE"
     echo "Requested MaxBin2: \$WANT_MAXBIN2" >> "\$STATUS_FILE"
     echo "JGI depth utility needed: \$NEED_JGI_DEPTH" >> "\$STATUS_FILE"
+
     echo "Requested SeqKit version: ${params.seqkit_version}" >> "\$STATUS_FILE"
     echo "Requested BBMap/BBTools version: ${params.bbmap_version}" >> "\$STATUS_FILE"
     echo "Requested Samtools lower bound: >=${params.samtools_version},<2.0a0" >> "\$STATUS_FILE"
+    echo "Requested OpenJDK version: 17.*" >> "\$STATUS_FILE"
     echo "Requested MetaBAT2 version: ${params.metabat2_version}" >> "\$STATUS_FILE"
     echo "Requested MaxBin2 version: ${params.maxbin2_version}" >> "\$STATUS_FILE"
+
     echo "MAPPING_ENV=\$MAPPING_ENV" >> "\$STATUS_FILE"
     echo "QUICKBIN_ENV=\$MAPPING_ENV" >> "\$STATUS_FILE"
     echo "METABAT2_ENV=\$METABAT2_ENV" >> "\$STATUS_FILE"
     echo "JGI_ENV=\$METABAT2_ENV" >> "\$STATUS_FILE"
     echo "MAXBIN2_ENV=\$MAXBIN2_ENV" >> "\$STATUS_FILE"
+
+    echo "Mapping package request:" >> "\$STATUS_FILE"
+    printf '  %s\\n' "\${MAPPING_PACKAGES[@]}" >> "\$STATUS_FILE"
+
+    echo "MetaBAT2 package request:" >> "\$STATUS_FILE"
+    printf '  %s\\n' "\${METABAT2_PACKAGES[@]}" >> "\$STATUS_FILE"
+
+    echo "MaxBin2 package request:" >> "\$STATUS_FILE"
+    printf '  %s\\n' "\${MAXBIN2_PACKAGES[@]}" >> "\$STATUS_FILE"
+
     echo "----------------------------------------" >> "\$STATUS_FILE"
 
     find_installer() {
@@ -402,43 +452,94 @@ process SETUP_MODULE3_TOOLS {
     }
 
     check_mapping_env() {
-        local prefix="\$1"
-        local ok="true"
+    local prefix="\$1"
+    local ok="true"
 
-        echo "Checking mapping environment: \$prefix" >> "\$STATUS_FILE"
+    echo "Checking mapping environment: \$prefix" >> "\$STATUS_FILE"
 
-        if exists_tool "\$prefix" seqkit; then
-            run_tool "\$prefix" seqkit version || ok="false"
+    if exists_tool "\$prefix" seqkit; then
+        run_tool "\$prefix" seqkit version || ok="false"
+    else
+        echo "Missing seqkit" >> "\$STATUS_FILE"
+        ok="false"
+    fi
+
+    if exists_tool "\$prefix" bbmap.sh; then
+        run_tool "\$prefix" bbmap.sh -h >/dev/null 2>&1 || true
+    else
+        echo "Missing bbmap.sh" >> "\$STATUS_FILE"
+        ok="false"
+    fi
+
+    if exists_tool "\$prefix" quickbin.sh; then
+        run_tool "\$prefix" quickbin.sh -h >/dev/null 2>&1 || true
+    elif [[ "\$WANT_QUICKBIN" == "true" ]]; then
+        echo "Missing quickbin.sh" >> "\$STATUS_FILE"
+        ok="false"
+    fi
+
+    if exists_tool "\$prefix" samtools; then
+        run_tool "\$prefix" samtools --version || ok="false"
+    else
+        echo "Missing samtools" >> "\$STATUS_FILE"
+        ok="false"
+    fi
+
+    # Java handling for conda-forge openjdk on macOS.
+    #
+    # On your system, openjdk installed java here:
+    #
+    #   \$prefix/lib/jvm/bin/java
+    #
+    # but the workflow expects:
+    #
+    #   \$prefix/bin/java
+    #
+    # So if the lib/jvm copy exists, create a compatibility symlink.
+    if [[ -x "\$prefix/bin/java" ]]; then
+        echo "Found java at: \$prefix/bin/java" >> "\$STATUS_FILE"
+        run_tool "\$prefix" java -version || true
+
+    elif [[ -x "\$prefix/lib/jvm/bin/java" ]]; then
+        echo "Found java at: \$prefix/lib/jvm/bin/java" >> "\$STATUS_FILE"
+        echo "Creating compatibility symlink: \$prefix/bin/java -> \$prefix/lib/jvm/bin/java" >> "\$STATUS_FILE"
+
+        mkdir -p "\$prefix/bin"
+        ln -sfn "\$prefix/lib/jvm/bin/java" "\$prefix/bin/java"
+
+        if [[ -x "\$prefix/bin/java" ]]; then
+            echo "Java compatibility symlink created successfully." >> "\$STATUS_FILE"
+            run_tool "\$prefix" java -version || true
         else
-            echo "Missing seqkit" >> "\$STATUS_FILE"
+            echo "ERROR: Java symlink was created but is not executable." >> "\$STATUS_FILE"
             ok="false"
         fi
 
-        if exists_tool "\$prefix" bbmap.sh; then
-            run_tool "\$prefix" bbmap.sh -h >/dev/null 2>&1 || true
-        else
-            echo "Missing bbmap.sh" >> "\$STATUS_FILE"
+    else
+        echo "Missing java" >> "\$STATUS_FILE"
+        echo "Checked these locations:" >> "\$STATUS_FILE"
+        echo "  \$prefix/bin/java" >> "\$STATUS_FILE"
+        echo "  \$prefix/lib/jvm/bin/java" >> "\$STATUS_FILE"
+
+        echo "Searching for java under prefix:" >> "\$STATUS_FILE"
+        find "\$prefix" -path '*/bin/java' -print >> "\$STATUS_FILE" 2>&1 || true
+
+        ok="false"
+    fi
+
+    local jar_count=0
+    if [[ "\$prefix" != "SYSTEM" ]]; then
+        jar_count=\$(find "\$prefix" -type f -name 'bbtools.jar' 2>/dev/null | wc -l | tr -d ' ')
+        echo "bbtools.jar files found under mapping env: \$jar_count" >> "\$STATUS_FILE"
+
+        if [[ "\$jar_count" -lt 1 ]]; then
+            echo "Missing bbtools.jar under mapping env." >> "\$STATUS_FILE"
             ok="false"
         fi
+    fi
 
-        if exists_tool "\$prefix" samtools; then
-            run_tool "\$prefix" samtools --version || ok="false"
-        else
-            echo "Missing samtools" >> "\$STATUS_FILE"
-            ok="false"
-        fi
-
-        if [[ "\$WANT_QUICKBIN" == "true" ]]; then
-            if exists_tool "\$prefix" quickbin.sh; then
-                run_tool "\$prefix" quickbin.sh -h >/dev/null 2>&1 || true
-            else
-                echo "Missing quickbin.sh" >> "\$STATUS_FILE"
-                ok="false"
-            fi
-        fi
-
-        [[ "\$ok" == "true" ]]
-    }
+    [[ "\$ok" == "true" ]]
+}
 
     check_metabat2_env() {
         local prefix="\$1"
@@ -488,7 +589,6 @@ process SETUP_MODULE3_TOOLS {
     create_env() {
         local env_path="\$1"
         shift
-        local packages="\$@"
 
         if [[ "${params.auto_install}" != "true" ]]; then
             echo "ERROR: auto_install is false and environment is missing or broken: \$env_path" >> "\$STATUS_FILE"
@@ -498,13 +598,14 @@ process SETUP_MODULE3_TOOLS {
         mkdir -p "\$(dirname "\$env_path")"
 
         echo "Creating environment: \$env_path" >> "\$STATUS_FILE"
-        echo "Packages: \$packages" >> "\$STATUS_FILE"
+        echo "Packages:" >> "\$STATUS_FILE"
+        printf '  %s\\n' "\$@" >> "\$STATUS_FILE"
 
         "\$INSTALLER" create -y \\
             -p "\$env_path" \\
             -c conda-forge \\
             -c bioconda \\
-            \$packages \\
+            "\$@" \\
             >> "\$STATUS_FILE" 2>&1
     }
 
@@ -521,10 +622,12 @@ process SETUP_MODULE3_TOOLS {
     fi
 
     if [[ ! -d "\$MAPPING_ENV" ]]; then
-        create_env "\$MAPPING_ENV" ${mapping_package_string}
+        create_env "\$MAPPING_ENV" "\${MAPPING_PACKAGES[@]}"
 
         if ! check_mapping_env "\$MAPPING_ENV"; then
             echo "ERROR: Newly created mapping environment failed checks." >> "\$STATUS_FILE"
+            echo "Contents of \$MAPPING_ENV/bin, if present:" >> "\$STATUS_FILE"
+            ls -lah "\$MAPPING_ENV/bin" >> "\$STATUS_FILE" 2>&1 || true
             exit 1
         fi
     fi
@@ -533,7 +636,6 @@ process SETUP_MODULE3_TOOLS {
     echo "=== MetaBAT2 / JGI depth environment ===" >> "\$STATUS_FILE"
 
     if [[ "\$NEED_JGI_DEPTH" == "true" ]]; then
-
         if [[ -d "\$METABAT2_ENV" ]]; then
             if check_metabat2_env "\$METABAT2_ENV"; then
                 echo "Existing MetaBAT2 environment passed checks." >> "\$STATUS_FILE"
@@ -544,7 +646,7 @@ process SETUP_MODULE3_TOOLS {
         fi
 
         if [[ ! -d "\$METABAT2_ENV" ]]; then
-            create_env "\$METABAT2_ENV" ${metabat2_package_string}
+            create_env "\$METABAT2_ENV" "\${METABAT2_PACKAGES[@]}"
 
             if ! check_metabat2_env "\$METABAT2_ENV"; then
                 echo "ERROR: Newly created MetaBAT2 environment failed checks." >> "\$STATUS_FILE"
@@ -560,7 +662,6 @@ process SETUP_MODULE3_TOOLS {
     echo "=== MaxBin2 environment ===" >> "\$STATUS_FILE"
 
     if [[ "\$WANT_MAXBIN2" == "true" ]]; then
-
         if [[ -d "\$MAXBIN2_ENV" ]]; then
             if check_maxbin2_env "\$MAXBIN2_ENV"; then
                 echo "Existing MaxBin2 environment passed checks." >> "\$STATUS_FILE"
@@ -571,7 +672,7 @@ process SETUP_MODULE3_TOOLS {
         fi
 
         if [[ ! -d "\$MAXBIN2_ENV" ]]; then
-            create_env "\$MAXBIN2_ENV" ${maxbin2_package_string}
+            create_env "\$MAXBIN2_ENV" "\${MAXBIN2_PACKAGES[@]}"
 
             if ! check_maxbin2_env "\$MAXBIN2_ENV"; then
                 echo "ERROR: Newly created MaxBin2 environment failed checks." >> "\$STATUS_FILE"
@@ -590,7 +691,6 @@ process SETUP_MODULE3_TOOLS {
     echo "METABAT2_ENV=\$METABAT2_ENV" >> "\$STATUS_FILE"
     echo "JGI_ENV=\$METABAT2_ENV" >> "\$STATUS_FILE"
     echo "MAXBIN2_ENV=\$MAXBIN2_ENV" >> "\$STATUS_FILE"
-
     echo "Module 3 tool setup finished: \$(date)" >> "\$STATUS_FILE"
     """
 }
@@ -600,7 +700,7 @@ process FILTER_ASSEMBLY_BY_LENGTH {
 
     tag { binning_id }
 
-    stageInMode 'symlink'
+    stageInMode 'copy'
 
     publishDir "${params.outdir}/filtered_assemblies",
         mode: params.publish_filtered_assemblies_mode,
@@ -875,14 +975,14 @@ process MAP_READS_BBMAP {
         export PATH="\$MAPPING_ENV/bin:\$PATH"
     fi
 
-    if ! command -v bbmap.sh >/dev/null 2>&1; then
-        echo "ERROR: bbmap.sh is not available after tool setup." >&2
+    if ! command -v samtools >/dev/null 2>&1; then
+        echo "ERROR: samtools is not available after tool setup." >&2
         cat "${tools_status}" >&2 || true
         exit 1
     fi
 
-    if ! command -v samtools >/dev/null 2>&1; then
-        echo "ERROR: samtools is not available after tool setup." >&2
+    if ! command -v java >/dev/null 2>&1; then
+        echo "ERROR: java is not available after tool setup." >&2
         cat "${tools_status}" >&2 || true
         exit 1
     fi
@@ -895,9 +995,34 @@ process MAP_READS_BBMAP {
     echo "Filtered assembly FASTA: ${filtered_assembly_fasta}" >> "\$LOG_FILE"
     echo "Layout: ${layout}" >> "\$LOG_FILE"
     echo "Threads: ${task.cpus}" >> "\$LOG_FILE"
+    echo "MAPPING_ENV: \$MAPPING_ENV" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
 
-    ln -sfn "${filtered_assembly_fasta}" assembly.fa
+    cp -L "${filtered_assembly_fasta}" assembly.fa
+
+    if [[ ! -s assembly.fa ]]; then
+        echo "ERROR: Filtered assembly could not be copied or is empty." >> "\$LOG_FILE"
+        echo "filtered_assembly_fasta=${filtered_assembly_fasta}" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    BBTOOLS_JAR=""
+
+    if [[ -n "\$MAPPING_ENV" && "\$MAPPING_ENV" != "SYSTEM" && "\$MAPPING_ENV" != "NOT_USED" ]]; then
+        BBTOOLS_JAR="\$(find "\$MAPPING_ENV" -type f -name 'bbtools.jar' 2>/dev/null | head -n 1 || true)"
+    fi
+
+    if [[ -z "\$BBTOOLS_JAR" ]]; then
+        echo "ERROR: Could not find bbtools.jar under MAPPING_ENV." >> "\$LOG_FILE"
+        echo "MAPPING_ENV=\$MAPPING_ENV" >> "\$LOG_FILE"
+        echo "This module uses direct Java calls to avoid bbmap.sh classpath issues with spaces." >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    echo "Using direct Java BBMap call." >> "\$LOG_FILE"
+    echo "BBTOOLS_JAR: \$BBTOOLS_JAR" >> "\$LOG_FILE"
 
     BBMAP_COMMON_ARGS="ref=assembly.fa ambig=${params.bbmap_ambig} minid=${params.bbmap_minid} maxindel=${params.bbmap_maxindel} threads=${task.cpus} overwrite=t nodisk=t"
 
@@ -909,60 +1034,133 @@ process MAP_READS_BBMAP {
         BBMAP_COMMON_ARGS="\${BBMAP_COMMON_ARGS} ${params.bbmap_extra_args}"
     fi
 
+    echo "BBMap common args: \$BBMAP_COMMON_ARGS" >> "\$LOG_FILE"
+
+    run_bbmap_paired() {
+        java \\
+            -ea \\
+            -Xmx${params.bbmap_xmx} \\
+            -cp "\$BBTOOLS_JAR" \\
+            align2.BBMap \\
+            build=1 \\
+            overwrite=true \\
+            fastareadlen=500 \\
+            \$BBMAP_COMMON_ARGS \\
+            in1=input_R1.fastq.gz \\
+            in2=input_R2.fastq.gz \\
+            out=mapped.sam
+    }
+
+    run_bbmap_interleaved() {
+        java \\
+            -ea \\
+            -Xmx${params.bbmap_xmx} \\
+            -cp "\$BBTOOLS_JAR" \\
+            align2.BBMap \\
+            build=1 \\
+            overwrite=true \\
+            fastareadlen=500 \\
+            \$BBMAP_COMMON_ARGS \\
+            in=input_interleaved.fastq.gz \\
+            interleaved=t \\
+            out=mapped.sam
+    }
+
     if [[ "${layout}" == "paired" ]]; then
 
         if [[ ! -s "${read1}" || ! -s "${read2}" ]]; then
             echo "ERROR: Missing paired read files for sample ${sample_id}" >> "\$LOG_FILE"
             echo "read1=${read1}" >> "\$LOG_FILE"
             echo "read2=${read2}" >> "\$LOG_FILE"
+            cat "\$LOG_FILE" >&2
             exit 1
         fi
 
-        bbmap.sh \\
-            \$BBMAP_COMMON_ARGS \\
-            in1="${read1}" \\
-            in2="${read2}" \\
-            out=mapped.sam \\
-            >> "\$LOG_FILE" 2>&1
+        ln -sfn "${read1}" input_R1.fastq.gz
+        ln -sfn "${read2}" input_R2.fastq.gz
+
+        if [[ ! -s input_R1.fastq.gz || ! -s input_R2.fastq.gz ]]; then
+            echo "ERROR: Local paired-read symlinks are missing or empty." >> "\$LOG_FILE"
+            echo "read1=${read1}" >> "\$LOG_FILE"
+            echo "read2=${read2}" >> "\$LOG_FILE"
+            ls -lah >> "\$LOG_FILE" 2>&1 || true
+            cat "\$LOG_FILE" >&2
+            exit 1
+        fi
+
+        echo "Running BBMap paired-end mapping..." >> "\$LOG_FILE"
+
+        if ! run_bbmap_paired >> "\$LOG_FILE" 2>&1; then
+            echo "ERROR: BBMap paired-end mapping failed." >&2
+            echo "Last 100 lines of \$LOG_FILE:" >&2
+            tail -n 100 "\$LOG_FILE" >&2 || true
+            exit 1
+        fi
 
     elif [[ "${layout}" == "interleaved" ]]; then
 
         if [[ ! -s "${interleaved}" ]]; then
             echo "ERROR: Missing interleaved read file for sample ${sample_id}" >> "\$LOG_FILE"
             echo "interleaved=${interleaved}" >> "\$LOG_FILE"
+            cat "\$LOG_FILE" >&2
             exit 1
         fi
 
-        bbmap.sh \\
-            \$BBMAP_COMMON_ARGS \\
-            in="${interleaved}" \\
-            interleaved=t \\
-            out=mapped.sam \\
-            >> "\$LOG_FILE" 2>&1
+        ln -sfn "${interleaved}" input_interleaved.fastq.gz
+
+        if [[ ! -s input_interleaved.fastq.gz ]]; then
+            echo "ERROR: Local interleaved-read symlink is missing or empty." >> "\$LOG_FILE"
+            echo "interleaved=${interleaved}" >> "\$LOG_FILE"
+            ls -lah >> "\$LOG_FILE" 2>&1 || true
+            cat "\$LOG_FILE" >&2
+            exit 1
+        fi
+
+        echo "Running BBMap interleaved mapping..." >> "\$LOG_FILE"
+
+        if ! run_bbmap_interleaved >> "\$LOG_FILE" 2>&1; then
+            echo "ERROR: BBMap interleaved mapping failed." >&2
+            echo "Last 100 lines of \$LOG_FILE:" >&2
+            tail -n 100 "\$LOG_FILE" >&2 || true
+            exit 1
+        fi
 
     else
         echo "ERROR: Unsupported layout: ${layout}" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
         exit 1
     fi
 
     if [[ ! -s mapped.sam ]]; then
         echo "ERROR: BBMap did not produce a non-empty SAM file." >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
         exit 1
     fi
 
     echo "Converting SAM to sorted BAM..." >> "\$LOG_FILE"
 
-    samtools view -@ ${task.cpus} -bS mapped.sam \\
+    if ! samtools view -@ ${task.cpus} -bS mapped.sam \\
         | samtools sort -@ ${task.cpus} -o "${binning_id}.sorted.bam" -
+    then
+        echo "ERROR: samtools view/sort failed." >&2
+        echo "Last 100 lines of \$LOG_FILE:" >&2
+        tail -n 100 "\$LOG_FILE" >&2 || true
+        exit 1
+    fi
+
+    if [[ ! -s "${binning_id}.sorted.bam" ]]; then
+        echo "ERROR: sorted BAM was not created or is empty." >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
 
     samtools index "${binning_id}.sorted.bam"
 
-    rm -f mapped.sam assembly.fa
+    rm -f mapped.sam assembly.fa input_R1.fastq.gz input_R2.fastq.gz input_interleaved.fastq.gz
 
     echo "BBMap mapping finished: \$(date)" >> "\$LOG_FILE"
     """
 }
-
 
 process GENERATE_COVERAGE_FILES {
 
@@ -1087,7 +1285,6 @@ PY
     echo "Coverage generation finished: \$(date)" >> "\$LOG_FILE"
     """
 }
-
 
 process RUN_METABAT2 {
 
@@ -1309,9 +1506,7 @@ PY
 
 
 process RUN_MAXBIN2 {
-
     tag { binning_id }
-
     stageInMode 'symlink'
 
     publishDir { "${params.outdir}/bins/maxbin2/${binning_id}" },
@@ -1359,23 +1554,13 @@ process RUN_MAXBIN2 {
     """
     set -euo pipefail
 
-    MAXBIN2_ENV="\$(grep '^MAXBIN2_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
-
-    if [[ -n "\$MAXBIN2_ENV" && "\$MAXBIN2_ENV" != "SYSTEM" && "\$MAXBIN2_ENV" != "NOT_USED" ]]; then
-        export PATH="\$MAXBIN2_ENV/bin:\$PATH"
-    fi
-
-    if ! command -v run_MaxBin.pl >/dev/null 2>&1; then
-        echo "ERROR: run_MaxBin.pl is not available after tool setup." >&2
-        cat "${tools_status}" >&2 || true
-        exit 1
-    fi
+    TASK_DIR="\$(pwd -P)"
+    ORIG_MAXBIN2_ENV="\$(grep '^MAXBIN2_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+    MAXBIN2_ENV="\$ORIG_MAXBIN2_ENV"
 
     BINNER="maxbin2"
     BIN_DIR="bins"
-    LOG_FILE="${binning_id}.maxbin2.log"
-
-    mkdir -p "\$BIN_DIR"
+    LOG_FILE="\$TASK_DIR/${binning_id}.maxbin2.log"
 
     echo "MaxBin2 binning started: \$(date)" > "\$LOG_FILE"
     echo "Sample ID: ${sample_id}" >> "\$LOG_FILE"
@@ -1383,18 +1568,292 @@ process RUN_MAXBIN2 {
     echo "Filtered assembly FASTA: ${filtered_assembly_fasta}" >> "\$LOG_FILE"
     echo "Abundance file: ${maxbin_abundance}" >> "\$LOG_FILE"
     echo "Threads: ${task.cpus}" >> "\$LOG_FILE"
+    echo "Task directory: \$TASK_DIR" >> "\$LOG_FILE"
+    echo "Original MAXBIN2_ENV: \$ORIG_MAXBIN2_ENV" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
 
-    run_MaxBin.pl \\
-        -contig "${filtered_assembly_fasta}" \\
-        -abund "${maxbin_abundance}" \\
-        -out "\$BIN_DIR/${binning_id}.maxbin2_bin" \\
-        -thread ${task.cpus} \\
-        ${params.maxbin2_extra_args} \\
-        >> "\$LOG_FILE" 2>&1
+    if [[ ! -s "${filtered_assembly_fasta}" ]]; then
+        echo "ERROR: Filtered assembly FASTA is missing or empty: ${filtered_assembly_fasta}" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    if [[ ! -s "${maxbin_abundance}" ]]; then
+        echo "ERROR: MaxBin2 abundance file is missing or empty: ${maxbin_abundance}" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    TMP_PARENT="\${TMPDIR:-/tmp}"
+
+    if [[ -z "\$TMP_PARENT" || "\$TMP_PARENT" == *" "* ]]; then
+        TMP_PARENT="/tmp"
+    fi
+
+    mkdir -p "\$TMP_PARENT"
+
+    SANDBOX_RAW="\$(mktemp -d "\$TMP_PARENT/samwise_maxbin2.XXXXXX")"
+    SANDBOX="\$(cd "\$SANDBOX_RAW" && pwd -P)"
+
+    if [[ "\$SANDBOX" == *" "* ]]; then
+        echo "ERROR: MaxBin2 sandbox path still contains spaces: \$SANDBOX" >> "\$LOG_FILE"
+        echo "Set TMPDIR to a no-space path, for example:" >> "\$LOG_FILE"
+        echo "  export TMPDIR=/tmp" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    trap 'rm -rf "\$SANDBOX"' EXIT
+
+    RUN_DIR="\$SANDBOX/run"
+    mkdir -p "\$RUN_DIR"
+
+    echo "Using MaxBin2 sandbox: \$SANDBOX" >> "\$LOG_FILE"
+    echo "MaxBin2 run directory: \$RUN_DIR" >> "\$LOG_FILE"
+
+    NEED_ENV_COPY="false"
+
+    if [[ -n "\$MAXBIN2_ENV" && "\$MAXBIN2_ENV" != "SYSTEM" && "\$MAXBIN2_ENV" != "NOT_USED" ]]; then
+        if [[ "\$MAXBIN2_ENV" == *" "* ]]; then
+            NEED_ENV_COPY="true"
+        fi
+    fi
+
+    if [[ "\$NEED_ENV_COPY" == "true" ]]; then
+        echo "MAXBIN2_ENV contains spaces." >> "\$LOG_FILE"
+        echo "Creating no-space sandbox copy of MaxBin2 environment." >> "\$LOG_FILE"
+
+        SANDBOX_MAXBIN2_ENV="\$SANDBOX/maxbin2_env"
+        mkdir -p "\$SANDBOX_MAXBIN2_ENV"
+
+        echo "Copying MaxBin2 env while preserving symlinks:" >> "\$LOG_FILE"
+        echo "  from: \$MAXBIN2_ENV" >> "\$LOG_FILE"
+        echo "  to:   \$SANDBOX_MAXBIN2_ENV" >> "\$LOG_FILE"
+
+        # IMPORTANT:
+        # Do NOT use tar -h here.
+        # Preserving symlinks is important for conda-installed MaxBin2,
+        # because run_MaxBin.pl may be a symlink into a share/ directory
+        # where helper scripts such as _getmarker.pl live.
+        if ! (cd "\$MAXBIN2_ENV" && tar -cf - .) | (cd "\$SANDBOX_MAXBIN2_ENV" && tar -xpf -); then
+            echo "ERROR: Failed to copy MaxBin2 environment into sandbox." >> "\$LOG_FILE"
+            cat "\$LOG_FILE" >&2
+            exit 1
+        fi
+
+        MAXBIN2_ENV="\$SANDBOX_MAXBIN2_ENV"
+        echo "Sandbox MAXBIN2_ENV: \$MAXBIN2_ENV" >> "\$LOG_FILE"
+    else
+        echo "MAXBIN2_ENV does not require sandbox copy." >> "\$LOG_FILE"
+    fi
+
+    if [[ -n "\$MAXBIN2_ENV" && "\$MAXBIN2_ENV" != "SYSTEM" && "\$MAXBIN2_ENV" != "NOT_USED" ]]; then
+        export PATH="\$MAXBIN2_ENV/bin:\$PATH"
+    fi
+
+    echo "Effective MAXBIN2_ENV: \$MAXBIN2_ENV" >> "\$LOG_FILE"
+    echo "PATH: \$PATH" >> "\$LOG_FILE"
+
+    repair_maxbin2_helpers() {
+        local env_dir="\$1"
+        local original_env_dir="\$2"
+        local helper_list="\$SANDBOX/maxbin2_helper_files.list"
+
+        if [[ "\$env_dir" == "SYSTEM" || "\$env_dir" == "NOT_USED" || ! -d "\$env_dir" ]]; then
+            return 0
+        fi
+
+        mkdir -p "\$env_dir/bin"
+        : > "\$helper_list"
+
+        echo "Repairing/checking MaxBin2 helper scripts." >> "\$LOG_FILE"
+
+        if [[ -d "\$env_dir" ]]; then
+            find -L "\$env_dir" -type f -name '_*.pl' -print >> "\$helper_list" 2>/dev/null || true
+        fi
+
+        if [[ -n "\$original_env_dir" && "\$original_env_dir" != "SYSTEM" && "\$original_env_dir" != "NOT_USED" && -d "\$original_env_dir" ]]; then
+            find -L "\$original_env_dir" -type f -name '_*.pl' -print >> "\$helper_list" 2>/dev/null || true
+        fi
+
+        echo "Discovered MaxBin2 helper candidates:" >> "\$LOG_FILE"
+        cat "\$helper_list" >> "\$LOG_FILE" 2>/dev/null || true
+
+        while IFS= read -r helper; do
+            [[ -z "\$helper" ]] && continue
+            base="\$(basename "\$helper")"
+
+            if [[ ! -e "\$env_dir/bin/\$base" ]]; then
+                echo "Installing helper into sandbox env bin: \$base" >> "\$LOG_FILE"
+                cp -L "\$helper" "\$env_dir/bin/\$base"
+                chmod +x "\$env_dir/bin/\$base" 2>/dev/null || true
+            fi
+        done < "\$helper_list"
+
+        if [[ ! -s "\$env_dir/bin/_getmarker.pl" ]]; then
+            echo "WARNING: _getmarker.pl is not present in \$env_dir/bin after repair." >> "\$LOG_FILE"
+            echo "This may still be okay if run_MaxBin.pl is executed from a share/ directory containing helpers." >> "\$LOG_FILE"
+        else
+            echo "Confirmed helper exists: \$env_dir/bin/_getmarker.pl" >> "\$LOG_FILE"
+        fi
+
+        echo "MaxBin2 helper repair/check complete." >> "\$LOG_FILE"
+        ls -lah "\$env_dir/bin"/_*.pl >> "\$LOG_FILE" 2>&1 || true
+    }
+
+    repair_maxbin2_helpers "\$MAXBIN2_ENV" "\$ORIG_MAXBIN2_ENV"
+
+    RUN_MAXBIN=""
+    RUN_CANDIDATES="\$SANDBOX/run_maxbin_candidates.list"
+    : > "\$RUN_CANDIDATES"
+
+    if [[ "\$MAXBIN2_ENV" != "SYSTEM" && "\$MAXBIN2_ENV" != "NOT_USED" && -d "\$MAXBIN2_ENV" ]]; then
+        find -L "\$MAXBIN2_ENV" -type f -name 'run_MaxBin.pl' -print >> "\$RUN_CANDIDATES" 2>/dev/null || true
+    fi
+
+    if command -v run_MaxBin.pl >/dev/null 2>&1; then
+        command -v run_MaxBin.pl >> "\$RUN_CANDIDATES" 2>/dev/null || true
+    fi
+
+    echo "run_MaxBin.pl candidates:" >> "\$LOG_FILE"
+    cat "\$RUN_CANDIDATES" >> "\$LOG_FILE" 2>/dev/null || true
+
+    # Prefer a run_MaxBin.pl whose directory also contains _getmarker.pl.
+    while IFS= read -r candidate; do
+        [[ -z "\$candidate" ]] && continue
+        candidate_dir="\$(dirname "\$candidate")"
+
+        if [[ -s "\$candidate_dir/_getmarker.pl" ]]; then
+            RUN_MAXBIN="\$candidate"
+            echo "Selected run_MaxBin.pl with local helpers: \$RUN_MAXBIN" >> "\$LOG_FILE"
+            break
+        fi
+    done < "\$RUN_CANDIDATES"
+
+    # Fallback to env/bin/run_MaxBin.pl if needed.
+    if [[ -z "\$RUN_MAXBIN" ]]; then
+        if [[ "\$MAXBIN2_ENV" != "SYSTEM" && "\$MAXBIN2_ENV" != "NOT_USED" && -s "\$MAXBIN2_ENV/bin/run_MaxBin.pl" ]]; then
+            RUN_MAXBIN="\$MAXBIN2_ENV/bin/run_MaxBin.pl"
+            echo "Selected fallback env/bin/run_MaxBin.pl: \$RUN_MAXBIN" >> "\$LOG_FILE"
+        else
+            RUN_MAXBIN="\$(command -v run_MaxBin.pl || true)"
+            echo "Selected fallback PATH run_MaxBin.pl: \$RUN_MAXBIN" >> "\$LOG_FILE"
+        fi
+    fi
+
+    if [[ -z "\$RUN_MAXBIN" || ! -s "\$RUN_MAXBIN" ]]; then
+        echo "ERROR: run_MaxBin.pl is not available after tool setup." >> "\$LOG_FILE"
+        echo "MAXBIN2_ENV=\$MAXBIN2_ENV" >> "\$LOG_FILE"
+        cat "${tools_status}" >> "\$LOG_FILE" 2>&1 || true
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    if [[ "\$MAXBIN2_ENV" != "SYSTEM" && "\$MAXBIN2_ENV" != "NOT_USED" && -x "\$MAXBIN2_ENV/bin/perl" ]]; then
+        PERL_EXE="\$MAXBIN2_ENV/bin/perl"
+    else
+        PERL_EXE="\$(command -v perl || true)"
+    fi
+
+    if [[ -z "\$PERL_EXE" || ! -x "\$PERL_EXE" ]]; then
+        echo "ERROR: perl is not available for MaxBin2." >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    echo "Final run_MaxBin.pl path: \$RUN_MAXBIN" >> "\$LOG_FILE"
+    echo "Final run_MaxBin.pl directory: \$(dirname "\$RUN_MAXBIN")" >> "\$LOG_FILE"
+    echo "Perl executable: \$PERL_EXE" >> "\$LOG_FILE"
+
+    SOURCE_CONTIG="\$TASK_DIR/${filtered_assembly_fasta}"
+    SOURCE_ABUNDANCE="\$TASK_DIR/${maxbin_abundance}"
+
+    echo "Creating sandbox symlinks instead of copying large input files." >> "\$LOG_FILE"
+    echo "Source contigs: \$SOURCE_CONTIG" >> "\$LOG_FILE"
+    echo "Source abundance: \$SOURCE_ABUNDANCE" >> "\$LOG_FILE"
+
+    ln -s "\$SOURCE_CONTIG" "\$RUN_DIR/maxbin2_contigs.fa"
+    ln -s "\$SOURCE_ABUNDANCE" "\$RUN_DIR/maxbin2_abundance.tsv"
+
+    if [[ ! -s "\$RUN_DIR/maxbin2_contigs.fa" ]]; then
+        echo "ERROR: Sandbox contig symlink is missing, broken, or points to an empty file." >> "\$LOG_FILE"
+        echo "Symlink: \$RUN_DIR/maxbin2_contigs.fa" >> "\$LOG_FILE"
+        ls -lah "\$RUN_DIR" >> "\$LOG_FILE" 2>&1 || true
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    if [[ ! -s "\$RUN_DIR/maxbin2_abundance.tsv" ]]; then
+        echo "ERROR: Sandbox abundance symlink is missing, broken, or points to an empty file." >> "\$LOG_FILE"
+        echo "Symlink: \$RUN_DIR/maxbin2_abundance.tsv" >> "\$LOG_FILE"
+        ls -lah "\$RUN_DIR" >> "\$LOG_FILE" 2>&1 || true
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    echo "Sandbox input symlinks:" >> "\$LOG_FILE"
+    ls -lah "\$RUN_DIR" >> "\$LOG_FILE" 2>&1 || true
+
+    rm -rf "\$TASK_DIR/bins"
+    mkdir -p "\$TASK_DIR/bins"
+
+    ln -s "\$TASK_DIR/bins" "\$RUN_DIR/bins"
+
+    if [[ ! -d "\$RUN_DIR/bins" ]]; then
+        echo "ERROR: Sandbox bins symlink is missing or broken." >> "\$LOG_FILE"
+        echo "Symlink: \$RUN_DIR/bins" >> "\$LOG_FILE"
+        ls -lah "\$RUN_DIR" >> "\$LOG_FILE" 2>&1 || true
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    echo "Sandbox bins symlink:" >> "\$LOG_FILE"
+    ls -lah "\$RUN_DIR/bins" >> "\$LOG_FILE" 2>&1 || true
+
+    cd "\$RUN_DIR"
+
+    echo "Running MaxBin2 inside sandbox." >> "\$LOG_FILE"
+    echo "Sandbox pwd: \$(pwd -P)" >> "\$LOG_FILE"
+
+    MAXBIN_CMD=( "\$PERL_EXE" "\$RUN_MAXBIN" )
+    MAXBIN_CMD+=( -contig maxbin2_contigs.fa )
+    MAXBIN_CMD+=( -abund maxbin2_abundance.tsv )
+    MAXBIN_CMD+=( -out "bins/${binning_id}.maxbin2_bin" )
+    MAXBIN_CMD+=( -thread ${task.cpus} )
+
+    if [[ -n "${params.maxbin2_extra_args}" ]]; then
+        EXTRA_ARGS=( ${params.maxbin2_extra_args} )
+        MAXBIN_CMD+=( "\${EXTRA_ARGS[@]}" )
+    fi
+
+    printf 'MaxBin2 command:' >> "\$LOG_FILE"
+    printf ' %q' "\${MAXBIN_CMD[@]}" >> "\$LOG_FILE"
+    printf '\\n' >> "\$LOG_FILE"
+
+    set +e
+    "\${MAXBIN_CMD[@]}" >> "\$LOG_FILE" 2>&1
+    STATUS="\$?"
+    set -e
+
+    if [[ "\$STATUS" -ne 0 ]]; then
+        echo "ERROR: MaxBin2 failed with exit status \$STATUS" >> "\$LOG_FILE"
+        echo "Last 180 lines of MaxBin2 log:" >&2
+        tail -n 180 "\$LOG_FILE" >&2 || true
+        exit "\$STATUS"
+    fi
+
+    echo "MaxBin2 command completed." >> "\$LOG_FILE"
+    echo "Sandbox bins directory contents:" >> "\$LOG_FILE"
+    find -L bins -type f -print >> "\$LOG_FILE" 2>&1 || true
+
+    cd "\$TASK_DIR"
+
+    echo "MaxBin2 wrote bins directly into task directory via sandbox symlink." >> "\$LOG_FILE"
+    echo "Task bins directory contents:" >> "\$LOG_FILE"
+    find bins -type f -print >> "\$LOG_FILE" 2>&1 || true
 
     python3 - \\
-        "\$BIN_DIR" \\
+        "bins" \\
         "${binning_id}.maxbin2.binning_manifest_record.tsv" \\
         "${binning_id}.maxbin2.binning_stats.tsv" \\
         "${sample_id}" \\
@@ -1443,12 +1902,14 @@ def fasta_len(path):
     return total
 
 fasta_exts = {".fa", ".fasta", ".fna", ".fas"}
-bin_files = []
 
+bin_files = []
 for p in sorted(bin_dir.iterdir()):
     if p.is_file():
         suffixes = p.suffixes
-        if p.suffix in fasta_exts or (len(suffixes) >= 2 and suffixes[-1] == ".gz" and suffixes[-2] in fasta_exts):
+        if p.suffix in fasta_exts or (
+            len(suffixes) >= 2 and suffixes[-1] == ".gz" and suffixes[-2] in fasta_exts
+        ):
             bin_files.append(p)
 
 total_bp = 0
@@ -1459,7 +1920,6 @@ with open(manifest_path, "w") as manifest:
         bp = fasta_len(p)
         total_bp += bp
         largest = max(largest, bp)
-
         bin_id = f"{binning_id}_{binner}_bin_{idx:03d}"
         published_path = str(Path(published_bin_dir) / p.name)
 
@@ -1500,6 +1960,7 @@ with open(stats_path, "w") as stats:
         sep="\\t",
         file=stats
     )
+
     print(
         sample_id,
         safe_sample_id,
@@ -1525,11 +1986,8 @@ PY
     """
 }
 
-
 process RUN_QUICKBIN {
-
     tag { binning_id }
-
     stageInMode 'symlink'
 
     publishDir { "${params.outdir}/bins/quickbin/${binning_id}" },
@@ -1588,6 +2046,8 @@ process RUN_QUICKBIN {
         quickbin_xmx_arg = x.startsWith("-Xmx") ? x : "-Xmx${x}"
     }
 
+    def quickbin_xmx_log = quickbin_xmx_arg ? quickbin_xmx_arg : "NONE"
+
     """
     set -euo pipefail
 
@@ -1597,8 +2057,20 @@ process RUN_QUICKBIN {
         export PATH="\$QUICKBIN_ENV/bin:\$PATH"
     fi
 
-    if ! command -v quickbin.sh >/dev/null 2>&1; then
-        echo "ERROR: quickbin.sh is not available after tool setup." >&2
+    if ! command -v java >/dev/null 2>&1; then
+        echo "ERROR: java is not available after tool setup." >&2
+        cat "${tools_status}" >&2 || true
+        exit 1
+    fi
+
+    BBTOOLS_JAR=""
+    if [[ -n "\$QUICKBIN_ENV" && "\$QUICKBIN_ENV" != "SYSTEM" && "\$QUICKBIN_ENV" != "NOT_USED" ]]; then
+        BBTOOLS_JAR="\$(find "\$QUICKBIN_ENV" -type f -name 'bbtools.jar' 2>/dev/null | head -n 1 || true)"
+    fi
+
+    if [[ -z "\$BBTOOLS_JAR" ]]; then
+        echo "ERROR: Could not find bbtools.jar under QUICKBIN_ENV." >&2
+        echo "QUICKBIN_ENV=\$QUICKBIN_ENV" >&2
         cat "${tools_status}" >&2 || true
         exit 1
     fi
@@ -1617,28 +2089,44 @@ process RUN_QUICKBIN {
     echo "Filtered assembly FASTA: ${filtered_assembly_fasta}" >> "\$LOG_FILE"
     echo "BAM: ${sorted_bam}" >> "\$LOG_FILE"
     echo "Threads: ${task.cpus}" >> "\$LOG_FILE"
+    echo "QUICKBIN_ENV: \$QUICKBIN_ENV" >> "\$LOG_FILE"
+    echo "BBTOOLS_JAR: \$BBTOOLS_JAR" >> "\$LOG_FILE"
+    echo "Requested Java memory argument: ${quickbin_xmx_log}" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
 
-    QB_ARGS=""
-    QB_ARGS="\${QB_ARGS} mincluster=${params.quickbin_mincluster}"
-    QB_ARGS="\${QB_ARGS} mincontig=${params.quickbin_mincontig}"
-    QB_ARGS="\${QB_ARGS} minseed=${params.quickbin_minseed}"
-    QB_ARGS="\${QB_ARGS} threads=${task.cpus}"
-    QB_ARGS="\${QB_ARGS} gzip=${params.quickbin_gzip.toString().toLowerCase()}"
-    QB_ARGS="\${QB_ARGS} clade=${params.quickbin_clade.toString().toLowerCase()}"
-    QB_ARGS="\${QB_ARGS} sketch=${params.quickbin_sketch.toString().toLowerCase()}"
-    QB_ARGS="\${QB_ARGS} server=${params.quickbin_server.toString().toLowerCase()}"
+    if [[ ! -s "${filtered_assembly_fasta}" ]]; then
+        echo "ERROR: Filtered assembly FASTA is missing or empty: ${filtered_assembly_fasta}" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    if [[ ! -s "${sorted_bam}" ]]; then
+        echo "ERROR: Sorted BAM is missing or empty: ${sorted_bam}" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    QB_ARGS=()
+    QB_ARGS+=( "mincluster=${params.quickbin_mincluster}" )
+    QB_ARGS+=( "mincontig=${params.quickbin_mincontig}" )
+    QB_ARGS+=( "minseed=${params.quickbin_minseed}" )
+    QB_ARGS+=( "threads=${task.cpus}" )
+    QB_ARGS+=( "gzip=${params.quickbin_gzip.toString().toLowerCase()}" )
+    QB_ARGS+=( "clade=${params.quickbin_clade.toString().toLowerCase()}" )
+    QB_ARGS+=( "sketch=${params.quickbin_sketch.toString().toLowerCase()}" )
+    QB_ARGS+=( "server=${params.quickbin_server.toString().toLowerCase()}" )
 
     if [[ "${params.quickbin_chaff.toString().toLowerCase()}" == "true" ]]; then
-        QB_ARGS="\${QB_ARGS} chaff"
+        QB_ARGS+=( "chaff" )
     fi
 
     if [[ -n "${params.quickbin_stringency}" ]]; then
-        QB_ARGS="\${QB_ARGS} ${params.quickbin_stringency}"
+        QB_ARGS+=( "${params.quickbin_stringency}" )
     fi
 
     if [[ -n "${params.quickbin_extra_args}" ]]; then
-        QB_ARGS="\${QB_ARGS} ${params.quickbin_extra_args}"
+        EXTRA_ARGS=( ${params.quickbin_extra_args} )
+        QB_ARGS+=( "\${EXTRA_ARGS[@]}" )
     fi
 
     if [[ "${params.quickbin_use_positional_bam.toString().toLowerCase()}" == "true" ]]; then
@@ -1647,15 +2135,48 @@ process RUN_QUICKBIN {
         READS_ARG="reads=${sorted_bam}"
     fi
 
-    quickbin.sh \\
-        ${quickbin_xmx_arg} \\
-        in="${filtered_assembly_fasta}" \\
-        "\$READS_ARG" \\
-        out="\$BIN_DIR" \\
-        covout="\$COV_FILE" \\
-        report="\$REPORT_FILE" \\
-        \$QB_ARGS \\
-        >> "\$LOG_FILE" 2>&1
+    echo "Using direct Java QuickBin call instead of quickbin.sh." >> "\$LOG_FILE"
+    echo "This avoids BBTools wrapper classpath breakage when paths contain spaces." >> "\$LOG_FILE"
+    echo "READS_ARG: \$READS_ARG" >> "\$LOG_FILE"
+
+    printf 'QB_ARGS:' >> "\$LOG_FILE"
+    printf ' %q' "\${QB_ARGS[@]}" >> "\$LOG_FILE"
+    printf '\\n' >> "\$LOG_FILE"
+
+    JAVA_CMD=( java -ea )
+
+    if [[ -n "${quickbin_xmx_arg}" ]]; then
+        JAVA_CMD+=( "${quickbin_xmx_arg}" )
+    fi
+
+    JAVA_CMD+=( -cp "\$BBTOOLS_JAR" )
+    JAVA_CMD+=( bin.QuickBin )
+    JAVA_CMD+=( "in=${filtered_assembly_fasta}" )
+    JAVA_CMD+=( "\$READS_ARG" )
+    JAVA_CMD+=( "out=\$BIN_DIR" )
+    JAVA_CMD+=( "covout=\$COV_FILE" )
+    JAVA_CMD+=( "report=\$REPORT_FILE" )
+    JAVA_CMD+=( "\${QB_ARGS[@]}" )
+
+    printf 'Java command:' >> "\$LOG_FILE"
+    printf ' %q' "\${JAVA_CMD[@]}" >> "\$LOG_FILE"
+    printf '\\n' >> "\$LOG_FILE"
+
+    "\${JAVA_CMD[@]}" >> "\$LOG_FILE" 2>&1
+
+    if [[ ! -d "\$BIN_DIR" ]]; then
+        echo "ERROR: QuickBin did not create bin directory: \$BIN_DIR" >> "\$LOG_FILE"
+        cat "\$LOG_FILE" >&2
+        exit 1
+    fi
+
+    if [[ ! -s "\$COV_FILE" ]]; then
+        echo "WARNING: QuickBin did not create a non-empty coverage file: \$COV_FILE" >> "\$LOG_FILE"
+    fi
+
+    if [[ ! -s "\$REPORT_FILE" ]]; then
+        echo "WARNING: QuickBin did not create a non-empty report file: \$REPORT_FILE" >> "\$LOG_FILE"
+    fi
 
     python3 - \\
         "\$BIN_DIR" \\
@@ -1707,12 +2228,14 @@ def fasta_len(path):
     return total
 
 fasta_exts = {".fa", ".fasta", ".fna", ".fas"}
-bin_files = []
 
+bin_files = []
 for p in sorted(bin_dir.iterdir()):
     if p.is_file():
         suffixes = p.suffixes
-        if p.suffix in fasta_exts or (len(suffixes) >= 2 and suffixes[-1] == ".gz" and suffixes[-2] in fasta_exts):
+        if p.suffix in fasta_exts or (
+            len(suffixes) >= 2 and suffixes[-1] == ".gz" and suffixes[-2] in fasta_exts
+        ):
             bin_files.append(p)
 
 total_bp = 0
@@ -1723,7 +2246,6 @@ with open(manifest_path, "w") as manifest:
         bp = fasta_len(p)
         total_bp += bp
         largest = max(largest, bp)
-
         bin_id = f"{binning_id}_{binner}_bin_{idx:03d}"
         published_path = str(Path(published_bin_dir) / p.name)
 
@@ -1764,6 +2286,7 @@ with open(stats_path, "w") as stats:
         sep="\\t",
         file=stats
     )
+
     print(
         sample_id,
         safe_sample_id,
@@ -1788,7 +2311,6 @@ PY
     echo "QuickBin binning finished: \$(date)" >> "\$LOG_FILE"
     """
 }
-
 
 process WRITE_FILTERED_ASSEMBLY_STATS_SUMMARY {
 
