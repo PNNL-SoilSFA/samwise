@@ -1,4 +1,5 @@
 #!/usr/bin/env nextflow
+
 nextflow.enable.dsl=2
 
 /*
@@ -14,25 +15,29 @@ nextflow.enable.dsl=2
  */
 params.input_dir       = null
 params.outdir          = "./results/module_0_readprocess"
-params.output_dir      = null
+params.working_dir      = null
 params.file_pattern    = "*.{fastq.gz,fq.gz,fastq,fq}"
 params.fastqc_threads  = 2
 params.threads         = null
 params.skip_validate   = false
-
 params.fastqc_version  = "0.12.1"
 params.auto_install    = true
 params.tool_env_dir    = null
+params.module0_outdir = params.working_dir ? "${params.working_dir}/module_0_readprocess" : params.outdir
 
 workflow {
+
     if( !params.input_dir ) {
         error """
         Missing required parameter: --input_dir
 
         Example:
-          nextflow run module_0_readprocess.nf --input_dir ./reads
+          nextflow run module_0_readprocess.nf --input_dir ./reads --working_dir ./results
         """.stripIndent()
     }
+
+    log.info "Module 0 input directory: ${params.input_dir}"
+    log.info "Module 0 output directory: ${params.module0_outdir}"
 
     def all_files_ch = channel.fromPath(
         "${params.input_dir}/${params.file_pattern}",
@@ -76,9 +81,10 @@ workflow {
 }
 
 process SETUP_MODULE0_TOOLS {
+
     tag "setup_fastqc"
 
-    publishDir "${params.output_dir ?: params.outdir}/setup",
+    publishDir "${params.module0_outdir}/setup",
         mode: 'copy',
         pattern: "module0_tools_status.env"
 
@@ -86,8 +92,7 @@ process SETUP_MODULE0_TOOLS {
     path "module0_tools_status.env", emit: status
 
     script:
-    def base_outdir = params.output_dir ?: params.outdir
-    def env_dir = params.tool_env_dir ?: "${base_outdir}/conda_envs/module0_tools"
+    def env_dir = params.tool_env_dir ?: "${params.module0_outdir}/conda_envs/module0_tools"
 
     """
     set -euo pipefail
@@ -199,9 +204,10 @@ process SETUP_MODULE0_TOOLS {
 }
 
 process CHECK_READ_NAMING {
+
     tag "check_read_naming"
 
-    publishDir "${params.output_dir ?: params.outdir}/naming",
+    publishDir "${params.module0_outdir}/naming",
         mode: 'copy',
         pattern: "*.{txt,tsv}"
 
@@ -231,7 +237,6 @@ manifest_path = Path("read_manifest.tsv")
 r1_files = {}
 r2_files = {}
 interleaved_files = {}
-
 r1_style = {}
 r2_style = {}
 
@@ -269,6 +274,7 @@ def classify_read(name):
     return None, None, None
 
 with report_path.open("w") as report, manifest_path.open("w") as manifest:
+
     def log(message=""):
         print(message, file=report)
 
@@ -289,6 +295,7 @@ with report_path.open("w") as report, manifest_path.open("w") as manifest:
     log("Files detected:")
     for f in input_files:
         log("  {}".format(f))
+
     log("")
 
     for file_path in input_files:
@@ -434,11 +441,12 @@ PY
 }
 
 process VALIDATE_READS {
+
     tag { read_file.simpleName }
 
     stageInMode 'symlink'
 
-    publishDir "${params.output_dir ?: params.outdir}/validation",
+    publishDir "${params.module0_outdir}/validation_reports",
         mode: 'copy',
         pattern: "*_validation*.txt"
 
@@ -544,11 +552,12 @@ process VALIDATE_READS {
 }
 
 process SKIP_VALIDATE_READS {
+
     tag { read_file.simpleName }
 
     stageInMode 'symlink'
 
-    publishDir "${params.output_dir ?: params.outdir}/validation",
+    publishDir "${params.module0_outdir}/validation",
         mode: 'copy',
         pattern: "*_validation*.txt"
 
@@ -575,11 +584,12 @@ process SKIP_VALIDATE_READS {
 }
 
 process RUN_FASTQC {
+
     tag { read_file.simpleName }
 
     stageInMode 'symlink'
 
-    publishDir "${params.output_dir ?: params.outdir}/fastqc",
+    publishDir "${params.module0_outdir}_reports",
         mode: 'copy'
 
     cpus {
