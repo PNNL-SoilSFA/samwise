@@ -283,7 +283,6 @@ process SETUP_MODULE1_TOOLS {
     """
 }
 
-
 process FASTP_PAIRED {
 
     tag { sample_id }
@@ -394,7 +393,6 @@ process FASTP_PAIRED {
     """
 }
 
-
 process FASTP_INTERLEAVED {
 
     tag { sample_id }
@@ -494,7 +492,6 @@ process FASTP_INTERLEAVED {
         > "${safe_id}_trimmed_manifest_record.tsv"
     """
 }
-
 
 process TRIMMING_STATS_PAIRED {
 
@@ -608,7 +605,6 @@ PY
     """
 }
 
-
 process TRIMMING_STATS_INTERLEAVED {
 
     tag { sample_id }
@@ -719,7 +715,6 @@ PY
     """
 }
 
-
 process RUN_FASTQC_TRIMMED {
 
     tag { read_file.simpleName }
@@ -765,7 +760,6 @@ process RUN_FASTQC_TRIMMED {
     """
 }
 
-
 process WRITE_TRIMMED_MANIFEST {
 
     tag "write_trimmed_manifest"
@@ -798,7 +792,6 @@ process WRITE_TRIMMED_MANIFEST {
     done
     """
 }
-
 
 process WRITE_TRIMMING_STATS_SUMMARY {
 

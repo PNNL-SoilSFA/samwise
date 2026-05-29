@@ -13,6 +13,7 @@ nextflow.enable.dsl=2
  * Default parameters.
  * Command-line values override these.
  */
+ 
 params.input_dir       = null
 params.outdir          = "./results/module_0_readprocess"
 params.working_dir      = null

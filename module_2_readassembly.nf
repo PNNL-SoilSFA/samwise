@@ -8,7 +8,6 @@ nextflow.enable.dsl=2
  *
  *   <working_dir>/module_1_readtrimming/summary/trimmed_manifest.tsv
  *
- * This module does not perform trimming. It uses already-trimmed reads.
  *
  * Supported assemblers:
  *
@@ -79,6 +78,7 @@ params.assembly_threads  = 4
  *
  *   --megahit_threads 1
  */
+
 params.megahit_threads   = null
 
 params.megahit_preset    = "meta-large"
@@ -90,19 +90,6 @@ params.results_dir = params.working_dir ? params.working_dir : (params.output_di
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.outdir = "${params.results_dir}/module_2_readassembly"
 
-
-/*
- * Rarefaction label helpers.
- *
- * Produces:
- *
- *   0  -> a
- *   1  -> b
- *   ...
- *   25 -> z
- *   26 -> aa
- *   27 -> ab
- */
 def rareLabelFromIndex(int index) {
     def alphabet = "abcdefghijklmnopqrstuvwxyz"
 
@@ -119,7 +106,6 @@ def rareLabelFromIndex(int index) {
 
     return rareLabelFromIndex(prefix_index) + alphabet.charAt(suffix_index).toString()
 }
-
 
 def rareLabels(int count) {
     return (0..<count).collect { idx -> rareLabelFromIndex(idx as int) }
@@ -203,10 +189,6 @@ workflow {
         checkIfExists: true
     )
 
-    /*
-     * Use val strings for read paths instead of staging large FASTQ files.
-     * This avoids unnecessary duplication of trimmed reads.
-     */
     def reads_ch = manifest_ch
         .splitCsv(header: true, sep: '\t')
         .map { row ->
@@ -214,12 +196,6 @@ workflow {
             def sample_id = row.sample_id.toString()
             def safe_id   = row.safe_sample_id.toString()
             def layout    = row.layout.toString()
-
-            /*
-             * Assembly SampleID:
-             * remove dashes, underscores, spaces, and any other non-alphanumeric
-             * characters so the first underscore-delimited header field is one block.
-             */
             def assembly_sample_id = sample_id.replaceAll('[^A-Za-z0-9]+', '')
 
             if( !assembly_sample_id ) {
@@ -363,11 +339,7 @@ process SETUP_MODULE2_TOOLS {
     }
 
     if( want_metaspades ) {
-        /*
-         * Bioconda recipe pages often show versions like 4.2.0-2.
-         * In conda specs, use the package version, e.g. spades=4.2.0.
-         * This strips a trailing build suffix if the user supplied one.
-         */
+
         def spades_version_for_conda = params.spades_version.toString().replaceFirst(/-\d+$/, '')
         packages << "spades=${spades_version_for_conda}"
     }
@@ -496,7 +468,6 @@ process SETUP_MODULE2_TOOLS {
     echo "Module 2 tool setup finished: \$(date)" >> "\$STATUS_FILE"
     """
 }
-
 
 process ASSEMBLE_SINGLE {
 
@@ -852,7 +823,6 @@ PY
     rm -rf "\$RAW_OUT"
     """
 }
-
 
 process ASSEMBLE_RAREFIED {
 
@@ -1283,7 +1253,6 @@ PY
     rm -rf "\$RAW_OUT"
     """
 }
-
 
 process WRITE_ASSEMBLY_SUMMARIES {
 
