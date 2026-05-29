@@ -1,0 +1,17 @@
+# Nextflow working directories
+work/
+.nextflow/
+.nextflow.log*
+.nextflow.cache/
+
+# Temporary/log files
+*.log
+*.tmp
+*.trace
+*.timeline.html
+*.report.html
+*.dag.dot
+
+# OS/editor files
+.DS_Store
+.vscode/
