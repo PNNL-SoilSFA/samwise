@@ -121,7 +121,7 @@ workflow {
     )
 
     def paired_fastqc_reads_ch = FASTP_PAIRED.out.trimmed_reads
-        .flatMap { sample_id, safe_id, read1_trimmed, read2_trimmed, fastp_json ->
+        .flatMap { sample_id, _safe_id, read1_trimmed, read2_trimmed, _fastp_json ->
             [
                 tuple(sample_id, read1_trimmed),
                 tuple(sample_id, read2_trimmed)
@@ -129,7 +129,7 @@ workflow {
         }
 
     def interleaved_fastqc_reads_ch = FASTP_INTERLEAVED.out.trimmed_reads
-        .map { sample_id, safe_id, interleaved_trimmed, fastp_json ->
+        .map { sample_id, _safe_id, interleaved_trimmed, _fastp_json ->
             tuple(sample_id, interleaved_trimmed)
         }
 

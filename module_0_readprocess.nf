@@ -557,7 +557,7 @@ process SKIP_VALIDATE_READS {
 
     stageInMode 'symlink'
 
-    publishDir "${params.module0_outdir}/validation",
+    publishDir "${params.module0_outdir}/validation_reports",
         mode: 'copy',
         pattern: "*_validation*.txt"
 
@@ -589,7 +589,7 @@ process RUN_FASTQC {
 
     stageInMode 'symlink'
 
-    publishDir "${params.module0_outdir}_reports",
+    publishDir "${params.module0_outdir}/fastqc_reports",
         mode: 'copy'
 
     cpus {
