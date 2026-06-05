@@ -121,7 +121,7 @@ nextflow run module_1_readtrimming.nf \
 This module performs the following steps:
 
 1. **Checks for assembly software and installs if necessary**
-   - Looks for metahit and metaSPAdes and installs into a local conda environment if needed.
+   - Looks for MEGAHIT and metaSPAdes and installs into a local conda environment if needed.
    
 2. **Assembles using multiple assemblers and assembly methods**
    - Users can choose either assembler or both: with flags `--megahit` and `--metaspades`
@@ -170,3 +170,27 @@ nextflow run module_2_readassembly.nf \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
 ```
+
+# Step 3: module_3_binning.nf
+
+This module performs the following steps:
+
+1. **Checks for binning software and installs if necessary**
+   - Looks for Quickbin, Metabat2, and MaxBIN2 and installs if needed
+   
+2. **Assembles using multiple assemblers and assembly methods**
+   - Users can choose either assembler or both: with flags `--quickbin`, `--metabat2`, `--maxbin2`
+   - Binning will be run on all assemblies generated from the prior modules
+   - Minimum scaffold length required for binning can be modified with `--min_scaffold_length` flag, default is 2500.
+
+## Usage:
+```bash
+## All binners runon scaffolds >2500bp:
+
+nextflow run module_3_binning.nf \
+--working_dir ./output_samwise \
+  --threads 5 \
+  --metabat2 \
+  --quickbin \
+  --maxbin2 \
+  --min_scaffold_length 2500
