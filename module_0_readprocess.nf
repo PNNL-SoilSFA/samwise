@@ -5,13 +5,6 @@ nextflow.enable.dsl=2
 /*
  * Module 0: Read naming validation, optional FASTQ structure validation,
  * and raw-read FastQC.
- *
- * This module auto-installs FastQC if missing, using mamba or conda.
- */
-
-/*
- * Default parameters.
- * Command-line values override these.
  */
  
 params.input_dir       = null

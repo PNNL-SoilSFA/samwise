@@ -3,17 +3,6 @@ nextflow.enable.dsl=2
 
 /*
  * Module 3: MAG binning from Module 2 assemblies and Module 1 trimmed reads.
- *
- * Expected inputs:
- *
- *   <working_dir>/module_1_readtrimming/summary/trimmed_manifest.tsv
- *   <working_dir>/module_2_readassembly/summary/assembly_manifest.tsv
- *
- * Supported binners:
- *
- *   --metabat2
- *   --quickbin
- *   --maxbin2
  */
 
 /*

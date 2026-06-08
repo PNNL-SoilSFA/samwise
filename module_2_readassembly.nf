@@ -4,18 +4,10 @@ nextflow.enable.dsl=2
 
 /*
  * Module 2: Read assembly from Module 1 trimmed reads.
- *
- * Global memory flag:
- *
- *   --memory_gb 512
- *
- * This controls:
- *   1. Nextflow memory request for assembly processes
- *   2. MEGAHIT -m, converted from GB to bytes
- *   3. metaSPAdes -m, in GB
- */
+/*
 
 /*
+
  * Parameters
  */
 params.working_dir       = null

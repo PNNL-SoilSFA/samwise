@@ -109,9 +109,8 @@ This workflow takes in the same working directory that was generated above and f
 ## Usage:
 ```bash
 nextflow run module_1_readtrimming.nf \
---working_dir ./output_samwise
+--working_dir ./output_samwise \
 --threads 6
-
 ```
 
 # Step 2: module_2_readassembly.nf
@@ -162,7 +161,7 @@ nextflow run module_2_readassembly.nf \
 ## metaspades and megahit with rarefied assemblies:
 
 nextflow run module_2_readassembly.nf \
---working_dir ./output_samwise
+--working_dir ./output_samwise \
 --threads 5 \
 --megahit \
 --metaspades \
@@ -185,12 +184,30 @@ This module performs the following steps:
 
 ## Usage:
 ```bash
-## All binners runon scaffolds >2500bp:
+## All binners run on scaffolds >2500bp unless otherwise specified:
 
 nextflow run module_3_binning.nf \
 --working_dir ./output_samwise \
-  --threads 5 \
-  --metabat2 \
-  --quickbin \
-  --maxbin2 \
-  --min_scaffold_length 2500
+--threads 5 \
+--metabat2 \
+--quickbin \
+--maxbin2 \
+--min_scaffold_length 2500
+```
+
+# Step 4: module_4_binRefinement.nf
+
+This module performs the following steps:
+
+1. **Checks for MAGScoT dependencies and installs if necessary**
+   - Looks for r r-base r-optparse r-dplyr r-readr r-funr r-digest hmmer prodigal parallel and installs if needed
+   
+2. **Runs the MAGScoT workflow and generates refined MAGs**
+   - Runs MAGScoT which uses GTDB r207 to re-group / rebin genomes and outputs cleaned, refined MAG set.
+
+## Usage:
+```bash
+nextflow run module_4_binRefinement.nf \
+--working_dir /tahoma/emsl60855/SAMWISE/testRun_viralJars \
+--threads 20
+```

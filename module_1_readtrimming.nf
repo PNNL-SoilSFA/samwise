@@ -4,14 +4,6 @@ nextflow.enable.dsl=2
 
 /*
  * Module 1: Read trimming / quality control with fastp, followed by FastQC.
- *
- * Expected input from Module 0:
- *
- *   <working_dir>/module_0_readprocess/naming/read_manifest.tsv
- *
- * Outputs:
- *
- *   <working_dir>/module_1_readtrimming/
  */
 
 /*
