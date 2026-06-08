@@ -5,49 +5,19 @@ nextflow.enable.dsl=2
 /*
  * Module 2: Read assembly from Module 1 trimmed reads.
  *
- * Expected input from Module 1:
+ * Global memory flag:
  *
- *   <working_dir>/module_1_readtrimming/summary/trimmed_manifest.tsv
+ *   --memory_gb 512
  *
- *
- * Supported assemblers:
- *
- *   --megahit
- *   --metaspades
- *
- * Assembly modes:
- *
- *   --single_assembly true
- *   --rarefied_assembly true
- *
- * Header renaming rules:
- *
- * MEGAHIT single:
- *   SampleID_A_k###_#
- *
- * MEGAHIT rarefied:
- *   SampleIDa_C_k###_#
- *   SampleIDb_C_k###_#
- *   SampleIDc_C_k###_#
- *   ...
- *
- * metaSPAdes single:
- *   SampleID_B_NODE_#
- *
- * metaSPAdes rarefied:
- *   SampleIDa_D_NODE_#
- *   SampleIDb_D_NODE_#
- *   SampleIDc_D_NODE_#
- *   ...
- *
- * SampleID is derived from the sample_id in the Module 1 trimmed manifest
- * by removing all non-alphanumeric characters.
+ * This controls:
+ *   1. Nextflow memory request for assembly processes
+ *   2. MEGAHIT -m, converted from GB to bytes
+ *   3. metaSPAdes -m, in GB
  */
 
 /*
  * Parameters
  */
-
 params.working_dir       = null
 params.input_manifest    = null
 params.output_dir        = null
@@ -69,21 +39,23 @@ params.threads           = null
 params.assembly_threads  = 4
 
 /*
+ * Global memory in GB.
+ *
+ * Example:
+ *   --memory_gb 512
+ *
+ * Use 0 to leave memory unset.
+ */
+params.memory_gb         = 0
+
+/*
  * Optional MEGAHIT-specific thread override.
  *
- * Default behavior:
- *   If --megahit_threads is not supplied, MEGAHIT uses --threads if supplied,
- *   otherwise --assembly_threads.
- *
- * Mac users who see MEGAHIT multithreading segfaults can use:
- *
+ * Example:
  *   --megahit_threads 1
  */
-
 params.megahit_threads   = null
-
 params.megahit_preset    = "meta-large"
-params.metaspades_memory_gb = 0
 
 params.publish_assemblies_mode = "symlink"
 
@@ -91,22 +63,20 @@ params.results_dir = params.working_dir ? params.working_dir : (params.output_di
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.outdir = "${params.results_dir}/module_2_readassembly"
 
+
 def rareLabelFromIndex(int index) {
     def alphabet = "abcdefghijklmnopqrstuvwxyz"
-
     if( index < 0 ) {
         error "Rarefaction label index cannot be negative: ${index}"
     }
-
     if( index < 26 ) {
         return alphabet.charAt(index).toString()
     }
-
     def prefix_index = ((int)(index / 26)) - 1
     def suffix_index = index % 26
-
     return rareLabelFromIndex(prefix_index) + alphabet.charAt(suffix_index).toString()
 }
+
 
 def rareLabels(int count) {
     return (0..<count).collect { idx -> rareLabelFromIndex(idx as int) }
@@ -124,43 +94,26 @@ workflow {
     if( !use_megahit && !use_metaspades ) {
         error """
         No assembler selected.
-
         Please specify at least one of:
-
           --megahit
           --metaspades
-
-        Example:
-          nextflow run module_2_readassembly.nf --working_dir ./results --threads 6 --megahit
         """.stripIndent()
     }
 
     if( !do_single && !do_rarefied ) {
         error """
         No assembly mode selected.
-
         Please enable at least one of:
-
           --single_assembly true
           --rarefied_assembly true
         """.stripIndent()
     }
 
     def rare_split_count = params.rarefaction_splits as int
-
     if( rare_split_count < 2 ) {
         error """
         Invalid rarefaction split count: ${rare_split_count}
-
         Rarefied assembly requires at least 2 splits.
-
-        Please use, for example:
-
-          --rarefied_assembly true --rarefaction_splits 2
-
-        or a larger value:
-
-          --rarefied_assembly true --rarefaction_splits 4
         """.stripIndent()
     }
 
@@ -173,13 +126,12 @@ workflow {
     log.info "Assembly modes: single=${do_single}, rarefied=${do_rarefied}"
     log.info "Global threads: ${params.threads ?: params.assembly_threads}"
     log.info "MEGAHIT thread override: ${params.megahit_threads ?: 'not supplied'}"
+    log.info "Global memory: ${(params.memory_gb as int) > 0 ? params.memory_gb + ' GB' : 'not supplied'}"
 
     def assembler_list = []
-
     if( use_megahit ) {
         assembler_list << "megahit"
     }
-
     if( use_metaspades ) {
         assembler_list << "metaspades"
     }
@@ -197,12 +149,11 @@ workflow {
             def sample_id = row.sample_id.toString()
             def safe_id   = row.safe_sample_id.toString()
             def layout    = row.layout.toString()
-            def assembly_sample_id = sample_id.replaceAll('[^A-Za-z0-9]+', '')
 
+            def assembly_sample_id = sample_id.replaceAll('[^A-Za-z0-9]+', '')
             if( !assembly_sample_id ) {
                 assembly_sample_id = safe_id.replaceAll('[^A-Za-z0-9]+', '')
             }
-
             if( !assembly_sample_id ) {
                 error "Could not derive non-empty assembly SampleID from sample '${sample_id}'"
             }
@@ -263,7 +214,6 @@ workflow {
     if( do_rarefied ) {
 
         def rare_letters = rareLabels(rare_split_count)
-
         log.info "Rarefied assembly enabled with ${rare_split_count} splits: ${rare_letters.join(', ')}"
 
         def rare_jobs_ch = reads_ch.flatMap {
@@ -280,7 +230,6 @@ workflow {
             assembler_list.each { assembler ->
                 (1..rare_split_count).each { idx ->
                     def rare_letter = rare_letters[idx - 1]
-
                     jobs << tuple(
                         sample_id,
                         safe_id,
@@ -327,6 +276,7 @@ process SETUP_MODULE2_TOOLS {
     path "module2_tools_status.env", emit: status
 
     script:
+
     def env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs/module2_tools"
 
     def want_megahit    = params.megahit.toString().toBoolean()
@@ -340,7 +290,6 @@ process SETUP_MODULE2_TOOLS {
     }
 
     if( want_metaspades ) {
-
         def spades_version_for_conda = params.spades_version.toString().replaceFirst(/-\d+$/, '')
         packages << "spades=${spades_version_for_conda}"
     }
@@ -448,10 +397,8 @@ process SETUP_MODULE2_TOOLS {
 
     mkdir -p "\$(dirname "\$TOOL_ENV")"
 
-    echo "Creating Module 2 environment:" >> "\$STATUS_FILE"
-    echo "  \$TOOL_ENV" >> "\$STATUS_FILE"
-    echo "Packages:" >> "\$STATUS_FILE"
-    echo "${packages.join(' ')}" >> "\$STATUS_FILE"
+    echo "Creating Module 2 environment: \$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "Packages: ${packages.join(' ')}" >> "\$STATUS_FILE"
 
     "\$INSTALLER" create -y \\
         -p "\$TOOL_ENV" \\
@@ -469,6 +416,7 @@ process SETUP_MODULE2_TOOLS {
     echo "Module 2 tool setup finished: \$(date)" >> "\$STATUS_FILE"
     """
 }
+
 
 process ASSEMBLE_SINGLE {
 
@@ -498,6 +446,11 @@ process ASSEMBLE_SINGLE {
         return params.threads != null
             ? params.threads as int
             : params.assembly_threads as int
+    }
+
+    memory {
+        def gb = params.memory_gb as int
+        return gb > 0 ? "${gb} GB" : null
     }
 
     input:
@@ -545,37 +498,31 @@ process ASSEMBLE_SINGLE {
     if [[ "\$LAYOUT" == "paired" ]]; then
         if [[ ! -s "${read1}" || ! -s "${read2}" ]]; then
             echo "ERROR: Missing paired reads for sample \${SAMPLE_ID}" >&2
-            echo "read1=${read1}" >&2
-            echo "read2=${read2}" >&2
             exit 1
         fi
-    elif [[ "\$LAYOUT" == "interleaved" ]]; then
-        if [[ ! -s "${interleaved}" ]]; then
-            echo "ERROR: Missing interleaved reads for sample \${SAMPLE_ID}" >&2
-            echo "interleaved=${interleaved}" >&2
-            exit 1
-        fi
-    else
-        echo "ERROR: Unsupported layout: \$LAYOUT" >&2
-        exit 1
-    fi
 
-    # Create local symlinks with simple filenames.
-    # Some assemblers can mishandle absolute paths containing spaces on macOS.
-    # Symlinks avoid copying large FASTQ files while giving assemblers clean paths.
-    if [[ "\$LAYOUT" == "paired" ]]; then
         ln -sfn "${read1}" input_R1.fastq.gz
         ln -sfn "${read2}" input_R2.fastq.gz
 
         READ1_LOCAL="input_R1.fastq.gz"
         READ2_LOCAL="input_R2.fastq.gz"
         INTERLEAVED_LOCAL=""
-    else
+
+    elif [[ "\$LAYOUT" == "interleaved" ]]; then
+        if [[ ! -s "${interleaved}" ]]; then
+            echo "ERROR: Missing interleaved reads for sample \${SAMPLE_ID}" >&2
+            exit 1
+        fi
+
         ln -sfn "${interleaved}" input_interleaved.fastq.gz
 
         READ1_LOCAL=""
         READ2_LOCAL=""
         INTERLEAVED_LOCAL="input_interleaved.fastq.gz"
+
+    else
+        echo "ERROR: Unsupported layout: \$LAYOUT" >&2
+        exit 1
     fi
 
     if [[ "\$ASSEMBLER" == "megahit" ]]; then
@@ -589,14 +536,23 @@ process ASSEMBLE_SINGLE {
         ASSEMBLY_STRATEGY="A"
         RAW_OUT="megahit_out"
 
+        MEGAHIT_MEM_ARG=""
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
+            MEGAHIT_MEM_ARG="-m \$MEGAHIT_MEM_BYTES"
+        fi
+
         echo "Running MEGAHIT single assembly for \${SAMPLE_ID}" > "\$LOG_FILE"
         echo "MEGAHIT threads: ${task.cpus}" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
+        echo "MEGAHIT memory arg: \$MEGAHIT_MEM_ARG" >> "\$LOG_FILE"
 
         if [[ "\$LAYOUT" == "paired" ]]; then
             megahit \\
                 -1 "\$READ1_LOCAL" \\
                 -2 "\$READ2_LOCAL" \\
                 -t ${task.cpus} \\
+                \$MEGAHIT_MEM_ARG \\
                 -o "\$RAW_OUT" \\
                 --presets ${params.megahit_preset} \\
                 >> "\$LOG_FILE" 2>&1
@@ -604,6 +560,7 @@ process ASSEMBLE_SINGLE {
             megahit \\
                 --12 "\$INTERLEAVED_LOCAL" \\
                 -t ${task.cpus} \\
+                \$MEGAHIT_MEM_ARG \\
                 -o "\$RAW_OUT" \\
                 --presets ${params.megahit_preset} \\
                 >> "\$LOG_FILE" 2>&1
@@ -628,13 +585,14 @@ process ASSEMBLE_SINGLE {
         RAW_OUT="metaspades_out"
 
         SPADES_MEM_ARG=""
-
-        if [[ "${params.metaspades_memory_gb}" != "0" ]]; then
-            SPADES_MEM_ARG="-m ${params.metaspades_memory_gb}"
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            SPADES_MEM_ARG="-m ${params.memory_gb}"
         fi
 
         echo "Running metaSPAdes single assembly for \${SAMPLE_ID}" > "\$LOG_FILE"
         echo "metaSPAdes threads: ${task.cpus}" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
+        echo "metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
 
         if [[ "\$LAYOUT" == "paired" ]]; then
             metaspades.py \\
@@ -788,6 +746,7 @@ with stats_file.open("w") as stats:
         sep="\\t",
         file=stats
     )
+
     print(
         sample_id,
         safe_id,
@@ -825,6 +784,7 @@ PY
     """
 }
 
+
 process ASSEMBLE_RAREFIED {
 
     tag { "${sample_id}:${assembler}:rarefied:${rare_letter}" }
@@ -853,6 +813,11 @@ process ASSEMBLE_RAREFIED {
         return params.threads != null
             ? params.threads as int
             : params.assembly_threads as int
+    }
+
+    memory {
+        def gb = params.memory_gb as int
+        return gb > 0 ? "${gb} GB" : null
     }
 
     input:
@@ -891,8 +856,8 @@ process ASSEMBLE_RAREFIED {
     ASSEMBLY_SAMPLE_ID="${assembly_sample_id}${rare_letter}"
     LAYOUT="${layout}"
     ASSEMBLER="${assembler}"
-    MODE="rarefied"
 
+    MODE="rarefied"
     RARE_INDEX="${rare_index}"
     RARE_ZERO_INDEX=\$((RARE_INDEX - 1))
     RAREFACTION_LABEL="${rare_letter}"
@@ -941,20 +906,21 @@ def read_fastq_records(path):
             h = handle.readline()
             if not h:
                 break
+
             s = handle.readline()
             p = handle.readline()
             q = handle.readline()
+
             if not q:
                 raise RuntimeError(f"Incomplete FASTQ record in {path}")
+
             yield h, s, p, q
 
 records_written = 0
 
 if layout == "paired":
-
     if not Path(read1).exists():
         raise RuntimeError(f"Read 1 file does not exist: {read1}")
-
     if not Path(read2).exists():
         raise RuntimeError(f"Read 2 file does not exist: {read2}")
 
@@ -969,7 +935,6 @@ if layout == "paired":
                 records_written += 1
 
 elif layout == "interleaved":
-
     if not Path(interleaved).exists():
         raise RuntimeError(f"Interleaved file does not exist: {interleaved}")
 
@@ -1001,8 +966,7 @@ else:
 
 if records_written == 0:
     raise RuntimeError(
-        f"Rarefied subset {split_idx + 1} of {split_count} contains zero pairs/fragments. "
-        f"Input may be too small for {split_count}-way rarefaction."
+        f"Rarefied subset {split_idx + 1} of {split_count} contains zero pairs/fragments."
     )
 PY
 
@@ -1019,14 +983,23 @@ PY
         ASSEMBLY_STRATEGY="C"
         RAW_OUT="megahit_rarefied_out"
 
+        MEGAHIT_MEM_ARG=""
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
+            MEGAHIT_MEM_ARG="-m \$MEGAHIT_MEM_BYTES"
+        fi
+
         echo "Running MEGAHIT rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
         echo "MEGAHIT threads: ${task.cpus}" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
+        echo "MEGAHIT memory arg: \$MEGAHIT_MEM_ARG" >> "\$LOG_FILE"
 
         if [[ "\$LAYOUT" == "paired" ]]; then
             megahit \\
                 -1 "\$SUB_R1" \\
                 -2 "\$SUB_R2" \\
                 -t ${task.cpus} \\
+                \$MEGAHIT_MEM_ARG \\
                 -o "\$RAW_OUT" \\
                 --presets ${params.megahit_preset} \\
                 >> "\$LOG_FILE" 2>&1
@@ -1034,6 +1007,7 @@ PY
             megahit \\
                 --12 "\$SUB_12" \\
                 -t ${task.cpus} \\
+                \$MEGAHIT_MEM_ARG \\
                 -o "\$RAW_OUT" \\
                 --presets ${params.megahit_preset} \\
                 >> "\$LOG_FILE" 2>&1
@@ -1058,13 +1032,14 @@ PY
         RAW_OUT="metaspades_rarefied_out"
 
         SPADES_MEM_ARG=""
-
-        if [[ "${params.metaspades_memory_gb}" != "0" ]]; then
-            SPADES_MEM_ARG="-m ${params.metaspades_memory_gb}"
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            SPADES_MEM_ARG="-m ${params.memory_gb}"
         fi
 
         echo "Running metaSPAdes rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
         echo "metaSPAdes threads: ${task.cpus}" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
+        echo "metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
 
         if [[ "\$LAYOUT" == "paired" ]]; then
             metaspades.py \\
@@ -1218,6 +1193,7 @@ with stats_file.open("w") as stats:
         sep="\\t",
         file=stats
     )
+
     print(
         sample_id,
         safe_id,
@@ -1255,6 +1231,7 @@ PY
     """
 }
 
+
 process WRITE_ASSEMBLY_SUMMARIES {
 
     tag "write_assembly_summaries"
@@ -1276,6 +1253,7 @@ process WRITE_ASSEMBLY_SUMMARIES {
     path "assembly_stats_summary.tsv", emit: stats_summary
 
     script:
+
     def manifest_files = manifest_records.collect { record -> record.name }.join(' ')
     def stats_file_list = stats_files.collect { stats -> stats.name }.join(' ')
 
