@@ -154,7 +154,7 @@ This workflow takes in the same working directory that was generated above and f
 ## metaspades only run:
 
 nextflow run module_2_readassembly.nf \
---working_dir ./output_samwise
+--working_dir ./output_samwise \
 --threads 6 \
 --metaspades
 
@@ -200,7 +200,7 @@ nextflow run module_3_binning.nf \
 This module performs the following steps:
 
 1. **Checks for MAGScoT dependencies and installs if necessary**
-   - Looks for r r-base r-optparse r-dplyr r-readr r-funr r-digest hmmer prodigal parallel and installs if needed
+   - Looks for r, r-base, r-optparse, r-dplyr, r-readr, r-funr, r-digest, hmmer, prodigal, parallel, and installs if needed
    
 2. **Runs the MAGScoT workflow and generates refined MAGs**
    - Runs MAGScoT which uses GTDB r207 to re-group / rebin genomes and outputs cleaned, refined MAG set.
@@ -210,4 +210,28 @@ This module performs the following steps:
 nextflow run module_4_binRefinement.nf \
 --working_dir /tahoma/emsl60855/SAMWISE/testRun_viralJars \
 --threads 20
+```
+
+# Step 5 (OPTIONAL): module_C_subassembly.nf
+
+This module performs the following steps:
+
+1. **Checks for dependencies and installs them if necessary**
+2. **Runs subtractive assembly workflow**
+3. **Runs binning**
+   - Same as module 3: Runs the binning pipeline with all 3 binners (if needed).
+4. **Runs consolidated MAG refinement**
+   - Same as Module 4: Runs MAGScoT which uses GTDB r207 to re-group / rebin genomes and outputs cleaned, refined MAG set.
+
+## Usage:
+```bash
+nextflow run module_5_subtractiveAssembly.nf \
+--working_dir ./output_samwise \
+--threads 20 \
+--megahit \
+--metaspades \
+--secondpass_metabat2 true \
+--secondpass_quickbin true \
+--secondpass_maxbin2 true \
+--run_second_pass_binning_refinement true
 ```
