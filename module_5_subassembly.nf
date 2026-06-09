@@ -37,7 +37,7 @@ params.spades_version   = "4.2.0"
  * BBMap parameters
  */
 params.bbmap_extra_args = ""
-params.bbmap_minid      = 0.90
+params.bbmap_minid      = 0.99
 params.bbmap_ambig      = "random"
 params.bbmap_xmx        = null
 
