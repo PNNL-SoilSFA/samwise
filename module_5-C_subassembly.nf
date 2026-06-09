@@ -3,9 +3,8 @@
 nextflow.enable.dsl=2
 
 /*
- * Module 5: Subtractive assembly + optional final joint MAG refinement.
+ * Module C: Subtractive assembly + second-pass binning + final joint MAG refinement.
  */
-
 
 /*
  * Core parameters
@@ -50,13 +49,26 @@ params.megahit_threads = null
 params.metaspades_memory_gb = 0
 
 /*
- * Optional second-pass binning + final joint refinement
+ * Second-pass binning + final joint refinement.
+ *
+ * Default behavior:
+ *   Run subtractive assembly, bin subtractive assemblies,
+ *   combine original + subtractive bins, and run final joint MAGScoT refinement.
+ *
+ * Disable with:
+ *   --run_second_pass_binning_refinement false
  */
 params.run_second_pass_binning_refinement = true
 
-params.secondpass_metabat2 = false
-params.secondpass_quickbin = false
-params.secondpass_maxbin2  = false
+/*
+ * Default to all three binners for subtractive assemblies.
+ *
+ * Disable individual binners with:
+ *   --secondpass_maxbin2 false
+ */
+params.secondpass_metabat2 = true
+params.secondpass_quickbin = true
+params.secondpass_maxbin2  = true
 
 params.module3_script = "${projectDir}/module_3_binning.nf"
 params.module4_script = "${projectDir}/module_4_binRefinement.nf"
@@ -66,7 +78,7 @@ params.secondpass_working_dir = null
 params.final_joint_working_dir = null
 
 /*
- * Module 4 dependency passthroughs for final joint refinement
+ * Module 4 dependency passthroughs for final joint refinement.
  */
 params.dependencies_dir = "${projectDir}/dependencies"
 params.tigrfam_hmm      = null
@@ -91,7 +103,7 @@ params.module3_outdir = "${params.results_dir}/module_3_binning"
 params.module4_outdir = "${params.results_dir}/module_4_binRefinement"
 params.outdir         = "${params.results_dir}/module_5_subtractiveAssembly"
 
-params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
+params.secondpass_dir  = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
 params.final_joint_dir = params.final_joint_working_dir ?: "${params.outdir}/final_joint_refinement"
 
 
@@ -133,12 +145,15 @@ workflow {
 
     if( do_secondpass && !use_secondpass_metabat2 && !use_secondpass_quickbin && !use_secondpass_maxbin2 ) {
         error """
-        --run_second_pass_binning_refinement true was requested, but no second-pass binner was selected.
+        Second-pass binning/final refinement is enabled, but no second-pass binner is selected.
 
-        Please specify at least one of:
+        Please enable at least one of:
           --secondpass_metabat2 true
           --secondpass_quickbin true
           --secondpass_maxbin2 true
+
+        Or disable second-pass/final refinement:
+          --run_second_pass_binning_refinement false
         """.stripIndent()
     }
 
@@ -738,8 +753,8 @@ with open(stats, "w") as out:
     print(sample_id, safe_id, assembly_sample_id, layout, ref_contigs, records, pairs, mapping_status, bbmap_exit_status, published, sep="\\t", file=out)
 PY
 
-    # This manifest is for nested Module 3. Use the task-local absolute path
-    # to avoid publishDir race conditions.
+    # This manifest is for nested Module 3.
+    # Use task-local absolute paths to avoid publishDir race conditions.
     printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
         "${sample_id}" \\
         "${safe_id}" \\
