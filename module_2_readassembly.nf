@@ -519,9 +519,7 @@ process ASSEMBLE_SINGLE {
         return (mem != "auto" && mem != "0") ? "${mem} GB" : null
     }
 
-    maxForks {
-        params.max_parallel_assemblies as int
-    }
+    maxForks (params.max_parallel_assemblies as int)
 
     input:
     tuple val(sample_id),
@@ -942,9 +940,7 @@ process ASSEMBLE_RAREFIED {
         return (mem != "auto" && mem != "0") ? "${mem} GB" : null
     }
 
-    maxForks {
-        params.max_parallel_assemblies as int
-    }
+    maxForks (params.max_parallel_assemblies as int)
 
     input:
     tuple val(sample_id),
