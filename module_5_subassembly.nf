@@ -3,7 +3,7 @@
 nextflow.enable.dsl=2
 
 /*
- * Module C: Subtractive assembly + second-pass binning + final joint MAG refinement.
+ * Module 5: Subtractive assembly + second-pass binning + final joint MAG refinement.
  */
 
 /*

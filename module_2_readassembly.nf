@@ -1,24 +1,10 @@
 #!/usr/bin/env nextflow
+
 nextflow.enable.dsl=2
 
 /*
  * Module 2: Read assembly from Module 1 trimmed reads.
- *
- * Expected input from Module 1:
- *
- *   <working_dir>/module_1_readtrimming/summary/trimmed_manifest.tsv
- *
- * Supported assemblers:
- *
- *   --megahit
- *   --metaspades
- *
- * Assembly modes:
- *
- *   --single_assembly true
- *   --rarefied_assembly true
  */
-
 
 /*
  * Parameters
