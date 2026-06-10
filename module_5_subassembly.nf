@@ -6,9 +6,6 @@ nextflow.enable.dsl=2
  * Module 5: Subtractive assembly + second-pass binning + final joint MAG refinement.
  */
 
-/*
- * Core parameters
- */
 params.working_dir = null
 params.output_dir  = null
 
@@ -26,46 +23,21 @@ params.threads = null
 params.mapping_threads  = 4
 params.assembly_threads = 4
 
-/*
- * Tool versions
- */
 params.bbmap_version    = "39.81"
 params.megahit_version  = "1.2.9"
 params.spades_version   = "4.2.0"
 
-/*
- * BBMap parameters
- */
 params.bbmap_extra_args = ""
 params.bbmap_minid      = 0.99
 params.bbmap_ambig      = "random"
 params.bbmap_xmx        = null
 
-/*
- * Assembly parameters
- */
 params.megahit_preset = "meta-large"
 params.megahit_threads = null
 params.metaspades_memory_gb = 0
 
-/*
- * Second-pass binning + final joint refinement.
- *
- * Default behavior:
- *   Run subtractive assembly, bin subtractive assemblies,
- *   combine original + subtractive bins, and run final joint MAGScoT refinement.
- *
- * Disable with:
- *   --run_second_pass_binning_refinement false
- */
 params.run_second_pass_binning_refinement = true
 
-/*
- * Default to all three binners for subtractive assemblies.
- *
- * Disable individual binners with:
- *   --secondpass_maxbin2 false
- */
 params.secondpass_metabat2 = true
 params.secondpass_quickbin = true
 params.secondpass_maxbin2  = true
@@ -77,26 +49,17 @@ params.nextflow_exe   = "nextflow"
 params.secondpass_working_dir = null
 params.final_joint_working_dir = null
 
-/*
- * Module 4 dependency passthroughs for final joint refinement.
- */
 params.dependencies_dir = "${projectDir}/dependencies"
 params.tigrfam_hmm      = null
 params.pfam_hmm         = null
 params.magscot_script   = null
 params.magscot_extra_args = ""
 
-/*
- * Publish modes
- */
 params.publish_reference_mode  = "copy"
 params.publish_unmapped_mode   = "symlink"
 params.publish_assemblies_mode = "symlink"
 params.publish_final_mags_mode = "copy"
 
-/*
- * Derived directories
- */
 params.results_dir    = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module3_outdir = "${params.results_dir}/module_3_binning"
@@ -147,20 +110,18 @@ workflow {
         error """
         Second-pass binning/final refinement is enabled, but no second-pass binner is selected.
 
-        Please enable at least one of:
+        Enable at least one:
           --secondpass_metabat2 true
           --secondpass_quickbin true
           --secondpass_maxbin2 true
 
-        Or disable second-pass/final refinement:
+        Or disable second pass:
           --run_second_pass_binning_refinement false
         """.stripIndent()
     }
 
     def trimmed_manifest_file = params.input_trimmed_manifest ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
-
     def original_binning_manifest_file = params.input_original_binning_manifest ?: "${params.module3_outdir}/summary/binning_manifest.tsv"
-
     def refined_manifest_file = params.input_refined_manifest ?: "${params.module4_outdir}/summary/magscot_refined_bins_manifest.tsv"
 
     log.info "Module 5 results directory: ${params.results_dir}"
@@ -169,7 +130,7 @@ workflow {
     log.info "Using Module 4 refined MAG manifest as subtractive reference: ${refined_manifest_file}"
     log.info "Writing Module 5 outputs to: ${params.outdir}"
     log.info "Subtractive assemblers: MEGAHIT=${use_megahit}, metaSPAdes=${use_metaspades}"
-    log.info "Second-pass binning/final joint refinement enabled: ${do_secondpass}"
+    log.info "Second-pass enabled: ${do_secondpass}"
     log.info "Second-pass binners: MetaBAT2=${use_secondpass_metabat2}, QuickBin=${use_secondpass_quickbin}, MaxBin2=${use_secondpass_maxbin2}"
     log.info "Second-pass working directory: ${params.secondpass_dir}"
     log.info "Final joint refinement working directory: ${params.final_joint_dir}"
@@ -299,7 +260,8 @@ workflow {
         )
 
         RUN_FINAL_JOINT_REFINEMENT(
-            COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS.out.combined_manifest
+            COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS.out.combined_manifest,
+            COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS.out.stats
         )
 
         BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT(
@@ -615,6 +577,7 @@ process MAP_READS_TO_REFINED_MAGS {
     set -euo pipefail
 
     TOOL_ENV="\$(grep '^TOOL_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+
     if [[ -n "\$TOOL_ENV" && "\$TOOL_ENV" != "SYSTEM" && "\$TOOL_ENV" != "NOT_USED" ]]; then
         export PATH="\$TOOL_ENV/bin:\$PATH"
     fi
@@ -753,8 +716,6 @@ with open(stats, "w") as out:
     print(sample_id, safe_id, assembly_sample_id, layout, ref_contigs, records, pairs, mapping_status, bbmap_exit_status, published, sep="\\t", file=out)
 PY
 
-    # This manifest is for nested Module 3.
-    # Use task-local absolute paths to avoid publishDir race conditions.
     printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
         "${sample_id}" \\
         "${safe_id}" \\
@@ -826,6 +787,7 @@ process ASSEMBLE_SUBTRACTIVE {
     set -euo pipefail
 
     TOOL_ENV="\$(grep '^TOOL_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+
     if [[ -n "\$TOOL_ENV" && "\$TOOL_ENV" != "SYSTEM" && "\$TOOL_ENV" != "NOT_USED" ]]; then
         export PATH="\$TOOL_ENV/bin:\$PATH"
     fi
@@ -854,8 +816,8 @@ import gzip
 import sys
 
 fastq, out = sys.argv[1:]
-lines = 0
 
+lines = 0
 with gzip.open(fastq, "rt", errors="replace") as h:
     for _ in h:
         lines += 1
@@ -922,6 +884,7 @@ PY
                 ASSEMBLY_MESSAGE="metaspades.py not available"
             else
                 SPADES_MEM_ARG=""
+
                 if [[ "${params.metaspades_memory_gb}" != "0" ]]; then
                     SPADES_MEM_ARG="-m ${params.metaspades_memory_gb}"
                 fi
@@ -967,6 +930,7 @@ with open(src) as inp, open(out_fa, "w") as out, open(hmap, "w") as hm:
 
     for line in inp:
         line = line.rstrip("\\n")
+
         if line.startswith(">"):
             idx += 1
             old = line[1:].strip()
@@ -1027,6 +991,7 @@ from pathlib import Path
 ) = sys.argv[1:]
 
 fasta = Path(fasta)
+
 lengths = []
 cur = 0
 seen = False
@@ -1063,19 +1028,74 @@ max_contig = max(lengths) if lengths else 0
 n50_value = n50(lengths)
 
 with open(stats_file, "w") as out:
-    print("sample_id", "safe_sample_id", "assembly_sample_id", "assembler", "assembly_mode", "unmapped_fastq_records", "unmapped_pairs_or_fragments", "contigs", "total_bp", "max_contig_bp", "n50_bp", "assembler_exit_status", "assembly_status", "assembly_message", "renamed_fasta", sep="\\t", file=out)
-    print(sample_id, safe_id, assembly_sample_id, assembler, "subtractive", unmapped_records, unmapped_pairs, contigs, total_bp, max_contig, n50_value, assembler_exit_status, assembly_status, assembly_message, published_fasta, sep="\\t", file=out)
+    print(
+        "sample_id",
+        "safe_sample_id",
+        "assembly_sample_id",
+        "assembler",
+        "assembly_mode",
+        "unmapped_fastq_records",
+        "unmapped_pairs_or_fragments",
+        "contigs",
+        "total_bp",
+        "max_contig_bp",
+        "n50_bp",
+        "assembler_exit_status",
+        "assembly_status",
+        "assembly_message",
+        "renamed_fasta",
+        sep="\\t",
+        file=out
+    )
+
+    print(
+        sample_id,
+        safe_id,
+        assembly_sample_id,
+        assembler,
+        "subtractive",
+        unmapped_records,
+        unmapped_pairs,
+        contigs,
+        total_bp,
+        max_contig,
+        n50_value,
+        assembler_exit_status,
+        assembly_status,
+        assembly_message,
+        published_fasta,
+        sep="\\t",
+        file=out
+    )
 
 with open(manifest_record, "w") as out:
-    print(sample_id, safe_id, assembly_sample_id, assembler, "subtractive", published_fasta, sep="\\t", file=out)
+    print(
+        sample_id,
+        safe_id,
+        assembly_sample_id,
+        assembler,
+        "subtractive",
+        published_fasta,
+        sep="\\t",
+        file=out
+    )
 
 strategy = "D" if assembler == "megahit" else "E"
 
-# This manifest is for nested Module 3. Use task-local path to avoid
-# publishDir race conditions.
 with open(module3_manifest_record, "w") as out:
     if contigs > 0:
-        print(sample_id, safe_id, assembly_sample_id, assembler, "subtractive", "", strategy, task_fasta, sep="\\t", file=out)
+        print(
+            sample_id,
+            safe_id,
+            assembly_sample_id,
+            assembler,
+            "subtractive",
+            "",
+            strategy,
+            task_fasta,
+            sep="\\t",
+            file=out
+        )
 PY
 
     rm -rf megahit_subtractive_out metaspades_subtractive_out input_unmapped_interleaved.fastq.gz unmapped_count.txt
@@ -1264,6 +1284,7 @@ process RUN_SECOND_PASS_BINNING {
     set -euo pipefail
 
     LOG_FILE="second_pass_binning.log"
+    SECOND_PASS_BINNING_MANIFEST="${params.secondpass_dir}/module_3_binning/summary/binning_manifest.tsv"
 
     echo "Second-pass binning started: \$(date)" > "\$LOG_FILE"
     echo "Subtractive trimmed manifest: ${subtractive_trimmed_manifest}" >> "\$LOG_FILE"
@@ -1276,17 +1297,23 @@ process RUN_SECOND_PASS_BINNING {
 
     ASSEMBLY_ROWS="\$(tail -n +2 "${subtractive_assembly_manifest}" | awk 'NF > 0' | wc -l | tr -d ' ')"
 
+    echo "Subtractive assembly rows: \$ASSEMBLY_ROWS" >> "\$LOG_FILE"
+
     if [[ "\$ASSEMBLY_ROWS" -eq 0 ]]; then
-        printf 'second_pass_binning\\tskipped\\t0\\tNo non-empty subtractive assemblies available\\n' >> second_pass_binning_status.tsv
+        echo "No non-empty subtractive assemblies were available." >> "\$LOG_FILE"
+        echo "No new MAGs were added with subtractive assembly." >> "\$LOG_FILE"
+        printf 'second_pass_binning\\tskipped_no_subtractive_assemblies\\t0\\tNo new MAGs were added with subtractive assembly\\n' >> second_pass_binning_status.tsv
         exit 0
     fi
 
     if [[ -z "${binner_arg_string}" ]]; then
-        printf 'second_pass_binning\\tskipped\\t0\\tNo second-pass binners selected\\n' >> second_pass_binning_status.tsv
+        echo "No second-pass binners selected." >> "\$LOG_FILE"
+        printf 'second_pass_binning\\tskipped_no_binners\\t0\\tNo second-pass binners selected\\n' >> second_pass_binning_status.tsv
         exit 0
     fi
 
     if [[ ! -s "${params.module3_script}" ]]; then
+        echo "ERROR: Module 3 script missing: ${params.module3_script}" >> "\$LOG_FILE"
         printf 'second_pass_binning\\tfailed\\t1\\tModule 3 script missing\\n' >> second_pass_binning_status.tsv
         exit 1
     fi
@@ -1303,15 +1330,38 @@ process RUN_SECOND_PASS_BINNING {
         ${binner_arg_string} \\
         >> "\$LOG_FILE" 2>&1
 
-    STATUS="\$?"
+    STATUS_CODE="\$?"
     set -e
 
-    if [[ "\$STATUS" -ne 0 ]]; then
-        printf 'second_pass_binning\\tfailed\\t%s\\tModule 3 second-pass binning failed\\n' "\$STATUS" >> second_pass_binning_status.tsv
-        exit "\$STATUS"
+    BIN_ROWS=0
+
+    if [[ -s "\$SECOND_PASS_BINNING_MANIFEST" ]]; then
+        BIN_ROWS="\$(tail -n +2 "\$SECOND_PASS_BINNING_MANIFEST" | awk 'NF > 0' | wc -l | tr -d ' ')"
     fi
 
-    printf 'second_pass_binning\\tcompleted\\t0\\tModule 3 second-pass binning completed\\n' >> second_pass_binning_status.tsv
+    echo "Second-pass Module 3 exit status: \$STATUS_CODE" >> "\$LOG_FILE"
+    echo "Second-pass bin rows: \$BIN_ROWS" >> "\$LOG_FILE"
+
+    if [[ "\$STATUS_CODE" -ne 0 ]]; then
+        if [[ "\$BIN_ROWS" -eq 0 ]]; then
+            echo "WARNING: Module 3 exited non-zero but produced no bins." >> "\$LOG_FILE"
+            echo "Treating as non-fatal because no new MAGs were added." >> "\$LOG_FILE"
+            printf 'second_pass_binning\\tskipped_no_new_bins\\t0\\tNo new MAGs were added with subtractive assembly\\n' >> second_pass_binning_status.tsv
+            exit 0
+        else
+            printf 'second_pass_binning\\tfailed\\t%s\\tModule 3 second-pass binning failed\\n' "\$STATUS_CODE" >> second_pass_binning_status.tsv
+            exit "\$STATUS_CODE"
+        fi
+    fi
+
+    if [[ "\$BIN_ROWS" -eq 0 ]]; then
+        echo "No bins were produced by second-pass binning." >> "\$LOG_FILE"
+        echo "No new MAGs were added with subtractive assembly." >> "\$LOG_FILE"
+        printf 'second_pass_binning\\tskipped_no_new_bins\\t0\\tNo new MAGs were added with subtractive assembly\\n' >> second_pass_binning_status.tsv
+        exit 0
+    fi
+
+    printf 'second_pass_binning\\tcompleted\\t0\\tModule 3 second-pass binning completed and produced new bins\\n' >> second_pass_binning_status.tsv
 
     echo "Second-pass binning finished: \$(date)" >> "\$LOG_FILE"
     """
@@ -1404,6 +1454,7 @@ process RUN_FINAL_JOINT_REFINEMENT {
 
     input:
     path combined_binning_manifest
+    path combined_manifest_stats
 
     output:
     path "final_joint_refinement_status.tsv", emit: status
@@ -1437,15 +1488,32 @@ process RUN_FINAL_JOINT_REFINEMENT {
 
     echo "Final joint refinement started: \$(date)" > "\$LOG_FILE"
     echo "Combined binning manifest: ${combined_binning_manifest}" >> "\$LOG_FILE"
+    echo "Combined manifest stats: ${combined_manifest_stats}" >> "\$LOG_FILE"
     echo "Module 4 script: ${params.module4_script}" >> "\$LOG_FILE"
     echo "Final joint working directory: ${params.final_joint_dir}" >> "\$LOG_FILE"
 
     printf 'step\\tstatus\\texit_status\\tmessage\\n' > final_joint_refinement_status.tsv
 
-    ROWS="\$(tail -n +2 "${combined_binning_manifest}" | awk 'NF > 0' | wc -l | tr -d ' ')"
+    TOTAL_ROWS="\$(tail -n +2 "${combined_binning_manifest}" | awk 'NF > 0' | wc -l | tr -d ' ')"
 
-    if [[ "\$ROWS" -eq 0 ]]; then
-        printf 'final_joint_refinement\\tskipped\\t0\\tCombined binning manifest had zero rows\\n' >> final_joint_refinement_status.tsv
+    SUBTRACTIVE_ROWS=0
+    if [[ -s "${combined_manifest_stats}" ]]; then
+        SUBTRACTIVE_ROWS="\$(tail -n 1 "${combined_manifest_stats}" | cut -f2 | tr -d ' ')"
+    fi
+
+    echo "Total combined rows: \$TOTAL_ROWS" >> "\$LOG_FILE"
+    echo "Subtractive rows: \$SUBTRACTIVE_ROWS" >> "\$LOG_FILE"
+
+    if [[ "\$TOTAL_ROWS" -eq 0 ]]; then
+        echo "No bins were available for final joint refinement." >> "\$LOG_FILE"
+        printf 'final_joint_refinement\\tskipped_no_bins\\t0\\tNo bins available for final joint refinement\\n' >> final_joint_refinement_status.tsv
+        exit 0
+    fi
+
+    if [[ "\$SUBTRACTIVE_ROWS" -eq 0 ]]; then
+        echo "No new MAGs were added with subtractive assembly." >> "\$LOG_FILE"
+        echo "Skipping final joint MAGScoT refinement." >> "\$LOG_FILE"
+        printf 'final_joint_refinement\\tskipped_no_new_mags\\t0\\tNo new MAGs were added with subtractive assembly; final joint refinement skipped\\n' >> final_joint_refinement_status.tsv
         exit 0
     fi
 
@@ -1464,12 +1532,12 @@ process RUN_FINAL_JOINT_REFINEMENT {
         ${module4_extra_args} \\
         >> "\$LOG_FILE" 2>&1
 
-    STATUS="\$?"
+    STATUS_CODE="\$?"
     set -e
 
-    if [[ "\$STATUS" -ne 0 ]]; then
-        printf 'final_joint_refinement\\tfailed\\t%s\\tFinal joint Module 4 refinement failed\\n' "\$STATUS" >> final_joint_refinement_status.tsv
-        exit "\$STATUS"
+    if [[ "\$STATUS_CODE" -ne 0 ]]; then
+        printf 'final_joint_refinement\\tfailed\\t%s\\tFinal joint Module 4 refinement failed\\n' "\$STATUS_CODE" >> final_joint_refinement_status.tsv
+        exit "\$STATUS_CODE"
     fi
 
     printf 'final_joint_refinement\\tcompleted\\t0\\tFinal joint Module 4 refinement completed\\n' >> final_joint_refinement_status.tsv
@@ -1510,16 +1578,38 @@ process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
 
     LOG_FILE="build_final_mag_database.log"
 
+    FINAL_STATUS="\$(tail -n 1 "${final_joint_refinement_status}" | cut -f2 || true)"
+    FINAL_MESSAGE="\$(tail -n 1 "${final_joint_refinement_status}" | cut -f4- || true)"
+
     FINAL_JOINT_MANIFEST="${params.final_joint_dir}/module_4_binRefinement/summary/magscot_refined_bins_manifest.tsv"
+    ORIGINAL_REFINED_MANIFEST="${params.module4_outdir}/summary/magscot_refined_bins_manifest.tsv"
 
     echo "Final MAG database construction started: \$(date)" > "\$LOG_FILE"
+    echo "Final joint refinement status file: ${final_joint_refinement_status}" >> "\$LOG_FILE"
+    echo "Final status: \$FINAL_STATUS" >> "\$LOG_FILE"
+    echo "Final message: \$FINAL_MESSAGE" >> "\$LOG_FILE"
     echo "Final joint refined MAG manifest: \$FINAL_JOINT_MANIFEST" >> "\$LOG_FILE"
-    echo "Final joint refinement status: ${final_joint_refinement_status}" >> "\$LOG_FILE"
+    echo "Original refined MAG manifest: \$ORIGINAL_REFINED_MANIFEST" >> "\$LOG_FILE"
 
     mkdir -p final_mag_database
 
+    if [[ "\$FINAL_STATUS" == "completed" ]]; then
+        SELECTED_MANIFEST="\$FINAL_JOINT_MANIFEST"
+        FINAL_DATABASE_MODE="final_joint_refinement"
+    elif [[ "\$FINAL_STATUS" == "skipped_no_new_mags" || "\$FINAL_STATUS" == "skipped_no_bins" ]]; then
+        echo "No new MAGs were added with subtractive assembly." >> "\$LOG_FILE"
+        echo "Using original Module 4 refined MAGs as final MAG database." >> "\$LOG_FILE"
+        SELECTED_MANIFEST="\$ORIGINAL_REFINED_MANIFEST"
+        FINAL_DATABASE_MODE="original_refined_mags_only"
+    else
+        echo "ERROR: Final joint refinement did not complete or skip cleanly." >> "\$LOG_FILE"
+        echo "Status: \$FINAL_STATUS" >> "\$LOG_FILE"
+        exit 1
+    fi
+
     python3 - \\
-        "\$FINAL_JOINT_MANIFEST" \\
+        "\$SELECTED_MANIFEST" \\
+        "\$FINAL_DATABASE_MODE" \\
         "final_mag_database" \\
         "final_mag_database_manifest.tsv" \\
         "final_mag_database_stats.tsv" \\
@@ -1533,7 +1623,8 @@ import sys
 from pathlib import Path
 
 (
-    final_joint_manifest,
+    selected_manifest,
+    final_database_mode,
     final_dir,
     final_manifest,
     final_stats,
@@ -1541,7 +1632,7 @@ from pathlib import Path
     published_final_dir
 ) = sys.argv[1:]
 
-final_joint_manifest = Path(final_joint_manifest)
+selected_manifest = Path(selected_manifest)
 final_dir = Path(final_dir)
 final_manifest = Path(final_manifest)
 final_stats = Path(final_stats)
@@ -1587,10 +1678,10 @@ def fasta_stats(path):
 rows = []
 manifest_rows = 0
 
-if not final_joint_manifest.exists() or final_joint_manifest.stat().st_size == 0:
-    log(f"WARNING: final joint refined MAG manifest missing or empty: {final_joint_manifest}")
+if not selected_manifest.exists() or selected_manifest.stat().st_size == 0:
+    log(f"WARNING: selected refined MAG manifest missing or empty: {selected_manifest}")
 else:
-    with final_joint_manifest.open() as h:
+    with selected_manifest.open() as h:
         reader = csv.DictReader(h, delimiter="\\t")
         for row in reader:
             manifest_rows += 1
@@ -1607,7 +1698,17 @@ total_contigs = 0
 total_bp = 0
 
 with final_manifest.open("w") as out:
-    print("final_mag_id", "source_refined_bin_id", "source_refined_bin_fasta", "final_mag_fasta", "contig_count", "total_bp", sep="\\t", file=out)
+    print(
+        "final_mag_id",
+        "source_refined_bin_id",
+        "source_refined_bin_fasta",
+        "final_mag_fasta",
+        "contig_count",
+        "total_bp",
+        "final_database_mode",
+        sep="\\t",
+        file=out
+    )
 
     for idx, (bin_id, fasta) in enumerate(rows, start=1):
         fasta = Path(fasta)
@@ -1643,14 +1744,40 @@ with final_manifest.open("w") as out:
             str(published_final_dir / name),
             contigs,
             bp,
+            final_database_mode,
             sep="\\t",
             file=out
         )
 
 with final_stats.open("w") as out:
-    print("final_joint_manifest", "manifest_rows", "mags_copied", "missing_mags", "total_contigs", "total_bp", "final_mag_database_dir", sep="\\t", file=out)
-    print(str(final_joint_manifest), manifest_rows, copied, missing, total_contigs, total_bp, str(published_final_dir), sep="\\t", file=out)
+    print(
+        "selected_manifest",
+        "final_database_mode",
+        "manifest_rows",
+        "mags_copied",
+        "missing_mags",
+        "total_contigs",
+        "total_bp",
+        "final_mag_database_dir",
+        sep="\\t",
+        file=out
+    )
 
+    print(
+        str(selected_manifest),
+        final_database_mode,
+        manifest_rows,
+        copied,
+        missing,
+        total_contigs,
+        total_bp,
+        str(published_final_dir),
+        sep="\\t",
+        file=out
+    )
+
+log(f"Selected manifest: {selected_manifest}")
+log(f"Final database mode: {final_database_mode}")
 log(f"Manifest rows: {manifest_rows}")
 log(f"MAGs copied: {copied}")
 log(f"Missing MAGs: {missing}")

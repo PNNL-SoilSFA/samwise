@@ -212,7 +212,7 @@ nextflow run module_4_binRefinement.nf \
 --threads 20
 ```
 
-# Step 5 (OPTIONAL): module_C_subassembly.nf
+# Step 5 (OPTIONAL): module_5_subassembly.nf
 
 This module performs the following steps:
 
@@ -225,7 +225,7 @@ This module performs the following steps:
 
 ## Usage:
 ```bash
-nextflow run module_5_subtractiveAssembly.nf \
+nextflow run module_5_subtractiveassembly.nf \
 --working_dir ./output_samwise \
 --threads 20 \
 --megahit \
