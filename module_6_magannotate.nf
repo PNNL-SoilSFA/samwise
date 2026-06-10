@@ -112,6 +112,9 @@ params.nextflow_exe = "nextflow"
 params.microtrait_env_dir = null
 params.microtrait_runner = null
 params.microtrait_source_dir = null
+params.microtrait_repo = "https://github.com/ukaraoz/microtrait.git"
+params.microtrait_git_ref = null
+params.microtrait_repo_dir = null
 params.microtrait_out_name = "samwise_final_mags"
 params.microtrait_run_type = "genomic"
 params.microtrait_cores = null
@@ -1038,7 +1041,6 @@ process RUN_DRAM2 {
     """
 }
 
-
 process SETUP_MICROTRAIT {
     tag "setup_microtrait"
 
@@ -1053,14 +1055,23 @@ process SETUP_MICROTRAIT {
     def base_env = params.tool_env_dir ?: "${params.outdir}/conda_envs"
     def env_dir = params.microtrait_env_dir ?: "${base_env}/microtrait"
 
+    def repo_dir = params.microtrait_repo_dir ?: "${params.outdir}/dependencies/microtrait_repo"
+
     """
     set -euo pipefail
 
     STATUS="microtrait_setup_status.env"
     MICROTRAIT_ENV="${env_dir}"
+    MICROTRAIT_REPO_DIR="${repo_dir}"
+    MICROTRAIT_SOURCE_DIR="${params.microtrait_source_dir ?: ''}"
 
     echo "microTrait setup started: \$(date)" > "\$STATUS"
     echo "MICROTRAIT_ENV=\$MICROTRAIT_ENV" >> "\$STATUS"
+    echo "MICROTRAIT_REPO_DIR=\$MICROTRAIT_REPO_DIR" >> "\$STATUS"
+    echo "Initial MICROTRAIT_SOURCE_DIR=\$MICROTRAIT_SOURCE_DIR" >> "\$STATUS"
+    echo "microTrait repo: ${params.microtrait_repo}" >> "\$STATUS"
+    echo "microTrait git ref: ${params.microtrait_git_ref ?: 'default'}" >> "\$STATUS"
+    echo "----------------------------------------" >> "\$STATUS"
 
     find_installer() {
         if command -v mamba >/dev/null 2>&1; then
@@ -1072,30 +1083,35 @@ process SETUP_MICROTRAIT {
         fi
     }
 
-    check_env() {
+    check_env_basic() {
         local prefix="\$1"
 
-        if [[ ! -x "\$prefix/bin/Rscript" ]]; then
-            return 1
-        fi
+        [[ -x "\$prefix/bin/Rscript" ]] || return 1
+        [[ -x "\$prefix/bin/hmmsearch" ]] || return 1
+        [[ -x "\$prefix/bin/prodigal" ]] || return 1
+        [[ -x "\$prefix/bin/cmsearch" ]] || return 1
+        [[ -x "\$prefix/bin/tRNAscan-SE" ]] || return 1
+        [[ -x "\$prefix/bin/bedtools" ]] || return 1
 
-        if [[ ! -x "\$prefix/bin/hmmsearch" ]]; then
-            return 1
-        fi
+        return 0
+    }
 
-        if [[ ! -x "\$prefix/bin/prodigal" ]]; then
-            return 1
-        fi
+    check_env_r() {
+        local prefix="\$1"
 
-        "\$prefix/bin/Rscript" -e 'library(microtrait)' >> "\$STATUS" 2>&1
+        "\$prefix/bin/Rscript" -e '
+            library(microtrait)
+            library(dplyr)
+            library(tictoc)
+            library(Biostrings)
+            library(coRdon)
+            library(ComplexHeatmap)
+        ' >> "\$STATUS" 2>&1
     }
 
     if [[ -d "\$MICROTRAIT_ENV" ]]; then
-        if check_env "\$MICROTRAIT_ENV"; then
+        if check_env_basic "\$MICROTRAIT_ENV" && check_env_r "\$MICROTRAIT_ENV"; then
             echo "Existing microTrait environment passed checks." >> "\$STATUS"
-            echo "MICROTRAIT_ENV=\$MICROTRAIT_ENV" >> "\$STATUS"
-            echo "microTrait setup finished: \$(date)" >> "\$STATUS"
-            exit 0
         else
             echo "Existing microTrait environment failed checks." >> "\$STATUS"
 
@@ -1103,7 +1119,7 @@ process SETUP_MICROTRAIT {
                 echo "Removing workflow-managed microTrait environment." >> "\$STATUS"
                 rm -rf "\$MICROTRAIT_ENV"
             else
-                echo "ERROR: User-supplied microTrait env failed checks." >> "\$STATUS"
+                echo "ERROR: User-supplied microTrait environment failed checks." >> "\$STATUS"
                 exit 1
             fi
         fi
@@ -1111,7 +1127,7 @@ process SETUP_MICROTRAIT {
 
     if [[ ! -d "\$MICROTRAIT_ENV" ]]; then
         if [[ "${params.auto_install}" != "true" ]]; then
-            echo "ERROR: microTrait environment missing and auto_install false." >> "\$STATUS"
+            echo "ERROR: microTrait environment missing and --auto_install false." >> "\$STATUS"
             exit 1
         fi
 
@@ -1124,12 +1140,16 @@ process SETUP_MICROTRAIT {
 
         mkdir -p "\$(dirname "\$MICROTRAIT_ENV")"
 
+        echo "Creating microTrait environment: \$MICROTRAIT_ENV" >> "\$STATUS"
+
         "\$INSTALLER" create -y \\
             -p "\$MICROTRAIT_ENV" \\
             -c conda-forge \\
             -c bioconda \\
+            "git" \\
             "r-base" \\
             "r-devtools" \\
+            "r-remotes" \\
             "r-biocmanager" \\
             "r-dplyr" \\
             "r-readr" \\
@@ -1151,21 +1171,79 @@ process SETUP_MICROTRAIT {
             "r-pheatmap" \\
             "hmmer" \\
             "prodigal" \\
-            "infernal" \\
-            "trnascan-se" \\
+            "infernal=1.1.2" \\
+            "trnascan-se=2.0.*" \\
             "bedtools" \\
             >> "\$STATUS" 2>&1
+    fi
 
-        export PATH="\$MICROTRAIT_ENV/bin:\$PATH"
+    if ! check_env_basic "\$MICROTRAIT_ENV"; then
+        echo "ERROR: microTrait environment is missing required binaries." >> "\$STATUS"
+        exit 1
+    fi
 
-        Rscript - <<'RSCRIPT' >> "\$STATUS" 2>&1
+    export PATH="\$MICROTRAIT_ENV/bin:\$PATH"
+
+    # ------------------------------------------------------------------
+    # Clone microTrait source repo so the runner can source R/*.R files.
+    # ------------------------------------------------------------------
+    if [[ -z "\$MICROTRAIT_SOURCE_DIR" ]]; then
+        if [[ ! -d "\$MICROTRAIT_REPO_DIR/.git" ]]; then
+            echo "Cloning microTrait repo to: \$MICROTRAIT_REPO_DIR" >> "\$STATUS"
+            mkdir -p "\$(dirname "\$MICROTRAIT_REPO_DIR")"
+
+            git clone "${params.microtrait_repo}" "\$MICROTRAIT_REPO_DIR" >> "\$STATUS" 2>&1
+        else
+            echo "Existing microTrait repo detected: \$MICROTRAIT_REPO_DIR" >> "\$STATUS"
+        fi
+
+        if [[ -n "${params.microtrait_git_ref ?: ''}" ]]; then
+            echo "Checking out microTrait ref: ${params.microtrait_git_ref}" >> "\$STATUS"
+            git -C "\$MICROTRAIT_REPO_DIR" fetch --all >> "\$STATUS" 2>&1 || true
+            git -C "\$MICROTRAIT_REPO_DIR" checkout "${params.microtrait_git_ref}" >> "\$STATUS" 2>&1
+        fi
+
+        MICROTRAIT_SOURCE_DIR="\$MICROTRAIT_REPO_DIR/R"
+    fi
+
+    if [[ ! -d "\$MICROTRAIT_SOURCE_DIR" ]]; then
+        echo "ERROR: microTrait source R directory does not exist: \$MICROTRAIT_SOURCE_DIR" >> "\$STATUS"
+        exit 1
+    fi
+
+    REQUIRED_R_FILES=(
+        "ogt.R"
+        "protein.R"
+        "nucleotide.R"
+        "extern.R"
+        "mingentime.R"
+        "utils.R"
+    )
+
+    for rf in "\${REQUIRED_R_FILES[@]}"; do
+        if [[ ! -s "\$MICROTRAIT_SOURCE_DIR/\$rf" ]]; then
+            echo "ERROR: Required microTrait source file missing: \$MICROTRAIT_SOURCE_DIR/\$rf" >> "\$STATUS"
+            exit 1
+        fi
+    done
+
+    echo "Using microTrait source dir: \$MICROTRAIT_SOURCE_DIR" >> "\$STATUS"
+
+    # ------------------------------------------------------------------
+    # Install R/Bioc/GitHub dependencies and install microTrait.
+    # Prefer local clone so package version matches source files.
+    # ------------------------------------------------------------------
+    Rscript - "\$MICROTRAIT_REPO_DIR" <<'RSCRIPT' >> "\$STATUS" 2>&1
+args <- commandArgs(trailingOnly = TRUE)
+repo_dir <- args[1]
+
 options(repos = c(CRAN = "https://cloud.r-project.org"))
 
 cran_pkgs <- c(
   "R.utils", "RColorBrewer", "ape", "assertthat", "checkmate",
   "corrplot", "doParallel", "dplyr", "futile.logger", "gtools",
   "lazyeval", "magrittr", "parallel", "pheatmap", "readr",
-  "stringr", "tibble", "tictoc", "tidyr", "devtools"
+  "stringr", "tibble", "tictoc", "tidyr", "devtools", "remotes"
 )
 
 missing <- cran_pkgs[!(cran_pkgs %in% rownames(installed.packages()))]
@@ -1185,28 +1263,32 @@ for(pkg in bioc_pkgs) {
 }
 
 if(!requireNamespace("gRodon", quietly = TRUE)) {
-  devtools::install_github("jlw-ecoevo/gRodon", upgrade = "never")
+  remotes::install_github("jlw-ecoevo/gRodon", upgrade = "never")
 }
 
-if(!requireNamespace("microtrait", quietly = TRUE)) {
-  devtools::install_github("ukaraoz/microtrait", upgrade = "never")
+if(dir.exists(repo_dir)) {
+  remotes::install_local(repo_dir, dependencies = TRUE, upgrade = "never")
+} else if(!requireNamespace("microtrait", quietly = TRUE)) {
+  remotes::install_github("ukaraoz/microtrait", upgrade = "never")
 }
 
 library(microtrait)
-try(microtrait::prep.hmmmodels(), silent = TRUE)
-RSCRIPT
-    fi
 
-    if ! check_env "\$MICROTRAIT_ENV"; then
-        echo "ERROR: microTrait environment failed final checks." >> "\$STATUS"
+# Deploy microTrait HMM/model databases.
+try(microtrait::prep.hmmmodels(), silent = FALSE)
+RSCRIPT
+
+    if ! check_env_r "\$MICROTRAIT_ENV"; then
+        echo "ERROR: microTrait R package environment failed final checks." >> "\$STATUS"
         exit 1
     fi
 
     echo "MICROTRAIT_ENV=\$MICROTRAIT_ENV" >> "\$STATUS"
+    echo "MICROTRAIT_REPO_DIR=\$MICROTRAIT_REPO_DIR" >> "\$STATUS"
+    echo "MICROTRAIT_SOURCE_DIR=\$MICROTRAIT_SOURCE_DIR" >> "\$STATUS"
     echo "microTrait setup finished: \$(date)" >> "\$STATUS"
     """
 }
-
 
 process RUN_MICROTRAIT {
     tag "microtrait"
@@ -1240,26 +1322,106 @@ process RUN_MICROTRAIT {
     path "microtrait_out", emit: microtrait_out
 
     script:
+    def runner_path = params.microtrait_runner ?: ""
+    def source_dir_override = params.microtrait_source_dir ?: ""
+
     """
     set -euo pipefail
 
     LOG="microtrait.log"
 
-    MICROTRAIT_ENV="\$(grep '^MICROTRAIT_ENV=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
+    MICROTRAIT_ENV="\$(grep '^MICROTRAIT_ENV=' "${setup_status}" | tail -n 1 | cut -d= -f2- || true)"
+    MICROTRAIT_SOURCE_DIR_FROM_SETUP="\$(grep '^MICROTRAIT_SOURCE_DIR=' "${setup_status}" | tail -n 1 | cut -d= -f2- || true)"
+
+    MICROTRAIT_SOURCE_DIR="${source_dir_override}"
+
+    if [[ -z "\$MICROTRAIT_SOURCE_DIR" ]]; then
+        MICROTRAIT_SOURCE_DIR="\$MICROTRAIT_SOURCE_DIR_FROM_SETUP"
+    fi
+
+    if [[ -z "\$MICROTRAIT_ENV" ]]; then
+        echo "ERROR: MICROTRAIT_ENV was not found in setup status file: ${setup_status}" > "\$LOG"
+        exit 1
+    fi
+
+    if [[ ! -d "\$MICROTRAIT_ENV" ]]; then
+        echo "ERROR: MICROTRAIT_ENV does not exist: \$MICROTRAIT_ENV" > "\$LOG"
+        exit 1
+    fi
+
+    if [[ -z "\$MICROTRAIT_SOURCE_DIR" ]]; then
+        echo "ERROR: MICROTRAIT_SOURCE_DIR was not supplied and was not found in setup status file." > "\$LOG"
+        echo "Use --microtrait_source_dir /path/to/microtrait/R or update SETUP_MICROTRAIT to clone the microtrait repo." >> "\$LOG"
+        exit 1
+    fi
+
+    if [[ ! -d "\$MICROTRAIT_SOURCE_DIR" ]]; then
+        echo "ERROR: MICROTRAIT_SOURCE_DIR does not exist: \$MICROTRAIT_SOURCE_DIR" > "\$LOG"
+        exit 1
+    fi
+
+    REQUIRED_R_FILES=(
+        "ogt.R"
+        "protein.R"
+        "nucleotide.R"
+        "extern.R"
+        "mingentime.R"
+        "utils.R"
+    )
+
+    for rf in "\${REQUIRED_R_FILES[@]}"; do
+        if [[ ! -s "\$MICROTRAIT_SOURCE_DIR/\$rf" ]]; then
+            echo "ERROR: Required microTrait source file is missing: \$MICROTRAIT_SOURCE_DIR/\$rf" > "\$LOG"
+            exit 1
+        fi
+    done
 
     export PATH="\$MICROTRAIT_ENV/bin:\$PATH"
 
-    mkdir -p microtrait_out microtrait_work
+    mkdir -p microtrait_out
+    mkdir -p microtrait_work
+    mkdir -p microtrait_genomes
 
     echo "microTrait started: \$(date)" > "\$LOG"
-    echo "MAG directory: ${mags_dir}" >> "\$LOG"
+    echo "Input MAG directory: ${mags_dir}" >> "\$LOG"
+    echo "Local microTrait genome directory: microtrait_genomes" >> "\$LOG"
+    echo "microTrait env: \$MICROTRAIT_ENV" >> "\$LOG"
+    echo "microTrait source dir: \$MICROTRAIT_SOURCE_DIR" >> "\$LOG"
     echo "Run type: ${params.microtrait_run_type}" >> "\$LOG"
     echo "Output name: ${params.microtrait_out_name}" >> "\$LOG"
-    echo "Threads: ${task.cpus}" >> "\$LOG"
+    echo "Threads/cpus: ${task.cpus}" >> "\$LOG"
+    echo "Custom runner: ${runner_path ?: 'not supplied'}" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
 
-    if [[ -n "${params.microtrait_runner ?: ''}" ]]; then
-        cp -L "${params.microtrait_runner}" microtrait_runner.R
+    # Copy input MAGs into a writable local directory.
+    # microTrait writes .rds outputs next to the input FASTA files,
+    # so we avoid writing into a Nextflow-staged input directory.
+    find "${mags_dir}" -maxdepth 1 -type f \\( \\
+        -name '*.fa' -o \\
+        -name '*.fasta' -o \\
+        -name '*.fna' -o \\
+        -name '*.faa' \\
+    \\) -exec cp -L {} microtrait_genomes/ \\;
+
+    MAG_COUNT="\$(find microtrait_genomes -maxdepth 1 -type f -name '*.fa' | wc -l | tr -d ' ')"
+
+    echo "MAG .fa files copied for microTrait: \$MAG_COUNT" >> "\$LOG"
+
+    if [[ "\$MAG_COUNT" -eq 0 ]]; then
+        echo "ERROR: No .fa MAG files were found for microTrait." >> "\$LOG"
+
+        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > microtrait_status.tsv
+        printf 'microtrait\\tfailed\\t1\\t%s\\tNo .fa MAG files found\\n' "${params.outdir}/microtrait" >> microtrait_status.tsv
+
+        exit 1
+    fi
+
+    if [[ -n "${runner_path}" ]]; then
+        echo "Using user-supplied microTrait runner: ${runner_path}" >> "\$LOG"
+        cp -L "${runner_path}" microtrait_runner.R
     else
+        echo "Writing bundled microTrait runner." >> "\$LOG"
+
         cat > microtrait_runner.R <<'RSCRIPT'
 #!/usr/bin/env Rscript
 
@@ -1271,22 +1433,72 @@ type <- args[3]
 source_dir <- args[4]
 ncores <- as.integer(args[5])
 
-library(microtrait)
-library(dplyr)
-
-if(!is.na(source_dir) && source_dir != "" && dir.exists(source_dir)) {
-  source(file.path(source_dir, "ogt.R"))
-  source(file.path(source_dir, "protein.R"))
-  source(file.path(source_dir, "nucleotide.R"))
-  source(file.path(source_dir, "extern.R"))
-  source(file.path(source_dir, "mingentime.R"))
-  source(file.path(source_dir, "utils.R"))
+if(is.na(ncores) || ncores < 1) {
+  ncores <- 1
 }
 
-if(type == "genomic") {
-  fasta.list <- list.files(path = fasta_dir, pattern = ".fa$", full.names = TRUE)
+cat("microTrait runner started\n")
+cat("fasta_dir: ", fasta_dir, "\n")
+cat("out_name: ", out_name, "\n")
+cat("type: ", type, "\n")
+cat("source_dir: ", source_dir, "\n")
+cat("ncores: ", ncores, "\n")
 
-  microtrait_results <- extract.traits.parallel(fa_files = fasta.list)
+suppressPackageStartupMessages({
+  library(microtrait)
+  library(dplyr)
+})
+
+required_sources <- c(
+  "ogt.R",
+  "protein.R",
+  "nucleotide.R",
+  "extern.R",
+  "mingentime.R",
+  "utils.R"
+)
+
+if(is.na(source_dir) || source_dir == "" || !dir.exists(source_dir)) {
+  stop(paste("microTrait source directory does not exist:", source_dir))
+}
+
+missing_sources <- required_sources[
+  !file.exists(file.path(source_dir, required_sources))
+]
+
+if(length(missing_sources) > 0) {
+  stop(
+    paste(
+      "Missing required microTrait source files:",
+      paste(missing_sources, collapse = ", ")
+    )
+  )
+}
+
+source(file.path(source_dir, "ogt.R"))
+source(file.path(source_dir, "protein.R"))
+source(file.path(source_dir, "nucleotide.R"))
+source(file.path(source_dir, "extern.R"))
+source(file.path(source_dir, "mingentime.R"))
+source(file.path(source_dir, "utils.R"))
+
+if(type == "genomic") {
+
+  fasta.list <- list.files(
+    path = fasta_dir,
+    pattern = "\\\\.fa$",
+    full.names = TRUE
+  )
+
+  if(length(fasta.list) == 0) {
+    stop(paste("No .fa genome files found in", fasta_dir))
+  }
+
+  cat("Running genomic microTrait mode on", length(fasta.list), "genomes\n")
+
+  microtrait_results <- extract.traits.parallel(
+    fa_files = fasta.list
+  )
 
   rds_files <- unlist(parallel::mclapply(
     microtrait_results,
@@ -1294,6 +1506,12 @@ if(type == "genomic") {
     "rds_file",
     mc.cores = min(10, ncores)
   ))
+
+  rds_files <- rds_files[file.exists(rds_files)]
+
+  if(length(rds_files) == 0) {
+    stop("microTrait did not produce any per-genome .rds files.")
+  }
 
   genomeset_results <- make.genomeset.results(
     rds_files = rds_files,
@@ -1306,11 +1524,49 @@ if(type == "genomic") {
     file.path(fasta_dir, paste0(out_name, "_GenomeSet_Traits.rds"))
   )
 
-  cat(paste("Finished extracting traits from", length(fasta.list), "genomes.\\n"))
+  cat(
+    "The script has finished extracting genomic traits from",
+    length(fasta.list),
+    "genomes.\n"
+  )
 
 } else if(type == "protein") {
-  fasta.list <- list.files(path = fasta_dir, pattern = ".fa$", full.names = TRUE)
-  protein.files <- list.files(path = fasta_dir, pattern = ".faa$", full.names = TRUE)
+
+  fasta.list <- list.files(
+    path = fasta_dir,
+    pattern = "\\\\.fa$",
+    full.names = TRUE
+  )
+
+  called.files <- list.files(
+    path = fasta_dir,
+    pattern = "\\\\.fna$",
+    full.names = TRUE
+  )
+
+  protein.files <- list.files(
+    path = fasta_dir,
+    pattern = "\\\\.faa$",
+    full.names = TRUE
+  )
+
+  if(length(fasta.list) == 0) {
+    stop(paste("No .fa genome files found in", fasta_dir))
+  }
+
+  if(length(protein.files) == 0) {
+    stop(paste("No .faa protein files found in", fasta_dir))
+  }
+
+  if(length(called.files) == 0) {
+    warning(paste("No .fna gene-called files found in", fasta_dir))
+  }
+
+  cat("Running protein microTrait mode on", length(protein.files), "protein files\n")
+
+  if(requireNamespace("tictoc", quietly = TRUE)) {
+    tictoc::tic(paste0("Running microtrait for ", length(protein.files), " genomes"))
+  }
 
   microtrait_results <- parallel::mclapply(
     seq_along(protein.files),
@@ -1326,12 +1582,22 @@ if(type == "genomic") {
     mc.cores = max(1, floor(ncores * 0.7))
   )
 
+  if(requireNamespace("tictoc", quietly = TRUE)) {
+    tictoc::toc(log = TRUE)
+  }
+
   rds_files <- unlist(parallel::mclapply(
     microtrait_results,
     "[[",
     "rds_file",
     mc.cores = min(10, ncores)
   ))
+
+  rds_files <- rds_files[file.exists(rds_files)]
+
+  if(length(rds_files) == 0) {
+    stop("microTrait did not produce any per-genome .rds files.")
+  }
 
   genomeset_results <- make.genomeset.results(
     rds_files = rds_files,
@@ -1346,38 +1612,121 @@ if(type == "genomic") {
     file.path(fasta_dir, paste0(out_name, "_GenomeSet_Traits.rds"))
   )
 
+  cat("Running OGT prediction\n")
+
+  genome_features <- parallel::mclapply(
+    gsub("\\\\.fa$", "", fasta.list),
+    function(curr.bin) {
+      extract_features(
+        genome_file = paste0(curr.bin, ".fa"),
+        cds_file = paste0(curr.bin, ".fna"),
+        proteins_file = paste0(curr.bin, ".faa")
+      )
+    },
+    mc.cores = max(1, floor(ncores * 0.7))
+  )
+
+  names(genome_features) <- basename(gsub("\\\\.fa$", "", fasta.list))
+
+  ogt_out <- sapply(genome_features, run_ogtmodel)
+  ogt_out <- data.frame(
+    user_genome = names(ogt_out),
+    OGT = ogt_out
+  )
+
+  saveRDS(
+    genome_features,
+    file.path(fasta_dir, paste0(out_name, "_Genome_Features.rds"))
+  )
+
+  write.csv(
+    ogt_out,
+    file.path(fasta_dir, paste0(out_name, "_OGT_results.csv")),
+    row.names = FALSE
+  )
+
+  cat("Running minimum generation time prediction\n")
+
+  mingentime <- parallel::mclapply(
+    gsub("\\\\.fa$", "", fasta.list),
+    function(curr.bin) {
+      run.predictGrowth(
+        cds_file = paste0(curr.bin, ".fna"),
+        proteins_file = paste0(curr.bin, ".faa")
+      )
+    },
+    mc.cores = max(1, floor(ncores * 0.7))
+  )
+
+  saveRDS(
+    mingentime,
+    file.path(fasta_dir, paste0(out_name, "_mingentime.rds"))
+  )
+
+  cat(
+    "The script has finished extracting protein traits from",
+    length(protein.files),
+    "protein files.\n"
+  )
+
 } else {
-  stop("type must be genomic or protein")
+  stop("type must be either 'genomic' or 'protein'")
 }
+
+cat("microTrait runner finished\n")
 RSCRIPT
     fi
 
+    chmod +x microtrait_runner.R || true
+
+    cp -L microtrait_runner.R microtrait_out/microtrait_runner.R
+
     set +e
     Rscript microtrait_runner.R \\
-        "${mags_dir}" \\
+        "microtrait_genomes" \\
         "${params.microtrait_out_name}" \\
         "${params.microtrait_run_type}" \\
-        "${params.microtrait_source_dir ?: ''}" \\
+        "\$MICROTRAIT_SOURCE_DIR" \\
         "${task.cpus}" \\
         >> "\$LOG" 2>&1
     STATUS="\$?"
     set -e
 
-    find "${mags_dir}" -maxdepth 1 -type f \\( -name '*.rds' -o -name '*.csv' \\) -exec cp -L {} microtrait_out/ \\; 2>> "\$LOG" || true
+    # Collect outputs produced next to the input FASTA files.
+    find microtrait_genomes -maxdepth 1 -type f \\( \\
+        -name '*.rds' -o \\
+        -name '*.csv' \\
+    \\) -exec cp -L {} microtrait_out/ \\; 2>> "\$LOG" || true
 
-    printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > microtrait_status.tsv
+    RDS_COUNT="\$(find microtrait_out -maxdepth 1 -type f -name '*.rds' | wc -l | tr -d ' ')"
+    CSV_COUNT="\$(find microtrait_out -maxdepth 1 -type f -name '*.csv' | wc -l | tr -d ' ')"
+
+    echo "microTrait RDS outputs collected: \$RDS_COUNT" >> "\$LOG"
+    echo "microTrait CSV outputs collected: \$CSV_COUNT" >> "\$LOG"
+
+    printf 'tool\\tstatus\\texit_status\\toutput_dir\\trds_outputs\\tcsv_outputs\\tmessage\\n' > microtrait_status.tsv
 
     if [[ "\$STATUS" -ne 0 ]]; then
-        printf 'microtrait\\tfailed\\t%s\\t%s\\tmicroTrait failed\\n' "\$STATUS" "${params.outdir}/microtrait" >> microtrait_status.tsv
+        printf 'microtrait\\tfailed\\t%s\\t%s\\t%s\\t%s\\tmicroTrait failed\\n' \\
+            "\$STATUS" \\
+            "${params.outdir}/microtrait" \\
+            "\$RDS_COUNT" \\
+            "\$CSV_COUNT" \\
+            >> microtrait_status.tsv
+
+        echo "microTrait failed with exit status \$STATUS" >> "\$LOG"
         exit "\$STATUS"
     fi
 
-    printf 'microtrait\\tcompleted\\t0\\t%s\\tmicroTrait completed\\n' "${params.outdir}/microtrait" >> microtrait_status.tsv
+    printf 'microtrait\\tcompleted\\t0\\t%s\\t%s\\t%s\\tmicroTrait completed\\n' \\
+        "${params.outdir}/microtrait" \\
+        "\$RDS_COUNT" \\
+        "\$CSV_COUNT" \\
+        >> microtrait_status.tsv
 
     echo "microTrait finished: \$(date)" >> "\$LOG"
     """
 }
-
 
 process WRITE_MODULE6_SUMMARY {
     tag "write_module6_summary"

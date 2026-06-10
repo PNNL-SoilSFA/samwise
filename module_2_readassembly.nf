@@ -1,14 +1,13 @@
 #!/usr/bin/env nextflow
-
 nextflow.enable.dsl=2
 
 /*
- * Module 2: Read assembly from Module 1 trimmed reads.
- */
+* Module 2: Read assembly from Module 1 trimmed reads.
+*/
 
 /*
- * Parameters
- */
+* Parameters
+*/
 params.working_dir       = null
 params.input_manifest    = null
 params.output_dir        = null
@@ -22,7 +21,6 @@ params.rarefaction_splits = 2
 
 params.megahit_version   = "1.2.9"
 params.spades_version    = "4.2.0"
-
 params.auto_install      = true
 params.tool_env_dir      = null
 
@@ -30,49 +28,21 @@ params.threads           = null
 params.assembly_threads  = 4
 
 /*
- * Assembly memory.
- *
- * Default:
- *   --memory_gb auto
- *
- * Meaning:
- *   MEGAHIT:
- *     uses -m <memory_fraction>
- *
- *   metaSPAdes:
- *     detects total machine memory and uses:
- *       floor(total_memory_gb * memory_fraction)
- *
- * Examples:
- *   --memory_gb auto
- *   --memory_gb 512
- *   --memory_gb 0
- *
- * Use 0 to leave assembler memory unset.
- */
-params.memory_gb = "auto"
+* Global memory in GB.
+*
+* Example:
+*   --memory_gb 512
+*
+* Use 0 to leave memory unset.
+*/
+params.memory_gb         = 0
 
 /*
- * Fraction of detected memory to use when --memory_gb auto.
- *
- * 0.90 means use about 90% of detected system memory.
- */
-params.memory_fraction = 0.90
-
-/*
- * If every assembly is allowed to use most of the machine memory,
- * do not run many assemblies at once.
- *
- * Increase only if you lower --memory_fraction or manually set --memory_gb.
- */
-params.max_parallel_assemblies = 1
-
-/*
- * Optional MEGAHIT-specific thread override.
- *
- * Example:
- *   --megahit_threads 1
- */
+* Optional MEGAHIT-specific thread override.
+*
+* Example:
+*   --megahit_threads 1
+*/
 params.megahit_threads   = null
 params.megahit_preset    = "meta-large"
 
@@ -102,9 +72,7 @@ def rareLabelFromIndex(int index) {
 
 
 def rareLabels(int count) {
-    return (0..<count).collect { idx ->
-        rareLabelFromIndex(idx as int)
-    }
+    return (0..<count).collect { idx -> rareLabelFromIndex(idx as int) }
 }
 
 
@@ -146,26 +114,6 @@ workflow {
         """.stripIndent()
     }
 
-    def memory_setting = params.memory_gb.toString().toLowerCase()
-
-    if( memory_setting != "auto" && memory_setting != "0" ) {
-        try {
-            def memory_as_int = memory_setting as int
-            if( memory_as_int < 1 ) {
-                error "Invalid --memory_gb value: ${params.memory_gb}. Use auto, 0, or a positive integer."
-            }
-        }
-        catch( Exception _e ) {
-            error "Invalid --memory_gb value: ${params.memory_gb}. Use auto, 0, or a positive integer."
-        }
-    }
-
-    def mem_fraction = params.memory_fraction as double
-
-    if( mem_fraction <= 0 || mem_fraction > 1 ) {
-        error "Invalid --memory_fraction value: ${params.memory_fraction}. Must be > 0 and <= 1."
-    }
-
     def manifest_file = params.input_manifest ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
 
     log.info "Module 2 results directory: ${params.results_dir}"
@@ -175,8 +123,7 @@ workflow {
     log.info "Assembly modes: single=${do_single}, rarefied=${do_rarefied}"
     log.info "Global threads: ${params.threads ?: params.assembly_threads}"
     log.info "MEGAHIT thread override: ${params.megahit_threads ?: 'not supplied'}"
-    log.info "Assembly memory: ${memory_setting == 'auto' ? "auto (${params.memory_fraction} fraction)" : (memory_setting == '0' ? 'not supplied' : params.memory_gb + ' GB')}"
-    log.info "Max parallel assembly tasks: ${params.max_parallel_assemblies}"
+    log.info "Global memory: ${(params.memory_gb as int) > 0 ? params.memory_gb + ' GB' : 'not supplied'}"
 
     def assembler_list = []
 
@@ -197,6 +144,7 @@ workflow {
     def reads_ch = manifest_ch
         .splitCsv(header: true, sep: '\t')
         .map { row ->
+
             def sample_id = row.sample_id.toString()
             def safe_id   = row.safe_sample_id.toString()
             def layout    = row.layout.toString()
@@ -232,6 +180,7 @@ workflow {
     def stats_files_ch      = channel.empty()
 
     if( do_single ) {
+
         def single_jobs_ch = reads_ch.flatMap {
             sample_id,
             safe_id,
@@ -264,6 +213,7 @@ workflow {
     }
 
     if( do_rarefied ) {
+
         def rare_letters = rareLabels(rare_split_count)
 
         log.info "Rarefied assembly enabled with ${rare_split_count} splits: ${rare_letters.join(', ')}"
@@ -318,6 +268,7 @@ workflow {
 
 
 process SETUP_MODULE2_TOOLS {
+
     tag "setup_assemblers"
 
     publishDir "${params.outdir}/setup",
@@ -345,16 +296,13 @@ process SETUP_MODULE2_TOOLS {
         packages << "spades=${spades_version_for_conda}"
     }
 
-    def package_string = packages.collect { pkg ->
-        "\"${pkg}\""
-    }.join(" \\\n        ")
+    def package_string = packages.collect { pkg -> "\"${pkg}\"" }.join(" \\\n        ")
 
     """
     set -euo pipefail
 
     STATUS_FILE="module2_tools_status.env"
     TOOL_ENV="${env_dir}"
-
     WANT_MEGAHIT="${want_megahit}"
     WANT_METASPADES="${want_metaspades}"
 
@@ -364,7 +312,6 @@ process SETUP_MODULE2_TOOLS {
     echo "Requested MEGAHIT version: ${params.megahit_version}" >> "\$STATUS_FILE"
     echo "Requested SPAdes/metaSPAdes version: ${params.spades_version}" >> "\$STATUS_FILE"
     echo "TOOL_ENV=\$TOOL_ENV" >> "\$STATUS_FILE"
-    echo "Packages: ${packages.join(' ')}" >> "\$STATUS_FILE"
     echo "----------------------------------------" >> "\$STATUS_FILE"
 
     check_tool_set() {
@@ -452,6 +399,7 @@ process SETUP_MODULE2_TOOLS {
     mkdir -p "\$(dirname "\$TOOL_ENV")"
 
     echo "Creating Module 2 environment: \$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "Packages: ${packages.join(' ')}" >> "\$STATUS_FILE"
 
     "\$INSTALLER" create -y \\
         -p "\$TOOL_ENV" \\
@@ -472,6 +420,7 @@ process SETUP_MODULE2_TOOLS {
 
 
 process ASSEMBLE_SINGLE {
+
     tag { "${sample_id}:${assembler}:single" }
 
     publishDir "${params.outdir}/assemblies",
@@ -501,11 +450,9 @@ process ASSEMBLE_SINGLE {
     }
 
     memory {
-        def mem = params.memory_gb.toString().toLowerCase()
-        return (mem != "auto" && mem != "0") ? "${mem} GB" : null
+        def gb = params.memory_gb as int
+        return gb > 0 ? "${gb} GB" : null
     }
-
-    maxForks (params.max_parallel_assemblies as int)
 
     input:
     tuple val(sample_id),
@@ -535,49 +482,6 @@ process ASSEMBLE_SINGLE {
         export PATH="\$TOOL_ENV/bin:\$PATH"
     fi
 
-    MEMORY_SETTING="${params.memory_gb.toString().toLowerCase()}"
-    MEMORY_FRACTION="${params.memory_fraction}"
-
-    detect_memory_gb() {
-        if [[ "\$MEMORY_SETTING" != "auto" && "\$MEMORY_SETTING" != "0" ]]; then
-            echo "\$MEMORY_SETTING"
-            return 0
-        fi
-
-        if [[ "\$MEMORY_SETTING" == "0" ]]; then
-            echo ""
-            return 0
-        fi
-
-        # Linux
-        if [[ -f /proc/meminfo ]]; then
-            awk -v frac="\$MEMORY_FRACTION" '
-                /^MemTotal:/ {
-                    gb = (\$2 / 1024 / 1024) * frac
-                    if (gb < 1) gb = 1
-                    printf "%d\\n", gb
-                }
-            ' /proc/meminfo
-            return 0
-        fi
-
-        # macOS
-        if command -v sysctl >/dev/null 2>&1; then
-            bytes="\$(sysctl -n hw.memsize 2>/dev/null || true)"
-
-            if [[ -n "\$bytes" ]]; then
-                awk -v bytes="\$bytes" -v frac="\$MEMORY_FRACTION" 'BEGIN {
-                    gb = (bytes / 1024 / 1024 / 1024) * frac
-                    if (gb < 1) gb = 1
-                    printf "%d\\n", gb
-                }'
-                return 0
-            fi
-        fi
-
-        echo ""
-    }
-
     SAMPLE_ID="${sample_id}"
     SAFE_ID="${safe_id}"
     ASSEMBLY_SAMPLE_ID="${assembly_sample_id}"
@@ -585,6 +489,9 @@ process ASSEMBLE_SINGLE {
     ASSEMBLER="${assembler}"
     MODE="single"
     RAREFACTION_LABEL=""
+
+    ASSEMBLY_STATUS="ok"
+    ASSEMBLY_WARNING=""
 
     OUT_FASTA="\${SAFE_ID}_\${ASSEMBLER}_single.renamed.fa"
     HEADER_MAP="\${SAFE_ID}_\${ASSEMBLER}_single.header_map.tsv"
@@ -604,6 +511,7 @@ process ASSEMBLE_SINGLE {
         READ1_LOCAL="input_R1.fastq.gz"
         READ2_LOCAL="input_R2.fastq.gz"
         INTERLEAVED_LOCAL=""
+
     elif [[ "\$LAYOUT" == "interleaved" ]]; then
         if [[ ! -s "${interleaved}" ]]; then
             echo "ERROR: Missing interleaved reads for sample \${SAMPLE_ID}" >&2
@@ -615,12 +523,14 @@ process ASSEMBLE_SINGLE {
         READ1_LOCAL=""
         READ2_LOCAL=""
         INTERLEAVED_LOCAL="input_interleaved.fastq.gz"
+
     else
         echo "ERROR: Unsupported layout: \$LAYOUT" >&2
         exit 1
     fi
 
     if [[ "\$ASSEMBLER" == "megahit" ]]; then
+
         if ! command -v megahit >/dev/null 2>&1; then
             echo "ERROR: megahit is not available after tool setup." >&2
             cat "${tools_status}" >&2 || true
@@ -629,20 +539,16 @@ process ASSEMBLE_SINGLE {
 
         ASSEMBLY_STRATEGY="A"
         RAW_OUT="megahit_out"
-
         MEGAHIT_MEM_ARG=""
 
-        if [[ "\$MEMORY_SETTING" == "auto" ]]; then
-            MEGAHIT_MEM_ARG="-m \$MEMORY_FRACTION"
-        elif [[ "\$MEMORY_SETTING" != "0" ]]; then
-            MEGAHIT_MEM_BYTES=\$(( MEMORY_SETTING * 1024 * 1024 * 1024 ))
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
             MEGAHIT_MEM_ARG="-m \$MEGAHIT_MEM_BYTES"
         fi
 
         echo "Running MEGAHIT single assembly for \${SAMPLE_ID}" > "\$LOG_FILE"
         echo "MEGAHIT threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Requested memory setting: \$MEMORY_SETTING" >> "\$LOG_FILE"
-        echo "Memory fraction if auto: \$MEMORY_FRACTION" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
         echo "MEGAHIT memory arg: \$MEGAHIT_MEM_ARG" >> "\$LOG_FILE"
 
         if [[ "\$LAYOUT" == "paired" ]]; then
@@ -672,6 +578,7 @@ process ASSEMBLE_SINGLE {
         fi
 
     elif [[ "\$ASSEMBLER" == "metaspades" ]]; then
+
         if ! command -v metaspades.py >/dev/null 2>&1; then
             echo "ERROR: metaspades.py is not available after tool setup." >&2
             cat "${tools_status}" >&2 || true
@@ -680,24 +587,18 @@ process ASSEMBLE_SINGLE {
 
         ASSEMBLY_STRATEGY="B"
         RAW_OUT="metaspades_out"
-
         SPADES_MEM_ARG=""
 
-        if [[ "\$MEMORY_SETTING" == "auto" ]]; then
-            AUTO_MEMORY_GB="\$(detect_memory_gb)"
-
-            if [[ -n "\$AUTO_MEMORY_GB" ]]; then
-                SPADES_MEM_ARG="-m \$AUTO_MEMORY_GB"
-            fi
-        elif [[ "\$MEMORY_SETTING" != "0" ]]; then
-            SPADES_MEM_ARG="-m \$MEMORY_SETTING"
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            SPADES_MEM_ARG="-m ${params.memory_gb}"
         fi
 
         echo "Running metaSPAdes single assembly for \${SAMPLE_ID}" > "\$LOG_FILE"
         echo "metaSPAdes threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Requested memory setting: \$MEMORY_SETTING" >> "\$LOG_FILE"
-        echo "Memory fraction if auto: \$MEMORY_FRACTION" >> "\$LOG_FILE"
-        echo "Detected/selected metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
+        echo "metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
+
+        set +e
 
         if [[ "\$LAYOUT" == "paired" ]]; then
             metaspades.py \\
@@ -716,14 +617,39 @@ process ASSEMBLE_SINGLE {
                 >> "\$LOG_FILE" 2>&1
         fi
 
+        METASPADES_EXIT_CODE=\$?
+
+        set -e
+
+        echo "metaSPAdes exit code: \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
+
+        if [[ "\$METASPADES_EXIT_CODE" -ne 0 && "\$METASPADES_EXIT_CODE" -ne 12 ]]; then
+            echo "ERROR: metaSPAdes failed with fatal exit code \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
+            exit "\$METASPADES_EXIT_CODE"
+        fi
+
+        if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
+            ASSEMBLY_STATUS="failed_nonfatal"
+            ASSEMBLY_WARNING="assembly failed - not enough memory"
+            echo "WARNING: metaSPAdes exited with code 12. Treating this as non-fatal so summaries can be written." >> "\$LOG_FILE"
+            echo "WARNING: \${ASSEMBLY_WARNING}" >> "\$LOG_FILE"
+        fi
+
         if [[ -s "\$RAW_OUT/scaffolds.fasta" ]]; then
             SRC_FASTA="\$RAW_OUT/scaffolds.fasta"
         elif [[ -s "\$RAW_OUT/contigs.fasta" ]]; then
             SRC_FASTA="\$RAW_OUT/contigs.fasta"
         else
-            echo "ERROR: metaSPAdes did not produce scaffolds.fasta or contigs.fasta" >> "\$LOG_FILE"
-            exit 1
+            if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
+                echo "WARNING: metaSPAdes exit code 12 produced no scaffolds.fasta or contigs.fasta. Creating empty placeholder FASTA." >> "\$LOG_FILE"
+                SRC_FASTA="metaspades_exit12_empty_contigs.fasta"
+                : > "\$SRC_FASTA"
+            else
+                echo "ERROR: metaSPAdes did not produce scaffolds.fasta or contigs.fasta" >> "\$LOG_FILE"
+                exit 1
+            fi
         fi
+
     else
         echo "ERROR: Unsupported assembler: \$ASSEMBLER" >&2
         exit 1
@@ -742,6 +668,8 @@ process ASSEMBLE_SINGLE {
         "\$MODE" \\
         "\$RAREFACTION_LABEL" \\
         "\$ASSEMBLY_STRATEGY" \\
+        "\$ASSEMBLY_STATUS" \\
+        "\$ASSEMBLY_WARNING" \\
         "${params.outdir}/assemblies/\$OUT_FASTA" <<'PY'
 import re
 import sys
@@ -760,6 +688,8 @@ from pathlib import Path
     mode,
     rarefaction_label,
     assembly_strategy,
+    assembly_status,
+    assembly_warning,
     published_fasta
 ) = sys.argv[1:]
 
@@ -819,11 +749,13 @@ with src_fasta.open() as inp, out_fasta.open("w") as out, header_map.open("w") a
                     new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{m.group(1)}"
                 else:
                     new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{contig_count}"
+
             else:
                 raise RuntimeError(f"Unsupported assembler: {assembler}")
 
             print(f">{new_header}", file=out)
             print(old_header, new_header, sep="\\t", file=hmap)
+
         else:
             seq = line.strip()
             current_len += len(seq)
@@ -845,6 +777,8 @@ with stats_file.open("w") as stats:
         "assembly_mode",
         "rarefaction_label",
         "assembly_strategy",
+        "assembly_status",
+        "assembly_warning",
         "contigs",
         "total_bp",
         "max_contig_bp",
@@ -862,6 +796,8 @@ with stats_file.open("w") as stats:
         mode,
         rarefaction_label,
         assembly_strategy,
+        assembly_status,
+        assembly_warning,
         contig_count,
         total_bp,
         max_contig,
@@ -893,6 +829,7 @@ PY
 
 
 process ASSEMBLE_RAREFIED {
+
     tag { "${sample_id}:${assembler}:rarefied:${rare_letter}" }
 
     publishDir "${params.outdir}/assemblies",
@@ -922,11 +859,9 @@ process ASSEMBLE_RAREFIED {
     }
 
     memory {
-        def mem = params.memory_gb.toString().toLowerCase()
-        return (mem != "auto" && mem != "0") ? "${mem} GB" : null
+        def gb = params.memory_gb as int
+        return gb > 0 ? "${gb} GB" : null
     }
-
-    maxForks (params.max_parallel_assemblies as int)
 
     input:
     tuple val(sample_id),
@@ -959,55 +894,16 @@ process ASSEMBLE_RAREFIED {
         export PATH="\$TOOL_ENV/bin:\$PATH"
     fi
 
-    MEMORY_SETTING="${params.memory_gb.toString().toLowerCase()}"
-    MEMORY_FRACTION="${params.memory_fraction}"
-
-    detect_memory_gb() {
-        if [[ "\$MEMORY_SETTING" != "auto" && "\$MEMORY_SETTING" != "0" ]]; then
-            echo "\$MEMORY_SETTING"
-            return 0
-        fi
-
-        if [[ "\$MEMORY_SETTING" == "0" ]]; then
-            echo ""
-            return 0
-        fi
-
-        # Linux
-        if [[ -f /proc/meminfo ]]; then
-            awk -v frac="\$MEMORY_FRACTION" '
-                /^MemTotal:/ {
-                    gb = (\$2 / 1024 / 1024) * frac
-                    if (gb < 1) gb = 1
-                    printf "%d\\n", gb
-                }
-            ' /proc/meminfo
-            return 0
-        fi
-
-        # macOS
-        if command -v sysctl >/dev/null 2>&1; then
-            bytes="\$(sysctl -n hw.memsize 2>/dev/null || true)"
-
-            if [[ -n "\$bytes" ]]; then
-                awk -v bytes="\$bytes" -v frac="\$MEMORY_FRACTION" 'BEGIN {
-                    gb = (bytes / 1024 / 1024 / 1024) * frac
-                    if (gb < 1) gb = 1
-                    printf "%d\\n", gb
-                }'
-                return 0
-            fi
-        fi
-
-        echo ""
-    }
-
     SAMPLE_ID="${sample_id}"
     SAFE_ID="${safe_id}"
     ASSEMBLY_SAMPLE_ID="${assembly_sample_id}${rare_letter}"
     LAYOUT="${layout}"
     ASSEMBLER="${assembler}"
     MODE="rarefied"
+
+    ASSEMBLY_STATUS="ok"
+    ASSEMBLY_WARNING=""
+
     RARE_INDEX="${rare_index}"
     RARE_ZERO_INDEX=\$((RARE_INDEX - 1))
     RAREFACTION_LABEL="${rare_letter}"
@@ -1114,6 +1010,7 @@ elif layout == "interleaved":
                 records_written += 1
 
             pair_idx += 1
+
 else:
     raise RuntimeError(f"Unsupported layout: {layout}")
 
@@ -1126,6 +1023,7 @@ PY
     echo "Rarefied subset created successfully." >> "\$LOG_FILE"
 
     if [[ "\$ASSEMBLER" == "megahit" ]]; then
+
         if ! command -v megahit >/dev/null 2>&1; then
             echo "ERROR: megahit is not available after tool setup." >&2
             cat "${tools_status}" >&2 || true
@@ -1134,20 +1032,16 @@ PY
 
         ASSEMBLY_STRATEGY="C"
         RAW_OUT="megahit_rarefied_out"
-
         MEGAHIT_MEM_ARG=""
 
-        if [[ "\$MEMORY_SETTING" == "auto" ]]; then
-            MEGAHIT_MEM_ARG="-m \$MEMORY_FRACTION"
-        elif [[ "\$MEMORY_SETTING" != "0" ]]; then
-            MEGAHIT_MEM_BYTES=\$(( MEMORY_SETTING * 1024 * 1024 * 1024 ))
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
             MEGAHIT_MEM_ARG="-m \$MEGAHIT_MEM_BYTES"
         fi
 
         echo "Running MEGAHIT rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
         echo "MEGAHIT threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Requested memory setting: \$MEMORY_SETTING" >> "\$LOG_FILE"
-        echo "Memory fraction if auto: \$MEMORY_FRACTION" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
         echo "MEGAHIT memory arg: \$MEGAHIT_MEM_ARG" >> "\$LOG_FILE"
 
         if [[ "\$LAYOUT" == "paired" ]]; then
@@ -1177,6 +1071,7 @@ PY
         fi
 
     elif [[ "\$ASSEMBLER" == "metaspades" ]]; then
+
         if ! command -v metaspades.py >/dev/null 2>&1; then
             echo "ERROR: metaspades.py is not available after tool setup." >&2
             cat "${tools_status}" >&2 || true
@@ -1185,24 +1080,18 @@ PY
 
         ASSEMBLY_STRATEGY="D"
         RAW_OUT="metaspades_rarefied_out"
-
         SPADES_MEM_ARG=""
 
-        if [[ "\$MEMORY_SETTING" == "auto" ]]; then
-            AUTO_MEMORY_GB="\$(detect_memory_gb)"
-
-            if [[ -n "\$AUTO_MEMORY_GB" ]]; then
-                SPADES_MEM_ARG="-m \$AUTO_MEMORY_GB"
-            fi
-        elif [[ "\$MEMORY_SETTING" != "0" ]]; then
-            SPADES_MEM_ARG="-m \$MEMORY_SETTING"
+        if [[ "${params.memory_gb}" != "0" ]]; then
+            SPADES_MEM_ARG="-m ${params.memory_gb}"
         fi
 
         echo "Running metaSPAdes rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
         echo "metaSPAdes threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Requested memory setting: \$MEMORY_SETTING" >> "\$LOG_FILE"
-        echo "Memory fraction if auto: \$MEMORY_FRACTION" >> "\$LOG_FILE"
-        echo "Detected/selected metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
+        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
+        echo "metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
+
+        set +e
 
         if [[ "\$LAYOUT" == "paired" ]]; then
             metaspades.py \\
@@ -1221,14 +1110,39 @@ PY
                 >> "\$LOG_FILE" 2>&1
         fi
 
+        METASPADES_EXIT_CODE=\$?
+
+        set -e
+
+        echo "metaSPAdes exit code: \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
+
+        if [[ "\$METASPADES_EXIT_CODE" -ne 0 && "\$METASPADES_EXIT_CODE" -ne 12 ]]; then
+            echo "ERROR: metaSPAdes failed with fatal exit code \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
+            exit "\$METASPADES_EXIT_CODE"
+        fi
+
+        if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
+            ASSEMBLY_STATUS="failed_nonfatal"
+            ASSEMBLY_WARNING="assembly failed - not enough memory"
+            echo "WARNING: metaSPAdes exited with code 12. Treating this as non-fatal so summaries can be written." >> "\$LOG_FILE"
+            echo "WARNING: \${ASSEMBLY_WARNING}" >> "\$LOG_FILE"
+        fi
+
         if [[ -s "\$RAW_OUT/scaffolds.fasta" ]]; then
             SRC_FASTA="\$RAW_OUT/scaffolds.fasta"
         elif [[ -s "\$RAW_OUT/contigs.fasta" ]]; then
             SRC_FASTA="\$RAW_OUT/contigs.fasta"
         else
-            echo "ERROR: metaSPAdes did not produce scaffolds.fasta or contigs.fasta" >> "\$LOG_FILE"
-            exit 1
+            if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
+                echo "WARNING: metaSPAdes exit code 12 produced no scaffolds.fasta or contigs.fasta. Creating empty placeholder FASTA." >> "\$LOG_FILE"
+                SRC_FASTA="metaspades_exit12_empty_contigs.fasta"
+                : > "\$SRC_FASTA"
+            else
+                echo "ERROR: metaSPAdes did not produce scaffolds.fasta or contigs.fasta" >> "\$LOG_FILE"
+                exit 1
+            fi
         fi
+
     else
         echo "ERROR: Unsupported assembler: \$ASSEMBLER" >&2
         exit 1
@@ -1247,6 +1161,8 @@ PY
         "\$MODE" \\
         "\$RAREFACTION_LABEL" \\
         "\$ASSEMBLY_STRATEGY" \\
+        "\$ASSEMBLY_STATUS" \\
+        "\$ASSEMBLY_WARNING" \\
         "${params.outdir}/assemblies/\$OUT_FASTA" <<'PY'
 import re
 import sys
@@ -1265,6 +1181,8 @@ from pathlib import Path
     mode,
     rarefaction_label,
     assembly_strategy,
+    assembly_status,
+    assembly_warning,
     published_fasta
 ) = sys.argv[1:]
 
@@ -1324,11 +1242,13 @@ with src_fasta.open() as inp, out_fasta.open("w") as out, header_map.open("w") a
                     new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{m.group(1)}"
                 else:
                     new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{contig_count}"
+
             else:
                 raise RuntimeError(f"Unsupported assembler: {assembler}")
 
             print(f">{new_header}", file=out)
             print(old_header, new_header, sep="\\t", file=hmap)
+
         else:
             seq = line.strip()
             current_len += len(seq)
@@ -1350,6 +1270,8 @@ with stats_file.open("w") as stats:
         "assembly_mode",
         "rarefaction_label",
         "assembly_strategy",
+        "assembly_status",
+        "assembly_warning",
         "contigs",
         "total_bp",
         "max_contig_bp",
@@ -1367,6 +1289,8 @@ with stats_file.open("w") as stats:
         mode,
         rarefaction_label,
         assembly_strategy,
+        assembly_status,
+        assembly_warning,
         contig_count,
         total_bp,
         max_contig,
@@ -1398,6 +1322,7 @@ PY
 
 
 process WRITE_ASSEMBLY_SUMMARIES {
+
     tag "write_assembly_summaries"
 
     publishDir "${params.outdir}/summary",
@@ -1417,13 +1342,8 @@ process WRITE_ASSEMBLY_SUMMARIES {
     path "assembly_stats_summary.tsv", emit: stats_summary
 
     script:
-    def manifest_files = manifest_records.collect { record ->
-        record.name
-    }.join(' ')
-
-    def stats_file_list = stats_files.collect { stats ->
-        stats.name
-    }.join(' ')
+    def manifest_files = manifest_records.collect { record -> record.name }.join(' ')
+    def stats_file_list = stats_files.collect { stats -> stats.name }.join(' ')
 
     """
     set -euo pipefail
