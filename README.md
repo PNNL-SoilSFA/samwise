@@ -156,18 +156,23 @@ This workflow takes in the same working directory that was generated above and f
 nextflow run module_2_readassembly.nf \
 --working_dir ./output_samwise \
 --threads 6 \
+--memory_gb 0 \
 --metaspades
 
-## metaspades and megahit with rarefied assemblies:
+#--memory_gb 0 specifies use 90% of available memory
 
+## metaspades and megahit with rarefied assemblies:
 nextflow run module_2_readassembly.nf \
 --working_dir ./output_samwise \
 --threads 5 \
 --megahit \
 --metaspades \
 --megahit_threads 1 \
+--memory_gb 0 \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
+
+#if on a mac, megahit running on more than 1 thread doesnt play nice, so there is an explicit --megahit_threads you can set separately from the global argument --threads which will set it for both.
 ```
 
 # Step 3: module_3_binning.nf
@@ -193,6 +198,9 @@ nextflow run module_3_binning.nf \
 --quickbin \
 --maxbin2 \
 --min_scaffold_length 2500
+
+# --publish_bins_mode copy tells code to copy the genomes instead of making a symlink
+
 ```
 
 # Step 4: module_4_binRefinement.nf

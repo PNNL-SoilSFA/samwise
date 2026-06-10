@@ -1011,12 +1011,11 @@ PY
 
 process RUN_METABAT2 {
     tag { binning_id }
-
     stageInMode 'symlink'
 
     publishDir { "${params.outdir}/bins/metabat2/${binning_id}" },
         mode: params.publish_bins_mode,
-        pattern: "bins/**",
+        pattern: "bins/*",
         saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
 
     publishDir "${params.outdir}/logs",
@@ -1050,7 +1049,7 @@ process RUN_METABAT2 {
           path(tools_status)
 
     output:
-    path "bins", emit: bin_dir
+    path "bins/*", optional: true, emit: bin_files
     path "${binning_id}.metabat2.binning_manifest_record.tsv", emit: manifest_record
     path "${binning_id}.metabat2.binning_stats.tsv", emit: stats_file
     path "${binning_id}.metabat2.log", emit: log_file
@@ -1060,7 +1059,6 @@ process RUN_METABAT2 {
     set -euo pipefail
 
     METABAT2_ENV="\$(grep '^METABAT2_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
-
     if [[ -n "\$METABAT2_ENV" && "\$METABAT2_ENV" != "SYSTEM" && "\$METABAT2_ENV" != "NOT_USED" ]]; then
         export PATH="\$METABAT2_ENV/bin:\$PATH"
     fi
@@ -1099,7 +1097,6 @@ process RUN_METABAT2 {
             -m ${params.metabat2_min_contig} \\
             ${params.metabat2_extra_args} \\
             >> "\$LOG_FILE" 2>&1
-
         BINNER_EXIT_STATUS="\$?"
         set -e
 
@@ -1232,6 +1229,7 @@ with open(stats_path, "w") as stats:
         sep="\\t",
         file=stats
     )
+
     print(
         sample_id,
         safe_sample_id,
@@ -1260,15 +1258,13 @@ PY
     """
 }
 
-
 process RUN_MAXBIN2 {
     tag { binning_id }
-
     stageInMode 'symlink'
 
     publishDir { "${params.outdir}/bins/maxbin2/${binning_id}" },
         mode: params.publish_bins_mode,
-        pattern: "bins/**",
+        pattern: "bins/*",
         saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
 
     publishDir "${params.outdir}/logs",
@@ -1302,7 +1298,7 @@ process RUN_MAXBIN2 {
           path(tools_status)
 
     output:
-    path "bins", emit: bin_dir
+    path "bins/*", optional: true, emit: bin_files
     path "${binning_id}.maxbin2.binning_manifest_record.tsv", emit: manifest_record
     path "${binning_id}.maxbin2.binning_stats.tsv", emit: stats_file
     path "${binning_id}.maxbin2.log", emit: log_file
@@ -1312,7 +1308,6 @@ process RUN_MAXBIN2 {
     set -euo pipefail
 
     MAXBIN2_ENV="\$(grep '^MAXBIN2_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
-
     if [[ -n "\$MAXBIN2_ENV" && "\$MAXBIN2_ENV" != "SYSTEM" && "\$MAXBIN2_ENV" != "NOT_USED" ]]; then
         export PATH="\$MAXBIN2_ENV/bin:\$PATH"
     fi
@@ -1363,7 +1358,6 @@ process RUN_MAXBIN2 {
             -thread ${task.cpus} \\
             ${params.maxbin2_extra_args} \\
             >> "\$LOG_FILE" 2>&1
-
         BINNER_EXIT_STATUS="\$?"
         set -e
 
@@ -1498,6 +1492,7 @@ with open(stats_path, "w") as stats:
         sep="\\t",
         file=stats
     )
+
     print(
         sample_id,
         safe_sample_id,
@@ -1526,15 +1521,13 @@ PY
     """
 }
 
-
 process RUN_QUICKBIN {
     tag { binning_id }
-
     stageInMode 'symlink'
 
     publishDir { "${params.outdir}/bins/quickbin/${binning_id}" },
         mode: params.publish_bins_mode,
-        pattern: "bins/**",
+        pattern: "bins/*",
         saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
 
     publishDir "${params.outdir}/coverage/quickbin_cov",
@@ -1574,7 +1567,7 @@ process RUN_QUICKBIN {
           path(tools_status)
 
     output:
-    path "bins", emit: bin_dir
+    path "bins/*", optional: true, emit: bin_files
     path "${binning_id}.quickbin_cov.txt", emit: cov_file
     path "${binning_id}.quickbin.report.tsv", emit: report_file
     path "${binning_id}.quickbin.binning_manifest_record.tsv", emit: manifest_record
@@ -1592,7 +1585,6 @@ process RUN_QUICKBIN {
     set -euo pipefail
 
     QUICKBIN_ENV="\$(grep '^QUICKBIN_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
-
     if [[ -n "\$QUICKBIN_ENV" && "\$QUICKBIN_ENV" != "SYSTEM" && "\$QUICKBIN_ENV" != "NOT_USED" ]]; then
         export PATH="\$QUICKBIN_ENV/bin:\$PATH"
     fi
@@ -1820,6 +1812,7 @@ with open(stats_path, "w") as stats:
         sep="\\t",
         file=stats
     )
+
     print(
         sample_id,
         safe_sample_id,
@@ -1847,7 +1840,6 @@ PY
     echo "QuickBin binning finished: \$(date)" >> "\$LOG_FILE"
     """
 }
-
 
 process WRITE_FILTERED_ASSEMBLY_STATS_SUMMARY {
     tag "write_filtered_assembly_stats_summary"
