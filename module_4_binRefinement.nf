@@ -17,6 +17,8 @@ params.dependencies_dir = "${projectDir}/dependencies"
 params.tigrfam_hmm = null
 params.pfam_hmm = null
 params.magscot_script = null
+params.magscot_profiles_dir = null
+params.auto_install = true
 params.auto_install = true
 params.tool_env_dir = null
 params.threads = null
@@ -26,6 +28,7 @@ params.hmmer_version = null
 params.prodigal_version = null
 params.parallel_version = null
 params.magscot_extra_args = ""
+params.magscot_threshold = 0
 params.publish_gathered_bins_mode = "copy"
 params.publish_refined_bins_mode = "copy"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
@@ -39,7 +42,6 @@ def absOrEmpty(value) {
     }
     return java.nio.file.Paths.get(s).toAbsolutePath().normalize().toString()
 }
-
 
 def firstExistingPath(List paths) {
     def found = paths.find { p ->
@@ -80,6 +82,27 @@ workflow {
         "${projectDir}/MAGScoT.py"
     ])
 
+    def magscot_profiles_dir = params.magscot_profiles_dir ?: firstExistingPath([
+    "${params.dependencies_dir}/",
+    "${projectDir}/dependencies/",
+    "${params.dependencies_dir}/MAGScoT_profiles",
+    "${projectDir}/dependencies/MAGScoT_profiles"
+    ])
+    
+    if( params.magscot_threshold != null ) {
+    def threshold_value = params.magscot_threshold as double
+
+    if( threshold_value < 0 || threshold_value > 1 ) {
+        error """
+        Invalid --magscot_threshold value: ${params.magscot_threshold}
+
+        Expected a value between 0 and 1.
+        Example:
+          --magscot_threshold 0.5
+        """.stripIndent()
+    }
+}
+
     log.info "Module 4 results directory: ${params.results_dir}"
     log.info "Using Module 3 binning manifest: ${binning_manifest_file}"
     log.info "Writing Module 4 outputs to: ${params.outdir}"
@@ -88,6 +111,8 @@ workflow {
     log.info "Pfam HMM: ${pfam_hmm_file}"
     log.info "MAGScoT script: ${magscot_script_file}"
     log.info "HMMER threads: ${params.threads ?: params.hmm_threads}"
+    log.info "MAGScoT profiles directory: ${magscot_profiles_dir}"
+    
 
     def binning_manifest_ch = channel.fromPath(
         binning_manifest_file,
@@ -113,6 +138,12 @@ workflow {
         checkIfExists: true
     )
 
+    def magscot_profiles_ch = channel.fromPath(
+    magscot_profiles_dir,
+    type: 'dir',
+    checkIfExists: true
+    )
+
     SETUP_MODULE4_TOOLS()
 
     PREPARE_MAG_COLLECTION(
@@ -136,6 +167,7 @@ workflow {
         PREPARE_MAG_COLLECTION.out.contigs_to_bin,
         RUN_HMMSEARCH_MAG_CONTIGS.out.hmm_table,
         magscot_script_ch,
+        magscot_profiles_ch,
         SETUP_MODULE4_TOOLS.out.status
     )
     
@@ -834,6 +866,7 @@ process RUN_MAGSCOT {
     path contigs_to_bin
     path hmm_table
     path magscot_script
+    path magscot_profiles_dir
     path tools_status
 
     output:
@@ -842,8 +875,13 @@ process RUN_MAGSCOT {
     path "magscot.log", emit: log_file
 
     script:
-    """
-    set -euo pipefail
+
+def magscot_threshold_arg = params.magscot_threshold != null && params.magscot_threshold.toString().trim()
+    ? "--threshold ${params.magscot_threshold}"
+    : ""
+"""
+
+set -euo pipefail
 
     TOOL_ENV="\$(grep '^TOOL_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
 
@@ -859,6 +897,8 @@ process RUN_MAGSCOT {
     echo "Contigs-to-bin table: ${contigs_to_bin}" >> "\$LOG_FILE"
     echo "HMM table: ${hmm_table}" >> "\$LOG_FILE"
     echo "MAGScoT script: ${magscot_script}" >> "\$LOG_FILE"
+    echo "MAGScoT threshold: ${params.magscot_threshold}" >> "\$LOG_FILE"
+    echo "MAGScoT extra args: ${params.magscot_extra_args}" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
 
     CONTIG_MAP_ROWS="\$(wc -l < "${contigs_to_bin}" | tr -d ' ')"
@@ -866,24 +906,34 @@ process RUN_MAGSCOT {
 
     if [[ "\$CONTIG_MAP_ROWS" -eq 0 ]]; then
         echo "WARNING: contigs-to-bin table is empty; skipping MAGScoT." >> "\$LOG_FILE"
-
         printf 'step\\tstatus\\texit_status\\tmessage\\tcontigs_to_bin_rows\\thmm_rows\\n' > magscot_status.tsv
         printf 'magscot\\tskipped\\t0\\tNo MAG/bin contig mappings available\\t%s\\t%s\\n' "\$CONTIG_MAP_ROWS" "\$HMM_ROWS" >> magscot_status.tsv
-
         exit 0
     fi
 
     if [[ "\$HMM_ROWS" -eq 0 ]]; then
         echo "WARNING: HMM table is empty; skipping MAGScoT." >> "\$LOG_FILE"
-
         printf 'step\\tstatus\\texit_status\\tmessage\\tcontigs_to_bin_rows\\thmm_rows\\n' > magscot_status.tsv
         printf 'magscot\\tskipped\\t0\\tNo HMM hits available\\t%s\\t%s\\n' "\$CONTIG_MAP_ROWS" "\$HMM_ROWS" >> magscot_status.tsv
-
         exit 0
     fi
 
     if [[ ! -s "${magscot_script}" ]]; then
         echo "ERROR: MAGScoT.py script is missing or empty: ${magscot_script}" >> "\$LOG_FILE"
+        exit 1
+    fi
+
+    if [[ ! -d "${magscot_profiles_dir}" ]]; then
+        echo "ERROR: MAGScoT profiles directory is missing: ${magscot_profiles_dir}" >> "\$LOG_FILE"
+        exit 1
+    fi
+
+    if [[ ! -s "${magscot_profiles_dir}/gtdb_rel207_default_markers.tsv" ]]; then
+        echo "ERROR: Required MAGScoT profile file is missing:" >> "\$LOG_FILE"
+        echo "  ${magscot_profiles_dir}/gtdb_rel207_default_markers.tsv" >> "\$LOG_FILE"
+        echo "" >> "\$LOG_FILE"
+        echo "Contents of provided profiles directory:" >> "\$LOG_FILE"
+        ls -lah "${magscot_profiles_dir}" >> "\$LOG_FILE" 2>&1 || true
         exit 1
     fi
 
@@ -900,26 +950,31 @@ process RUN_MAGSCOT {
     cp -L "${hmm_table}" magscot_outputs/mag_contigs.hmm
     cp -L "${magscot_script}" magscot_outputs/MAGScoT.py
 
+    # MAGScoT expects this path relative to its working directory:
+    #   profiles/gtdb_rel207_default_markers.tsv
+    cp -RL "${magscot_profiles_dir}/." magscot_outputs/profiles/
+
+    echo "Copied MAGScoT profiles into magscot_outputs/profiles" >> "\$LOG_FILE"
+    ls -lah magscot_outputs/profiles >> "\$LOG_FILE" 2>&1 || true
+
     cd magscot_outputs
 
     set +e
     "\$PYTHON_EXE" MAGScoT.py \\
-        -i mag_contigs.contigs_to_bin.tsv \\
-        --hmm mag_contigs.hmm \\
-        ${params.magscot_extra_args} \\
-        >> "../\$LOG_FILE" 2>&1
-
-    STATUS="\$?"
-    set -e
+    -i mag_contigs.contigs_to_bin.tsv \\
+    --hmm mag_contigs.hmm \\
+    ${magscot_threshold_arg} \\
+    ${params.magscot_extra_args} \\
+    >> "../\$LOG_FILE" 2>&1
+STATUS="\$?"
+set -e
 
     cd ..
 
     if [[ "\$STATUS" -ne 0 ]]; then
         echo "WARNING: MAGScoT exited non-zero; treating as non-fatal for workflow continuation. Exit status: \$STATUS" >> "\$LOG_FILE"
-
         printf 'step\\tstatus\\texit_status\\tmessage\\tcontigs_to_bin_rows\\thmm_rows\\n' > magscot_status.tsv
         printf 'magscot\\tfailed_nonfatal\\t%s\\tMAGScoT exited non-zero\\t%s\\t%s\\n' "\$STATUS" "\$CONTIG_MAP_ROWS" "\$HMM_ROWS" >> magscot_status.tsv
-
         exit 0
     fi
 

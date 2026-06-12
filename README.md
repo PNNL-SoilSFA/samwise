@@ -207,7 +207,7 @@ nextflow run module_3_binning.nf \
 This module performs the following steps:
 
 1. **Checks for MAGScoT dependencies and installs if necessary**
-   - Looks for r, r-base, r-optparse, r-dplyr, r-readr, r-funr, r-digest, hmmer, prodigal, parallel, and installs if needed
+   - Looks for r, r-base, r-optparse, r-dplyr, r-readr, r-funr, r-digest, hmmer, prodigal, parallel, pandas and installs if needed
    
 2. **Runs the MAGScoT workflow and generates refined MAGs**
    - Runs MAGScoT which uses GTDB r207 to re-group / rebin genomes and outputs cleaned, refined MAG set.
@@ -215,8 +215,10 @@ This module performs the following steps:
 ## Usage:
 ```bash
 nextflow run module_4_binRefinement.nf \
---working_dir /tahoma/emsl60855/SAMWISE/testRun_viralJars \
---threads 20
+--working_dir ./output_samwise \
+--magscot_threshold 0
+
+#MAGScoT original code sets this threshold at 0.5, but since we are doing gtdb + checkm runs after on the latest databases, its better to just pass this as default 0 and retain all possible MAGs. Feel free to change that --magscot_threshold param to 0.5
 ```
 
 # Step 5 (OPTIONAL): module_5_subassembly.nf
