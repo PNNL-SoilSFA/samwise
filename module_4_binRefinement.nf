@@ -27,7 +27,7 @@ params.prodigal_version = null
 params.parallel_version = null
 params.magscot_extra_args = ""
 params.publish_gathered_bins_mode = "copy"
-params.publish_refined_bins_mode = "symlink"
+params.publish_refined_bins_mode = "copy"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module3_outdir = "${params.results_dir}/module_3_binning"
 params.outdir = "${params.results_dir}/module_4_binRefinement"
@@ -168,6 +168,7 @@ process SETUP_MODULE4_TOOLS {
 
     def packages = []
     packages << "python"
+    packages << "pandas"
     packages << "r-base"
     packages << "r-optparse"
     packages << "r-dplyr"
@@ -178,33 +179,33 @@ process SETUP_MODULE4_TOOLS {
     packages << "prodigal"
     packages << "parallel"
 
- if( params.r_base_version ) {
-    packages = packages.collect { pkg ->
-        pkg == "r-base" ? "r-base=${params.r_base_version}" : pkg
+    if( params.r_base_version ) {
+        packages = packages.collect { pkg ->
+            pkg == "r-base" ? "r-base=${params.r_base_version}" : pkg
+        }
     }
-}
 
-if( params.hmmer_version ) {
-    packages = packages.collect { pkg ->
-        pkg == "hmmer" ? "hmmer=${params.hmmer_version}" : pkg
+    if( params.hmmer_version ) {
+        packages = packages.collect { pkg ->
+            pkg == "hmmer" ? "hmmer=${params.hmmer_version}" : pkg
+        }
     }
-}
 
-if( params.prodigal_version ) {
-    packages = packages.collect { pkg ->
-        pkg == "prodigal" ? "prodigal=${params.prodigal_version}" : pkg
+    if( params.prodigal_version ) {
+        packages = packages.collect { pkg ->
+            pkg == "prodigal" ? "prodigal=${params.prodigal_version}" : pkg
+        }
     }
-}
 
-if( params.parallel_version ) {
-    packages = packages.collect { pkg ->
-        pkg == "parallel" ? "parallel=${params.parallel_version}" : pkg
+    if( params.parallel_version ) {
+        packages = packages.collect { pkg ->
+            pkg == "parallel" ? "parallel=${params.parallel_version}" : pkg
+        }
     }
-}
 
-def package_string = packages.collect { pkg ->
-    "\"${pkg}\""
-}.join(" \\\n        ")
+    def package_string = packages.collect { pkg ->
+        "\"${pkg}\""
+    }.join(" \\\n        ")
 
     """
     set -euo pipefail
@@ -269,7 +270,11 @@ def package_string = packages.collect { pkg ->
             "\$prefix/bin/python" --version >> "\$STATUS_FILE" 2>&1 || true
         fi
 
+        echo "Checking required R packages..." >> "\$STATUS_FILE"
         "\$prefix/bin/Rscript" -e 'library(optparse); library(dplyr); library(readr); library(funr); library(digest)' >> "\$STATUS_FILE" 2>&1 || ok="false"
+
+        echo "Checking required Python packages..." >> "\$STATUS_FILE"
+        "\$prefix/bin/python" -c 'import pandas; print("pandas", pandas.__version__)' >> "\$STATUS_FILE" 2>&1 || ok="false"
 
         [[ "\$ok" == "true" ]]
     }
@@ -288,6 +293,7 @@ def package_string = packages.collect { pkg ->
 
     if [[ "${params.auto_install}" != "true" ]]; then
         echo "ERROR: Module 4 environment missing/broken and --auto_install false." >> "\$STATUS_FILE"
+        echo "Required packages include: ${packages.join(' ')}" >> "\$STATUS_FILE"
         exit 1
     fi
 
@@ -295,6 +301,7 @@ def package_string = packages.collect { pkg ->
 
     if [[ -z "\$INSTALLER" ]]; then
         echo "ERROR: Neither mamba nor conda found in PATH." >> "\$STATUS_FILE"
+        echo "Required packages include: ${packages.join(' ')}" >> "\$STATUS_FILE"
         exit 1
     fi
 
@@ -312,6 +319,7 @@ def package_string = packages.collect { pkg ->
 
     if ! check_env "\$TOOL_ENV"; then
         echo "ERROR: Newly created Module 4 environment failed checks." >> "\$STATUS_FILE"
+        echo "Required packages include: ${packages.join(' ')}" >> "\$STATUS_FILE"
         exit 1
     fi
 
@@ -319,7 +327,6 @@ def package_string = packages.collect { pkg ->
     echo "Module 4 tool setup finished: \$(date)" >> "\$STATUS_FILE"
     """
 }
-
 
 process PREPARE_MAG_COLLECTION {
     tag "prepare_mag_collection"
@@ -346,7 +353,7 @@ process PREPARE_MAG_COLLECTION {
     path tools_status
 
     output:
-    path "gathered_bins", emit: gathered_bins
+    path "gathered_bins/*", optional: true, emit: gathered_bins
     path "mag_contigs.fa", emit: concatenated_fasta
     path "mag_contigs.contigs_to_bin.tsv", emit: contigs_to_bin
     path "mag_contigs.quickbin.contigs_to_bin.tsv", emit: quickbin_map
@@ -944,7 +951,7 @@ process BUILD_REFINED_MAGS {
     path magscot_outputs_dir
 
     output:
-    path "refined_bins", emit: refined_bins
+    path "refined_bins/*.fa", optional: true, emit: refined_bins
     path "magscot_refined_bins_manifest.tsv", emit: refined_manifest
     path "magscot_refined_bins_stats.tsv", emit: refined_stats
     path "build_refined_mags.log", emit: log_file
