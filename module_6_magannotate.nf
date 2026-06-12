@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-nextflow.enable.dsl=2
+nextflow.enable.dsl = 2
 
 /*
  * Module 6: MAG harmonization and processing.
@@ -11,11 +11,11 @@ nextflow.enable.dsl=2
  * Core parameters
  */
 params.working_dir = null
-params.output_dir  = null
+params.output_dir = null
 
-params.input_mag_dir      = null
+params.input_mag_dir = null
 params.input_mag_manifest = null
-params.mag_extension      = "fa"
+params.mag_extension = "fa"
 
 params.threads = null
 params.tool_env_dir = null
@@ -24,16 +24,16 @@ params.auto_install = true
 /*
  * Which tools to run
  */
-params.run_checkm2    = true
-params.run_gtdbtk     = true
-params.run_dram2      = true
+params.run_checkm2 = true
+params.run_gtdbtk = true
+params.run_dram2 = true
 params.run_microtrait = true
 
 /*
  * Tool versions
  */
 params.checkm2_version = null
-params.gtdbtk_version  = "2.7.2"
+params.gtdbtk_version = "2.7.2"
 
 /*
  * CheckM2 database.
@@ -46,7 +46,7 @@ params.gtdbtk_version  = "2.7.2"
  *   <outdir>/databases/checkm2/
  */
 params.checkm2_db_path = null
-params.checkm2_db_dir  = null
+params.checkm2_db_dir = null
 params.checkm2_zenodo_record = "14897628"
 params.checkm2_auto_download_db = true
 params.checkm2_extension = "fa"
@@ -76,23 +76,23 @@ params.dram2_repo = "WrightonLabCSU/DRAM"
 params.dram2_revision = "dev"
 params.dram2_nextflow_config_url = "https://raw.githubusercontent.com/WrightonLabCSU/DRAM/refs/heads/dev/nextflow.config"
 
-params.dram2_tiny_cpus_limit   = 1
-params.dram2_small_cpus_limit  = 12
+params.dram2_tiny_cpus_limit = 1
+params.dram2_small_cpus_limit = 12
 params.dram2_medium_cpus_limit = 24
-params.dram2_big_cpus_limit    = 36
-params.dram2_huge_cpus_limit   = 36
+params.dram2_big_cpus_limit = 36
+params.dram2_huge_cpus_limit = 36
 
-params.dram2_tiny_gb_mem_limit   = 1
-params.dram2_small_gb_mem_limit  = 100
+params.dram2_tiny_gb_mem_limit = 1
+params.dram2_small_gb_mem_limit = 100
 params.dram2_medium_gb_mem_limit = 200
-params.dram2_big_gb_mem_limit    = 300
-params.dram2_huge_gb_mem_limit   = 360
+params.dram2_big_gb_mem_limit = 300
+params.dram2_huge_gb_mem_limit = 360
 
-params.dram2_tiny_hr_time_limit   = 12
-params.dram2_small_hr_time_limit  = 120
+params.dram2_tiny_hr_time_limit = 12
+params.dram2_small_hr_time_limit = 120
 params.dram2_medium_hr_time_limit = 120
-params.dram2_big_hr_time_limit    = 168
-params.dram2_huge_hr_time_limit   = 168
+params.dram2_big_hr_time_limit = 168
+params.dram2_huge_hr_time_limit = 168
 
 params.nextflow_exe = "nextflow"
 
@@ -129,17 +129,17 @@ params.publish_tool_outputs_mode = "copy"
  * Derived directories
  */
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
-params.outdir      = "${params.results_dir}/module_6_magHarmonization"
+params.outdir = "${params.results_dir}/module_6_magHarmonization"
 
 params.module5_final_mag_dir = "${params.results_dir}/module_5_subtractiveAssembly/final_mag_database"
 params.module4_refined_mag_dir = "${params.results_dir}/module_4_binRefinement/refined_bins"
 
 params.checkm2_db_outdir = params.checkm2_db_dir ?: "${params.outdir}/databases/checkm2"
-params.gtdbtk_db_outdir  = params.gtdbtk_db_dir  ?: "${params.outdir}/databases/gtdbtk"
-params.dram2_outdir      = params.dram2_work_dir ?: "${params.outdir}/DRAM"
+params.gtdbtk_db_outdir = params.gtdbtk_db_dir ?: "${params.outdir}/databases/gtdbtk"
+params.dram2_outdir = params.dram2_work_dir ?: "${params.outdir}/DRAM"
 
 
-def firstExistingPath(List candidates) {
+def firstExistingPath(candidates: List) {
     def found = candidates.find { candidate ->
         java.nio.file.Files.exists(java.nio.file.Paths.get(candidate.toString()))
     }
@@ -156,13 +156,14 @@ def firstExistingPath(List candidates) {
 
 workflow {
 
-    def run_checkm2    = params.run_checkm2.toString().toBoolean()
-    def run_gtdbtk     = params.run_gtdbtk.toString().toBoolean()
-    def run_dram2      = params.run_dram2.toString().toBoolean()
+    def run_checkm2 = params.run_checkm2.toString().toBoolean()
+    def run_gtdbtk = params.run_gtdbtk.toString().toBoolean()
+    def run_dram2 = params.run_dram2.toString().toBoolean()
     def run_microtrait = params.run_microtrait.toString().toBoolean()
 
-    if( !run_checkm2 && !run_gtdbtk && !run_dram2 && !run_microtrait ) {
-        error """
+    if (!run_checkm2 && !run_gtdbtk && !run_dram2 && !run_microtrait) {
+        error(
+            """
         No Module 6 tools selected.
 
         Enable at least one of:
@@ -171,70 +172,70 @@ workflow {
           --run_dram2 true
           --run_microtrait true
         """.stripIndent()
+        )
     }
 
-    def selected_mag_dir = params.input_mag_dir ?: firstExistingPath([
-        params.module5_final_mag_dir,
-        params.module4_refined_mag_dir
-    ])
+    def selected_mag_dir = params.input_mag_dir ?: firstExistingPath(
+        [params.module5_final_mag_dir, params.module4_refined_mag_dir]
+    )
 
     def selected_mag_manifest = params.input_mag_manifest ?: ""
 
-    log.info "Module 6 results directory: ${params.results_dir}"
-    log.info "Writing Module 6 outputs to: ${params.outdir}"
-    log.info "Selected MAG directory: ${selected_mag_dir}"
-    log.info "Selected MAG manifest: ${selected_mag_manifest ?: 'not supplied'}"
-    log.info "MAG extension: ${params.mag_extension}"
-    log.info "Threads: ${params.threads ?: 'tool-specific defaults'}"
-    log.info "Run CheckM2: ${run_checkm2}"
-    log.info "Run GTDB-Tk: ${run_gtdbtk}"
-    log.info "Run DRAM2: ${run_dram2}"
-    log.info "Run microTrait: ${run_microtrait}"
+    log.info("Module 6 results directory: ${params.results_dir}")
+    log.info("Writing Module 6 outputs to: ${params.outdir}")
+    log.info("Selected MAG directory: ${selected_mag_dir}")
+    log.info("Selected MAG manifest: ${selected_mag_manifest ?: 'not supplied'}")
+    log.info("MAG extension: ${params.mag_extension}")
+    log.info("Threads: ${params.threads ?: 'tool-specific defaults'}")
+    log.info("Run CheckM2: ${run_checkm2}")
+    log.info("Run GTDB-Tk: ${run_gtdbtk}")
+    log.info("Run DRAM2: ${run_dram2}")
+    log.info("Run microTrait: ${run_microtrait}")
 
     PREPARE_MAG_INPUTS(
         channel.value(selected_mag_dir),
-        channel.value(selected_mag_manifest)
+        channel.value(selected_mag_manifest),
     )
 
     def status_ch = channel.empty()
 
-    if( run_checkm2 ) {
+    if (run_checkm2) {
         SETUP_CHECKM2()
         RUN_CHECKM2(
             PREPARE_MAG_INPUTS.out.mags_dir,
-            SETUP_CHECKM2.out.status
+            SETUP_CHECKM2.out.status,
         )
         status_ch = status_ch.mix(RUN_CHECKM2.out.status)
     }
 
-    if( run_gtdbtk ) {
+    if (run_gtdbtk) {
         SETUP_GTDBTK()
         RUN_GTDBTK(
             PREPARE_MAG_INPUTS.out.mags_dir,
-            SETUP_GTDBTK.out.status
+            SETUP_GTDBTK.out.status,
         )
         status_ch = status_ch.mix(RUN_GTDBTK.out.status)
     }
 
-    if( run_dram2 ) {
+    if (run_dram2) {
         RUN_DRAM2(
             PREPARE_MAG_INPUTS.out.mags_dir
         )
         status_ch = status_ch.mix(RUN_DRAM2.out.status)
     }
 
-    if( run_microtrait ) {
+    if (run_microtrait) {
         SETUP_MICROTRAIT()
         RUN_MICROTRAIT(
             PREPARE_MAG_INPUTS.out.mags_dir,
-            SETUP_MICROTRAIT.out.status
+            SETUP_MICROTRAIT.out.status,
         )
         status_ch = status_ch.mix(RUN_MICROTRAIT.out.status)
     }
 
     WRITE_MODULE6_SUMMARY(
         PREPARE_MAG_INPUTS.out.input_stats,
-        status_ch.collect()
+        status_ch.collect(),
     )
 }
 
@@ -242,18 +243,11 @@ workflow {
 process PREPARE_MAG_INPUTS {
     tag "prepare_final_mags"
 
-    publishDir "${params.outdir}/refined_genomes",
-        mode: params.publish_mags_mode,
-        pattern: "refined_genomes/*.fa",
-        saveAs: { filename -> filename.replaceFirst(/^refined_genomes\//, '') }
+    publishDir "${params.outdir}/refined_genomes", mode: params.publish_mags_mode, pattern: "refined_genomes/*.fa", saveAs: { filename -> filename.replaceFirst(/^refined_genomes\//, '') }
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "module6_mag_input_*.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module6_mag_input_*.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "prepare_mag_inputs.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "prepare_mag_inputs.log"
 
     input:
     val input_mag_dir
@@ -498,9 +492,7 @@ PY
 process SETUP_CHECKM2 {
     tag "setup_checkm2"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "checkm2_setup_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "checkm2_setup_status.env"
 
     output:
     path "checkm2_setup_status.env", emit: status
@@ -682,18 +674,11 @@ PY
 process RUN_CHECKM2 {
     tag "checkm2"
 
-    publishDir "${params.outdir}/checkm2",
-        mode: params.publish_tool_outputs_mode,
-        pattern: "checkm2_out/**",
-        saveAs: { filename -> filename.replaceFirst(/^checkm2_out\//, '') }
+    publishDir "${params.outdir}/checkm2", mode: params.publish_tool_outputs_mode, pattern: "checkm2_out/**", saveAs: { filename -> filename.replaceFirst(/^checkm2_out\//, '') }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "checkm2.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "checkm2.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "checkm2_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "checkm2_status.tsv"
 
     cpus {
         params.threads != null ? params.threads as int : 8
@@ -754,9 +739,7 @@ process RUN_CHECKM2 {
 process SETUP_GTDBTK {
     tag "setup_gtdbtk"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "gtdbtk_setup_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "gtdbtk_setup_status.env"
 
     output:
     path "gtdbtk_setup_status.env", emit: status
@@ -879,18 +862,11 @@ process SETUP_GTDBTK {
 process RUN_GTDBTK {
     tag "gtdbtk"
 
-    publishDir "${params.outdir}/gtdbtk",
-        mode: params.publish_tool_outputs_mode,
-        pattern: "gtdbtk_out/**",
-        saveAs: { filename -> filename.replaceFirst(/^gtdbtk_out\//, '') }
+    publishDir "${params.outdir}/gtdbtk", mode: params.publish_tool_outputs_mode, pattern: "gtdbtk_out/**", saveAs: { filename -> filename.replaceFirst(/^gtdbtk_out\//, '') }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "gtdbtk.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "gtdbtk.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "gtdbtk_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "gtdbtk_status.tsv"
 
     cpus {
         params.threads != null ? params.threads as int : 32
@@ -952,18 +928,11 @@ process RUN_GTDBTK {
 process RUN_DRAM2 {
     tag "dram2"
 
-    publishDir "${params.outdir}/dram2",
-        mode: params.publish_tool_outputs_mode,
-        pattern: "DRAM2/**",
-        saveAs: { filename -> filename.replaceFirst(/^DRAM2\//, '') }
+    publishDir "${params.outdir}/dram2", mode: params.publish_tool_outputs_mode, pattern: "DRAM2/**", saveAs: { filename -> filename.replaceFirst(/^DRAM2\//, '') }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "dram2.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "dram2.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "dram2_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "dram2_status.tsv"
 
     cpus {
         params.threads != null ? params.threads as int : 36
@@ -1044,9 +1013,7 @@ process RUN_DRAM2 {
 process SETUP_MICROTRAIT {
     tag "setup_microtrait"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "microtrait_setup_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "microtrait_setup_status.env"
 
     output:
     path "microtrait_setup_status.env", emit: status
@@ -1293,18 +1260,11 @@ RSCRIPT
 process RUN_MICROTRAIT {
     tag "microtrait"
 
-    publishDir "${params.outdir}/microtrait",
-        mode: params.publish_tool_outputs_mode,
-        pattern: "microtrait_out/**",
-        saveAs: { filename -> filename.replaceFirst(/^microtrait_out\//, '') }
+    publishDir "${params.outdir}/microtrait", mode: params.publish_tool_outputs_mode, pattern: "microtrait_out/**", saveAs: { filename -> filename.replaceFirst(/^microtrait_out\//, '') }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "microtrait.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "microtrait.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "microtrait_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "microtrait_status.tsv"
 
     cpus {
         params.microtrait_cores != null
@@ -1486,7 +1446,7 @@ if(type == "genomic") {
 
   fasta.list <- list.files(
     path = fasta_dir,
-    pattern = "\\\\.fa$",
+    pattern = "\\\\.fa${params.microtrait_out_name},
     full.names = TRUE
   )
 
@@ -1534,19 +1494,19 @@ if(type == "genomic") {
 
   fasta.list <- list.files(
     path = fasta_dir,
-    pattern = "\\\\.fa$",
+    pattern = "\\\\.fa${params.microtrait_run_type},
     full.names = TRUE
   )
 
   called.files <- list.files(
     path = fasta_dir,
-    pattern = "\\\\.fna$",
+    pattern = "\\\\.fna${task.cpus},
     full.names = TRUE
   )
 
   protein.files <- list.files(
     path = fasta_dir,
-    pattern = "\\\\.faa$",
+    pattern = "\\\\.faa${params.outdir},
     full.names = TRUE
   )
 
@@ -1615,7 +1575,7 @@ if(type == "genomic") {
   cat("Running OGT prediction\n")
 
   genome_features <- parallel::mclapply(
-    gsub("\\\\.fa$", "", fasta.list),
+    gsub("\\\\.fa${params.outdir}, "", fasta.list),
     function(curr.bin) {
       extract_features(
         genome_file = paste0(curr.bin, ".fa"),
@@ -1626,7 +1586,7 @@ if(type == "genomic") {
     mc.cores = max(1, floor(ncores * 0.7))
   )
 
-  names(genome_features) <- basename(gsub("\\\\.fa$", "", fasta.list))
+  names(genome_features) <- basename(gsub("\\\\.fa, "", fasta.list))
 
   ogt_out <- sapply(genome_features, run_ogtmodel)
   ogt_out <- data.frame(
@@ -1648,7 +1608,7 @@ if(type == "genomic") {
   cat("Running minimum generation time prediction\n")
 
   mingentime <- parallel::mclapply(
-    gsub("\\\\.fa$", "", fasta.list),
+    gsub("\\\\.fa, "", fasta.list),
     function(curr.bin) {
       run.predictGrowth(
         cds_file = paste0(curr.bin, ".fna"),
@@ -1684,10 +1644,10 @@ RSCRIPT
     set +e
     Rscript microtrait_runner.R \\
         "microtrait_genomes" \\
-        "${params.microtrait_out_name}" \\
-        "${params.microtrait_run_type}" \\
+        "" \\
+        "" \\
         "\$MICROTRAIT_SOURCE_DIR" \\
-        "${task.cpus}" \\
+        "" \\
         >> "\$LOG" 2>&1
     STATUS="\$?"
     set -e
@@ -1709,7 +1669,7 @@ RSCRIPT
     if [[ "\$STATUS" -ne 0 ]]; then
         printf 'microtrait\\tfailed\\t%s\\t%s\\t%s\\t%s\\tmicroTrait failed\\n' \\
             "\$STATUS" \\
-            "${params.outdir}/microtrait" \\
+            "/microtrait" \\
             "\$RDS_COUNT" \\
             "\$CSV_COUNT" \\
             >> microtrait_status.tsv
@@ -1719,7 +1679,7 @@ RSCRIPT
     fi
 
     printf 'microtrait\\tcompleted\\t0\\t%s\\t%s\\t%s\\tmicroTrait completed\\n' \\
-        "${params.outdir}/microtrait" \\
+        "/microtrait" \\
         "\$RDS_COUNT" \\
         "\$CSV_COUNT" \\
         >> microtrait_status.tsv
@@ -1731,9 +1691,7 @@ RSCRIPT
 process WRITE_MODULE6_SUMMARY {
     tag "write_module6_summary"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "module6_run_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module6_run_summary.tsv"
 
     input:
     path input_stats
@@ -1743,9 +1701,11 @@ process WRITE_MODULE6_SUMMARY {
     path "module6_run_summary.tsv", emit: summary
 
     script:
-    def status_files = tool_status_files.collect { status_file ->
-        status_file.name
-    }.join(' ')
+    def status_files = tool_status_files
+        .collect { status_file ->
+            status_file.name
+        }
+        .join(' ')
 
     """
     set -euo pipefail

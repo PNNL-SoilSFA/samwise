@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-nextflow.enable.dsl=2
+nextflow.enable.dsl = 2
 
 /*
  * Module 3: MAG binning from Module 2 assemblies and Module 1 trimmed reads.
@@ -11,12 +11,12 @@ nextflow.enable.dsl=2
  */
 params.working_dir = null
 params.input_assembly_manifest = null
-params.input_trimmed_manifest  = null
+params.input_trimmed_manifest = null
 params.output_dir = null
 
 params.metabat2 = false
 params.quickbin = false
-params.maxbin2  = false
+params.maxbin2 = false
 
 params.auto_install = true
 params.tool_env_dir = null
@@ -25,20 +25,20 @@ params.threads = null
 params.mapping_threads = 4
 params.binning_threads = 4
 
-params.seqkit_version   = "2.8.2"
-params.bbmap_version    = "39.81"
+params.seqkit_version = "2.8.2"
+params.bbmap_version = "39.81"
 params.samtools_version = "1.23.1"
 params.metabat2_version = "2.18"
-params.maxbin2_version  = "2.2.7"
+params.maxbin2_version = "2.2.7"
 
 params.min_scaffold_length = 2500
 
-params.bbmap_minid      = 0.90
-params.bbmap_maxindel   = 10
-params.bbmap_ambig      = "random"
-params.bbmap_mateqtag   = true
+params.bbmap_minid = 0.90
+params.bbmap_maxindel = 10
+params.bbmap_ambig = "random"
+params.bbmap_mateqtag = true
 params.bbmap_extra_args = ""
-params.bbmap_xmx        = "4g"
+params.bbmap_xmx = "4g"
 
 params.metabat2_min_contig = 2500
 params.metabat2_extra_args = ""
@@ -46,31 +46,31 @@ params.metabat2_extra_args = ""
 params.maxbin2_extra_args = ""
 
 params.quickbin_mincluster = "50k"
-params.quickbin_mincontig  = 2500
-params.quickbin_minseed    = 2500
+params.quickbin_mincontig = 2500
+params.quickbin_minseed = 2500
 params.quickbin_stringency = "normal"
-params.quickbin_gzip       = false
-params.quickbin_chaff      = false
-params.quickbin_clade      = false
-params.quickbin_sketch     = false
-params.quickbin_server     = false
-params.quickbin_xmx        = null
+params.quickbin_gzip = false
+params.quickbin_chaff = false
+params.quickbin_clade = false
+params.quickbin_sketch = false
+params.quickbin_server = false
+params.quickbin_xmx = null
 params.quickbin_extra_args = ""
 params.quickbin_use_positional_bam = false
 
 params.publish_filtered_assemblies_mode = "symlink"
-params.publish_bam_mode  = "symlink"
+params.publish_bam_mode = "symlink"
 params.publish_bins_mode = "symlink"
 
-params.results_dir    = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
+params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module2_outdir = "${params.results_dir}/module_2_readassembly"
-params.outdir         = "${params.results_dir}/module_3_binning"
+params.outdir = "${params.results_dir}/module_3_binning"
 
 
 def absOrEmpty(value) {
     def s = value == null ? "" : value.toString().trim()
-    if( !s || s == "null" || s == "NA" ) {
+    if (!s || s == "null" || s == "NA") {
         return ""
     }
     return java.nio.file.Paths.get(s).toAbsolutePath().normalize().toString()
@@ -81,10 +81,11 @@ workflow {
 
     def use_metabat2 = params.metabat2.toString().toBoolean()
     def use_quickbin = params.quickbin.toString().toBoolean()
-    def use_maxbin2  = params.maxbin2.toString().toBoolean()
+    def use_maxbin2 = params.maxbin2.toString().toBoolean()
 
-    if( !use_metabat2 && !use_quickbin && !use_maxbin2 ) {
-        error """
+    if (!use_metabat2 && !use_quickbin && !use_maxbin2) {
+        error(
+            """
         No binner selected.
 
         Please specify at least one of:
@@ -95,28 +96,29 @@ workflow {
         Example:
           nextflow run module_3_binning.nf --working_dir ./output_samwise --threads 6 --metabat2 --quickbin --maxbin2
         """.stripIndent()
+        )
     }
 
     def assembly_manifest_file = params.input_assembly_manifest ?: "${params.module2_outdir}/summary/assembly_manifest.tsv"
-    def trimmed_manifest_file  = params.input_trimmed_manifest  ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
+    def trimmed_manifest_file = params.input_trimmed_manifest ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
 
-    log.info "Module 3 results directory: ${params.results_dir}"
-    log.info "Using Module 2 assembly manifest: ${assembly_manifest_file}"
-    log.info "Using Module 1 trimmed manifest: ${trimmed_manifest_file}"
-    log.info "Writing Module 3 outputs to: ${params.outdir}"
-    log.info "Minimum scaffold length for binning: ${params.min_scaffold_length}"
-    log.info "Binners selected: MetaBAT2=${use_metabat2}, QuickBin=${use_quickbin}, MaxBin2=${use_maxbin2}"
+    log.info("Module 3 results directory: ${params.results_dir}")
+    log.info("Using Module 2 assembly manifest: ${assembly_manifest_file}")
+    log.info("Using Module 1 trimmed manifest: ${trimmed_manifest_file}")
+    log.info("Writing Module 3 outputs to: ${params.outdir}")
+    log.info("Minimum scaffold length for binning: ${params.min_scaffold_length}")
+    log.info("Binners selected: MetaBAT2=${use_metabat2}, QuickBin=${use_quickbin}, MaxBin2=${use_maxbin2}")
 
     def assembly_manifest_ch = channel.fromPath(
         assembly_manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def trimmed_manifest_ch = channel.fromPath(
         trimmed_manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     /*
@@ -135,8 +137,8 @@ workflow {
         .splitCsv(header: true, sep: '\t')
         .map { row ->
             def fasta_path = absOrEmpty(row.renamed_fasta)
-            if( !fasta_path ) {
-                error "Empty renamed_fasta path in assembly manifest for sample '${row.sample_id}'"
+            if (!fasta_path) {
+                error("Empty renamed_fasta path in assembly manifest for sample '${row.sample_id}'")
             }
 
             tuple(
@@ -147,7 +149,7 @@ workflow {
                 row.assembly_mode.toString(),
                 row.rarefaction_label == null ? "" : row.rarefaction_label.toString(),
                 row.assembly_strategy.toString(),
-                file(fasta_path)
+                file(fasta_path),
             )
         }
 
@@ -172,7 +174,7 @@ workflow {
                 row.layout.toString(),
                 absOrEmpty(row.read1),
                 absOrEmpty(row.read2),
-                absOrEmpty(row.interleaved)
+                absOrEmpty(row.interleaved),
             )
         }
 
@@ -191,27 +193,14 @@ workflow {
      */
     def binning_jobs_ch = assemblies_ch
         .combine(trimmed_reads_ch, by: 0)
-        .map {
-            sample_id,
-            safe_sample_id,
-            assembly_sample_id,
-            assembly_assembler,
-            assembly_mode,
-            rarefaction_label,
-            assembly_strategy,
-            renamed_fasta,
-            layout,
-            read1,
-            read2,
-            interleaved ->
+        .map { sample_id, safe_sample_id, assembly_sample_id, assembly_assembler, assembly_mode, rarefaction_label, assembly_strategy, renamed_fasta, layout, read1, read2, interleaved ->
 
             def rare_part = rarefaction_label ? "_${rarefaction_label}" : ""
 
-            def binning_id = "${safe_sample_id}${rare_part}_${assembly_assembler}_${assembly_mode}"
-                .replaceAll('[^A-Za-z0-9._-]+', '_')
+            def binning_id = "${safe_sample_id}${rare_part}_${assembly_assembler}_${assembly_mode}".replaceAll('[^A-Za-z0-9._-]+', '_')
 
-            if( layout != 'paired' && layout != 'interleaved' ) {
-                error "Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}"
+            if (layout != 'paired' && layout != 'interleaved') {
+                error("Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}")
             }
 
             tuple(
@@ -227,7 +216,7 @@ workflow {
                 layout,
                 read1,
                 read2,
-                interleaved
+                interleaved,
             )
         }
 
@@ -246,44 +235,44 @@ workflow {
     )
 
     def manifest_records_ch = channel.empty()
-    def stats_files_ch      = channel.empty()
+    def stats_files_ch = channel.empty()
 
-    if( use_metabat2 || use_maxbin2 ) {
+    if (use_metabat2 || use_maxbin2) {
         GENERATE_COVERAGE_FILES(
             MAP_READS_BBMAP.out.mapped_bam.combine(SETUP_MODULE3_TOOLS.out.status)
         )
     }
 
-    if( use_metabat2 ) {
+    if (use_metabat2) {
         RUN_METABAT2(
             GENERATE_COVERAGE_FILES.out.coverage_files.combine(SETUP_MODULE3_TOOLS.out.status)
         )
 
         manifest_records_ch = manifest_records_ch.mix(RUN_METABAT2.out.manifest_record)
-        stats_files_ch      = stats_files_ch.mix(RUN_METABAT2.out.stats_file)
+        stats_files_ch = stats_files_ch.mix(RUN_METABAT2.out.stats_file)
     }
 
-    if( use_maxbin2 ) {
+    if (use_maxbin2) {
         RUN_MAXBIN2(
             GENERATE_COVERAGE_FILES.out.coverage_files.combine(SETUP_MODULE3_TOOLS.out.status)
         )
 
         manifest_records_ch = manifest_records_ch.mix(RUN_MAXBIN2.out.manifest_record)
-        stats_files_ch      = stats_files_ch.mix(RUN_MAXBIN2.out.stats_file)
+        stats_files_ch = stats_files_ch.mix(RUN_MAXBIN2.out.stats_file)
     }
 
-    if( use_quickbin ) {
+    if (use_quickbin) {
         RUN_QUICKBIN(
             MAP_READS_BBMAP.out.mapped_bam.combine(SETUP_MODULE3_TOOLS.out.status)
         )
 
         manifest_records_ch = manifest_records_ch.mix(RUN_QUICKBIN.out.manifest_record)
-        stats_files_ch      = stats_files_ch.mix(RUN_QUICKBIN.out.stats_file)
+        stats_files_ch = stats_files_ch.mix(RUN_QUICKBIN.out.stats_file)
     }
 
     WRITE_BINNING_SUMMARIES(
         manifest_records_ch.collect(),
-        stats_files_ch.collect()
+        stats_files_ch.collect(),
     )
 }
 
@@ -291,9 +280,7 @@ workflow {
 process SETUP_MODULE3_TOOLS {
     tag "setup_binning_tools"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "module3_tools_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module3_tools_status.env"
 
     output:
     path "module3_tools_status.env", emit: status
@@ -301,13 +288,13 @@ process SETUP_MODULE3_TOOLS {
     script:
     def base_env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs"
 
-    def mapping_env_dir  = "${base_env_dir}/module3_mapping_tools"
+    def mapping_env_dir = "${base_env_dir}/module3_mapping_tools"
     def metabat2_env_dir = "${base_env_dir}/module3_metabat2_tools"
-    def maxbin2_env_dir  = "${base_env_dir}/module3_maxbin2_tools"
+    def maxbin2_env_dir = "${base_env_dir}/module3_maxbin2_tools"
 
     def want_metabat2 = params.metabat2.toString().toBoolean()
     def want_quickbin = params.quickbin.toString().toBoolean()
-    def want_maxbin2  = params.maxbin2.toString().toBoolean()
+    def want_maxbin2 = params.maxbin2.toString().toBoolean()
     def need_jgi_depth = want_metabat2 || want_maxbin2
 
     """
@@ -525,49 +512,17 @@ process FILTER_ASSEMBLY_BY_LENGTH {
 
     stageInMode 'copy'
 
-    publishDir "${params.outdir}/filtered_assemblies",
-        mode: params.publish_filtered_assemblies_mode,
-        pattern: "*.min${params.min_scaffold_length}.fa"
+    publishDir "${params.outdir}/filtered_assemblies", mode: params.publish_filtered_assemblies_mode, pattern: "*.min${params.min_scaffold_length}.fa"
 
-    publishDir "${params.outdir}/summary/filtered_assembly_stats",
-        mode: 'copy',
-        pattern: "*.filtered_assembly_stats.tsv"
+    publishDir "${params.outdir}/summary/filtered_assembly_stats", mode: 'copy', pattern: "*.filtered_assembly_stats.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.filter_assembly.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.filter_assembly.log"
 
     input:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(original_assembly_fasta),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          path(tools_status)
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(original_assembly_fasta), val(layout), val(read1), val(read2), val(interleaved), path(tools_status)
 
     output:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path("${binning_id}.min${params.min_scaffold_length}.fa"),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          emit: filtered_jobs
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path("${binning_id}.min${params.min_scaffold_length}.fa"), val(layout), val(read1), val(read2), val(interleaved), emit: filtered_jobs
 
     path "${binning_id}.filtered_assembly_stats.tsv", emit: stats_file
     path "${binning_id}.filter_assembly.log", emit: log_file
@@ -731,13 +686,9 @@ process MAP_READS_BBMAP {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/mapping",
-        mode: params.publish_bam_mode,
-        pattern: "*.sorted.bam*"
+    publishDir "${params.outdir}/mapping", mode: params.publish_bam_mode, pattern: "*.sorted.bam*"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.bbmap.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.bbmap.log"
 
     cpus {
         params.threads != null
@@ -746,38 +697,10 @@ process MAP_READS_BBMAP {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(filtered_assembly_fasta),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          path(tools_status)
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(filtered_assembly_fasta), val(layout), val(read1), val(read2), val(interleaved), path(tools_status)
 
     output:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(filtered_assembly_fasta),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          path("${binning_id}.sorted.bam"),
-          path("${binning_id}.sorted.bam.bai"),
-          emit: mapped_bam
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(filtered_assembly_fasta), val(layout), val(read1), val(read2), val(interleaved), path("${binning_id}.sorted.bam"), path("${binning_id}.sorted.bam.bai"), emit: mapped_bam
 
     path "${binning_id}.bbmap.log", emit: log_file
 
@@ -893,51 +816,17 @@ process GENERATE_COVERAGE_FILES {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/coverage/metabat2_depth",
-        mode: 'copy',
-        pattern: "*.depth.txt"
+    publishDir "${params.outdir}/coverage/metabat2_depth", mode: 'copy', pattern: "*.depth.txt"
 
-    publishDir "${params.outdir}/coverage/maxbin2_abundance",
-        mode: 'copy',
-        pattern: "*.maxbin2_abundance.tsv"
+    publishDir "${params.outdir}/coverage/maxbin2_abundance", mode: 'copy', pattern: "*.maxbin2_abundance.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.coverage.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.coverage.log"
 
     input:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(filtered_assembly_fasta),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          path(sorted_bam),
-          path(sorted_bam_bai),
-          path(tools_status)
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(filtered_assembly_fasta), val(layout), val(read1), val(read2), val(interleaved), path(sorted_bam), path(sorted_bam_bai), path(tools_status)
 
     output:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(filtered_assembly_fasta),
-          path(sorted_bam),
-          path(sorted_bam_bai),
-          path("${binning_id}.depth.txt"),
-          path("${binning_id}.maxbin2_abundance.tsv"),
-          emit: coverage_files
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(filtered_assembly_fasta), path(sorted_bam), path(sorted_bam_bai), path("${binning_id}.depth.txt"), path("${binning_id}.maxbin2_abundance.tsv"), emit: coverage_files
 
     path "${binning_id}.coverage.log", emit: log_file
 
@@ -1014,18 +903,11 @@ process RUN_METABAT2 {
     tag { binning_id }
     stageInMode 'symlink'
 
-    publishDir { "${params.outdir}/bins/metabat2/${binning_id}" },
-        mode: params.publish_bins_mode,
-        pattern: "bins/*",
-        saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
+    publishDir { "${params.outdir}/bins/metabat2/${binning_id}" }, mode: params.publish_bins_mode, pattern: "bins/*", saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.metabat2.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.metabat2.log"
 
-    publishDir "${params.outdir}/summary/per_binner_stats",
-        mode: 'copy',
-        pattern: "*.metabat2.binning_stats.tsv"
+    publishDir "${params.outdir}/summary/per_binner_stats", mode: 'copy', pattern: "*.metabat2.binning_stats.tsv"
 
     cpus {
         params.threads != null
@@ -1034,20 +916,7 @@ process RUN_METABAT2 {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(filtered_assembly_fasta),
-          path(sorted_bam),
-          path(sorted_bam_bai),
-          path(depth_file),
-          path(maxbin_abundance),
-          path(tools_status)
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(filtered_assembly_fasta), path(sorted_bam), path(sorted_bam_bai), path(depth_file), path(maxbin_abundance), path(tools_status)
 
     output:
     path "bins/*", optional: true, emit: bin_files
@@ -1263,18 +1132,11 @@ process RUN_MAXBIN2 {
     tag { binning_id }
     stageInMode 'symlink'
 
-    publishDir { "${params.outdir}/bins/maxbin2/${binning_id}" },
-        mode: params.publish_bins_mode,
-        pattern: "bins/*",
-        saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
+    publishDir { "${params.outdir}/bins/maxbin2/${binning_id}" }, mode: params.publish_bins_mode, pattern: "bins/*", saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.maxbin2.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.maxbin2.log"
 
-    publishDir "${params.outdir}/summary/per_binner_stats",
-        mode: 'copy',
-        pattern: "*.maxbin2.binning_stats.tsv"
+    publishDir "${params.outdir}/summary/per_binner_stats", mode: 'copy', pattern: "*.maxbin2.binning_stats.tsv"
 
     cpus {
         params.threads != null
@@ -1283,20 +1145,7 @@ process RUN_MAXBIN2 {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(filtered_assembly_fasta),
-          path(sorted_bam),
-          path(sorted_bam_bai),
-          path(depth_file),
-          path(maxbin_abundance),
-          path(tools_status)
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(filtered_assembly_fasta), path(sorted_bam), path(sorted_bam_bai), path(depth_file), path(maxbin_abundance), path(tools_status)
 
     output:
     path "bins/*", optional: true, emit: bin_files
@@ -1526,22 +1375,13 @@ process RUN_QUICKBIN {
     tag { binning_id }
     stageInMode 'symlink'
 
-    publishDir { "${params.outdir}/bins/quickbin/${binning_id}" },
-        mode: params.publish_bins_mode,
-        pattern: "bins/*",
-        saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
+    publishDir { "${params.outdir}/bins/quickbin/${binning_id}" }, mode: params.publish_bins_mode, pattern: "bins/*", saveAs: { filename -> filename.replaceFirst(/^bins\//, '') }
 
-    publishDir "${params.outdir}/coverage/quickbin_cov",
-        mode: 'copy',
-        pattern: "*.quickbin_cov.txt"
+    publishDir "${params.outdir}/coverage/quickbin_cov", mode: 'copy', pattern: "*.quickbin_cov.txt"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.quickbin.*"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.quickbin.*"
 
-    publishDir "${params.outdir}/summary/per_binner_stats",
-        mode: 'copy',
-        pattern: "*.quickbin.binning_stats.tsv"
+    publishDir "${params.outdir}/summary/per_binner_stats", mode: 'copy', pattern: "*.quickbin.binning_stats.tsv"
 
     cpus {
         params.threads != null
@@ -1550,22 +1390,7 @@ process RUN_QUICKBIN {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_sample_id),
-          val(assembly_sample_id),
-          val(assembly_assembler),
-          val(assembly_mode),
-          val(rarefaction_label),
-          val(assembly_strategy),
-          val(binning_id),
-          path(filtered_assembly_fasta),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          path(sorted_bam),
-          path(sorted_bam_bai),
-          path(tools_status)
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(filtered_assembly_fasta), val(layout), val(read1), val(read2), val(interleaved), path(sorted_bam), path(sorted_bam_bai), path(tools_status)
 
     output:
     path "bins/*", optional: true, emit: bin_files
@@ -1577,7 +1402,7 @@ process RUN_QUICKBIN {
 
     script:
     def quickbin_xmx_arg = ""
-    if( params.quickbin_xmx ) {
+    if (params.quickbin_xmx) {
         def x = params.quickbin_xmx.toString()
         quickbin_xmx_arg = x.startsWith("-Xmx") ? x : "-Xmx${x}"
     }
@@ -1845,9 +1670,7 @@ PY
 process WRITE_FILTERED_ASSEMBLY_STATS_SUMMARY {
     tag "write_filtered_assembly_stats_summary"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "filtered_assembly_stats_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "filtered_assembly_stats_summary.tsv"
 
     input:
     path stats_files
@@ -1884,13 +1707,9 @@ process WRITE_FILTERED_ASSEMBLY_STATS_SUMMARY {
 process WRITE_BINNING_SUMMARIES {
     tag "write_binning_summaries"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "binning_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "binning_manifest.tsv"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "binning_stats_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "binning_stats_summary.tsv"
 
     input:
     path manifest_records

@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-nextflow.enable.dsl=2
+nextflow.enable.dsl = 2
 
 /*
  * Module 1: Read trimming / quality control with fastp, followed by FastQC.
@@ -10,30 +10,30 @@ nextflow.enable.dsl=2
  * Parameters
  */
 
-params.working_dir     = null
-params.input_manifest  = null
-params.output_dir      = null
-params.fastp_version   = "0.23.4"
-params.fastqc_version  = "0.12.1"
-params.auto_install    = true
-params.tool_env_dir    = null
-params.fastp_threads   = 4
-params.fastqc_threads  = 2
-params.threads         = null
+params.working_dir = null
+params.input_manifest = null
+params.output_dir = null
+params.fastp_version = "0.23.4"
+params.fastqc_version = "0.12.1"
+params.auto_install = true
+params.tool_env_dir = null
+params.fastp_threads = 4
+params.fastqc_threads = 2
+params.threads = null
 params.publish_trimmed_mode = "symlink"
-params.compression          = 4
-params.detect_adapter_for_pe   = true
-params.enable_correction       = false
-params.cut_front               = true
-params.cut_tail                = true
-params.cut_window_size         = 4
-params.cut_mean_quality        = 30
+params.compression = 4
+params.detect_adapter_for_pe = true
+params.enable_correction = false
+params.cut_front = true
+params.cut_tail = true
+params.cut_window_size = 4
+params.cut_mean_quality = 30
 params.qualified_quality_phred = 30
-params.unqualified_percent     = 40
-params.n_base_limit            = 5
-params.length_required         = 75
-params.trim_poly_g             = false
-params.trim_poly_x             = false
+params.unqualified_percent = 40
+params.n_base_limit = 5
+params.length_required = 75
+params.trim_poly_g = false
+params.trim_poly_x = false
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module0_outdir = "${params.results_dir}/module_0_readprocess"
 params.outdir = "${params.results_dir}/module_1_readtrimming"
@@ -42,15 +42,15 @@ workflow {
 
     def manifest_file = params.input_manifest ?: "${params.module0_outdir}/naming/read_manifest.tsv"
 
-    log.info "Module 1 working_dir parameter: ${params.working_dir ?: 'not supplied'}"
-    log.info "Module 1 results directory: ${params.results_dir}"
-    log.info "Using Module 0 manifest: ${manifest_file}"
-    log.info "Writing Module 1 outputs to: ${params.outdir}"
+    log.info("Module 1 working_dir parameter: ${params.working_dir ?: 'not supplied'}")
+    log.info("Module 1 results directory: ${params.results_dir}")
+    log.info("Using Module 0 manifest: ${manifest_file}")
+    log.info("Writing Module 1 outputs to: ${params.outdir}")
 
     def manifest_ch = channel.fromPath(
         manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def rows_ch = manifest_ch.splitCsv(header: true, sep: '\t')
@@ -61,13 +61,13 @@ workflow {
         }
         .map { row ->
             def sample_id = row.sample_id.toString()
-            def safe_id   = sample_id.replaceAll('[^A-Za-z0-9._-]+', '_')
+            def safe_id = sample_id.replaceAll('[^A-Za-z0-9._-]+', '_')
 
             tuple(
                 sample_id,
                 safe_id,
                 file(row.read1),
-                file(row.read2)
+                file(row.read2),
             )
         }
 
@@ -77,12 +77,12 @@ workflow {
         }
         .map { row ->
             def sample_id = row.sample_id.toString()
-            def safe_id   = sample_id.replaceAll('[^A-Za-z0-9._-]+', '_')
+            def safe_id = sample_id.replaceAll('[^A-Za-z0-9._-]+', '_')
 
             tuple(
                 sample_id,
                 safe_id,
-                file(row.interleaved)
+                file(row.interleaved),
             )
         }
 
@@ -112,18 +112,13 @@ workflow {
         all_stats_ch.collect()
     )
 
-    def paired_fastqc_reads_ch = FASTP_PAIRED.out.trimmed_reads
-        .flatMap { sample_id, _safe_id, read1_trimmed, read2_trimmed, _fastp_json ->
-            [
-                tuple(sample_id, read1_trimmed),
-                tuple(sample_id, read2_trimmed)
-            ]
-        }
+    def paired_fastqc_reads_ch = FASTP_PAIRED.out.trimmed_reads.flatMap { sample_id, _safe_id, read1_trimmed, read2_trimmed, _fastp_json ->
+        [tuple(sample_id, read1_trimmed), tuple(sample_id, read2_trimmed)]
+    }
 
-    def interleaved_fastqc_reads_ch = FASTP_INTERLEAVED.out.trimmed_reads
-        .map { sample_id, _safe_id, interleaved_trimmed, _fastp_json ->
-            tuple(sample_id, interleaved_trimmed)
-        }
+    def interleaved_fastqc_reads_ch = FASTP_INTERLEAVED.out.trimmed_reads.map { sample_id, _safe_id, interleaved_trimmed, _fastp_json ->
+        tuple(sample_id, interleaved_trimmed)
+    }
 
     def fastqc_reads_ch = paired_fastqc_reads_ch.mix(interleaved_fastqc_reads_ch)
 
@@ -145,9 +140,7 @@ process SETUP_MODULE1_TOOLS {
 
     tag "setup_fastp_fastqc"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "module1_tools_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module1_tools_status.env"
 
     output:
     path "module1_tools_status.env", emit: status
@@ -281,13 +274,9 @@ process FASTP_PAIRED {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/trimmed_reads",
-        mode: params.publish_trimmed_mode,
-        pattern: "*.fastq.gz"
+    publishDir "${params.outdir}/trimmed_reads", mode: params.publish_trimmed_mode, pattern: "*.fastq.gz"
 
-    publishDir "${params.outdir}/fastp_reports",
-        mode: 'copy',
-        pattern: "*_fastp.*"
+    publishDir "${params.outdir}/fastp_reports", mode: 'copy', pattern: "*_fastp.*"
 
     cpus {
         params.threads != null
@@ -299,16 +288,11 @@ process FASTP_PAIRED {
     tuple val(sample_id), val(safe_id), path(read1), path(read2), path(tools_status)
 
     output:
-    tuple val(sample_id),
-          val(safe_id),
-          path("${safe_id}_R1_trimmed.fastq.gz"),
-          path("${safe_id}_R2_trimmed.fastq.gz"),
-          path("${safe_id}_fastp.json"),
-          emit: trimmed_reads
+    tuple val(sample_id), val(safe_id), path("${safe_id}_R1_trimmed.fastq.gz"), path("${safe_id}_R2_trimmed.fastq.gz"), path("${safe_id}_fastp.json"), emit: trimmed_reads
 
     path "${safe_id}_trimmed_manifest_record.tsv", emit: manifest_record
     path "${safe_id}_fastp.html", emit: html
-    path "${safe_id}_fastp.log",  emit: log
+    path "${safe_id}_fastp.log", emit: log
 
     script:
     """
@@ -391,13 +375,9 @@ process FASTP_INTERLEAVED {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/trimmed_reads",
-        mode: params.publish_trimmed_mode,
-        pattern: "*.fastq.gz"
+    publishDir "${params.outdir}/trimmed_reads", mode: params.publish_trimmed_mode, pattern: "*.fastq.gz"
 
-    publishDir "${params.outdir}/fastp_reports",
-        mode: 'copy',
-        pattern: "*_fastp.*"
+    publishDir "${params.outdir}/fastp_reports", mode: 'copy', pattern: "*_fastp.*"
 
     cpus {
         params.threads != null
@@ -409,15 +389,11 @@ process FASTP_INTERLEAVED {
     tuple val(sample_id), val(safe_id), path(interleaved), path(tools_status)
 
     output:
-    tuple val(sample_id),
-          val(safe_id),
-          path("${safe_id}_interleaved_trimmed.fastq.gz"),
-          path("${safe_id}_fastp.json"),
-          emit: trimmed_reads
+    tuple val(sample_id), val(safe_id), path("${safe_id}_interleaved_trimmed.fastq.gz"), path("${safe_id}_fastp.json"), emit: trimmed_reads
 
     path "${safe_id}_trimmed_manifest_record.tsv", emit: manifest_record
     path "${safe_id}_fastp.html", emit: html
-    path "${safe_id}_fastp.log",  emit: log
+    path "${safe_id}_fastp.log", emit: log
 
     script:
     """
@@ -491,16 +467,10 @@ process TRIMMING_STATS_PAIRED {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "*_trimming_stats.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "*_trimming_stats.tsv"
 
     input:
-    tuple val(sample_id),
-          val(safe_id),
-          path(read1_trimmed),
-          path(read2_trimmed),
-          path(fastp_json)
+    tuple val(sample_id), val(safe_id), path(read1_trimmed), path(read2_trimmed), path(fastp_json)
 
     output:
     path "${safe_id}_trimming_stats.tsv", emit: stats_file
@@ -603,15 +573,10 @@ process TRIMMING_STATS_INTERLEAVED {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "*_trimming_stats.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "*_trimming_stats.tsv"
 
     input:
-    tuple val(sample_id),
-          val(safe_id),
-          path(interleaved_trimmed),
-          path(fastp_json)
+    tuple val(sample_id), val(safe_id), path(interleaved_trimmed), path(fastp_json)
 
     output:
     path "${safe_id}_trimming_stats.tsv", emit: stats_file
@@ -713,8 +678,7 @@ process RUN_FASTQC_TRIMMED {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/fastqc_reports",
-        mode: 'copy'
+    publishDir "${params.outdir}/fastqc_reports", mode: 'copy'
 
     cpus {
         params.threads != null
@@ -756,9 +720,7 @@ process WRITE_TRIMMED_MANIFEST {
 
     tag "write_trimmed_manifest"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "trimmed_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "trimmed_manifest.tsv"
 
     input:
     path manifest_records
@@ -789,9 +751,7 @@ process WRITE_TRIMMING_STATS_SUMMARY {
 
     tag "write_trimming_stats_summary"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "trimming_stats_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "trimming_stats_summary.tsv"
 
     input:
     path stats_files

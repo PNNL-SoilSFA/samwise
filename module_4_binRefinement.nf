@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-nextflow.enable.dsl=2
+nextflow.enable.dsl = 2
 
 /*
  * Module 4: Bin refinement / MAGScoT preparation and execution.
@@ -9,7 +9,7 @@ nextflow.enable.dsl=2
 /*
  * Parameters
  */
- 
+
 params.working_dir = null
 params.output_dir = null
 params.input_binning_manifest = null
@@ -37,13 +37,13 @@ params.outdir = "${params.results_dir}/module_4_binRefinement"
 
 def absOrEmpty(value) {
     def s = value == null ? "" : value.toString().trim()
-    if( !s || s == "null" || s == "NA" ) {
+    if (!s || s == "null" || s == "NA") {
         return ""
     }
     return java.nio.file.Paths.get(s).toAbsolutePath().normalize().toString()
 }
 
-def firstExistingPath(List paths) {
+def firstExistingPath(paths: List) {
     def found = paths.find { p ->
         java.nio.file.Files.exists(java.nio.file.Paths.get(p.toString()))
     }
@@ -61,106 +61,96 @@ workflow {
 
     def binning_manifest_file = params.input_binning_manifest ?: "${params.module3_outdir}/summary/binning_manifest.tsv"
 
-    def tigrfam_hmm_file = params.tigrfam_hmm ?: firstExistingPath([
-        "${params.dependencies_dir}/hmm/gtdbtk_rel207_tigrfam.hmm",
-        "${params.dependencies_dir}/gtdbtk_rel207_tigrfam.hmm",
-        "${projectDir}/dependencies/hmm/gtdbtk_rel207_tigrfam.hmm",
-        "${projectDir}/dependencies/gtdbtk_rel207_tigrfam.hmm"
-    ])
+    def tigrfam_hmm_file = params.tigrfam_hmm ?: firstExistingPath(
+        ["${params.dependencies_dir}/hmm/gtdbtk_rel207_tigrfam.hmm", "${params.dependencies_dir}/gtdbtk_rel207_tigrfam.hmm", "${projectDir}/dependencies/hmm/gtdbtk_rel207_tigrfam.hmm", "${projectDir}/dependencies/gtdbtk_rel207_tigrfam.hmm"]
+    )
 
-    def pfam_hmm_file = params.pfam_hmm ?: firstExistingPath([
-        "${params.dependencies_dir}/hmm/gtdbtk_rel207_Pfam-A.hmm",
-        "${params.dependencies_dir}/gtdbtk_rel207_Pfam-A.hmm",
-        "${projectDir}/dependencies/hmm/gtdbtk_rel207_Pfam-A.hmm",
-        "${projectDir}/dependencies/gtdbtk_rel207_Pfam-A.hmm",
-        "${projectDir}/gtdbtk_rel207_Pfam-A.hmm"
-    ])
+    def pfam_hmm_file = params.pfam_hmm ?: firstExistingPath(
+        ["${params.dependencies_dir}/hmm/gtdbtk_rel207_Pfam-A.hmm", "${params.dependencies_dir}/gtdbtk_rel207_Pfam-A.hmm", "${projectDir}/dependencies/hmm/gtdbtk_rel207_Pfam-A.hmm", "${projectDir}/dependencies/gtdbtk_rel207_Pfam-A.hmm", "${projectDir}/gtdbtk_rel207_Pfam-A.hmm"]
+    )
 
-    def magscot_script_file = params.magscot_script ?: firstExistingPath([
-        "${params.dependencies_dir}/MAGScoT.py",
-        "${projectDir}/dependencies/MAGScoT.py",
-        "${projectDir}/MAGScoT.py"
-    ])
+    def magscot_script_file = params.magscot_script ?: firstExistingPath(
+        ["${params.dependencies_dir}/MAGScoT.py", "${projectDir}/dependencies/MAGScoT.py", "${projectDir}/MAGScoT.py"]
+    )
 
-    def magscot_profiles_dir = params.magscot_profiles_dir ?: firstExistingPath([
-    "${params.dependencies_dir}/",
-    "${projectDir}/dependencies/",
-    "${params.dependencies_dir}/MAGScoT_profiles",
-    "${projectDir}/dependencies/MAGScoT_profiles"
-    ])
-    
-    if( params.magscot_threshold != null ) {
-    def threshold_value = params.magscot_threshold as double
+    def magscot_profiles_dir = params.magscot_profiles_dir ?: firstExistingPath(
+        ["${params.dependencies_dir}/", "${projectDir}/dependencies/", "${params.dependencies_dir}/MAGScoT_profiles", "${projectDir}/dependencies/MAGScoT_profiles"]
+    )
 
-    if( threshold_value < 0 || threshold_value > 1 ) {
-        error """
+    if (params.magscot_threshold != null) {
+        def threshold_value = params.magscot_threshold as double
+
+        if (threshold_value < 0 || threshold_value > 1) {
+            error(
+                """
         Invalid --magscot_threshold value: ${params.magscot_threshold}
 
         Expected a value between 0 and 1.
         Example:
           --magscot_threshold 0.5
         """.stripIndent()
+            )
+        }
     }
-}
 
-    log.info "Module 4 results directory: ${params.results_dir}"
-    log.info "Using Module 3 binning manifest: ${binning_manifest_file}"
-    log.info "Writing Module 4 outputs to: ${params.outdir}"
-    log.info "Dependencies directory: ${params.dependencies_dir}"
-    log.info "TIGRFAM HMM: ${tigrfam_hmm_file}"
-    log.info "Pfam HMM: ${pfam_hmm_file}"
-    log.info "MAGScoT script: ${magscot_script_file}"
-    log.info "HMMER threads: ${params.threads ?: params.hmm_threads}"
-    log.info "MAGScoT profiles directory: ${magscot_profiles_dir}"
-    
+    log.info("Module 4 results directory: ${params.results_dir}")
+    log.info("Using Module 3 binning manifest: ${binning_manifest_file}")
+    log.info("Writing Module 4 outputs to: ${params.outdir}")
+    log.info("Dependencies directory: ${params.dependencies_dir}")
+    log.info("TIGRFAM HMM: ${tigrfam_hmm_file}")
+    log.info("Pfam HMM: ${pfam_hmm_file}")
+    log.info("MAGScoT script: ${magscot_script_file}")
+    log.info("HMMER threads: ${params.threads ?: params.hmm_threads}")
+    log.info("MAGScoT profiles directory: ${magscot_profiles_dir}")
+
 
     def binning_manifest_ch = channel.fromPath(
         binning_manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def tigrfam_hmm_ch = channel.fromPath(
         tigrfam_hmm_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def pfam_hmm_ch = channel.fromPath(
         pfam_hmm_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def magscot_script_ch = channel.fromPath(
         magscot_script_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def magscot_profiles_ch = channel.fromPath(
-    magscot_profiles_dir,
-    type: 'dir',
-    checkIfExists: true
+        magscot_profiles_dir,
+        type: 'dir',
+        checkIfExists: true,
     )
 
     SETUP_MODULE4_TOOLS()
 
     PREPARE_MAG_COLLECTION(
         binning_manifest_ch,
-        SETUP_MODULE4_TOOLS.out.status
+        SETUP_MODULE4_TOOLS.out.status,
     )
 
     RUN_PRODIGAL_ON_MAG_CONTIGS(
         PREPARE_MAG_COLLECTION.out.concatenated_fasta,
-        SETUP_MODULE4_TOOLS.out.status
+        SETUP_MODULE4_TOOLS.out.status,
     )
 
     RUN_HMMSEARCH_MAG_CONTIGS(
         RUN_PRODIGAL_ON_MAG_CONTIGS.out.proteins,
         tigrfam_hmm_ch,
         pfam_hmm_ch,
-        SETUP_MODULE4_TOOLS.out.status
+        SETUP_MODULE4_TOOLS.out.status,
     )
 
     RUN_MAGSCOT(
@@ -168,12 +158,12 @@ workflow {
         RUN_HMMSEARCH_MAG_CONTIGS.out.hmm_table,
         magscot_script_ch,
         magscot_profiles_ch,
-        SETUP_MODULE4_TOOLS.out.status
+        SETUP_MODULE4_TOOLS.out.status,
     )
-    
+
     BUILD_REFINED_MAGS(
-    PREPARE_MAG_COLLECTION.out.concatenated_fasta,
-    RUN_MAGSCOT.out.magscot_outputs
+        PREPARE_MAG_COLLECTION.out.concatenated_fasta,
+        RUN_MAGSCOT.out.magscot_outputs,
     )
 
     WRITE_MODULE4_SUMMARY(
@@ -181,16 +171,14 @@ workflow {
         RUN_PRODIGAL_ON_MAG_CONTIGS.out.prodigal_status,
         RUN_HMMSEARCH_MAG_CONTIGS.out.hmm_status,
         RUN_MAGSCOT.out.magscot_status,
-        BUILD_REFINED_MAGS.out.refined_stats
+        BUILD_REFINED_MAGS.out.refined_stats,
     )
 }
 
 process SETUP_MODULE4_TOOLS {
     tag "setup_module4_tools"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "module4_tools_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module4_tools_status.env"
 
     output:
     path "module4_tools_status.env", emit: status
@@ -211,33 +199,35 @@ process SETUP_MODULE4_TOOLS {
     packages << "prodigal"
     packages << "parallel"
 
-    if( params.r_base_version ) {
+    if (params.r_base_version) {
         packages = packages.collect { pkg ->
             pkg == "r-base" ? "r-base=${params.r_base_version}" : pkg
         }
     }
 
-    if( params.hmmer_version ) {
+    if (params.hmmer_version) {
         packages = packages.collect { pkg ->
             pkg == "hmmer" ? "hmmer=${params.hmmer_version}" : pkg
         }
     }
 
-    if( params.prodigal_version ) {
+    if (params.prodigal_version) {
         packages = packages.collect { pkg ->
             pkg == "prodigal" ? "prodigal=${params.prodigal_version}" : pkg
         }
     }
 
-    if( params.parallel_version ) {
+    if (params.parallel_version) {
         packages = packages.collect { pkg ->
             pkg == "parallel" ? "parallel=${params.parallel_version}" : pkg
         }
     }
 
-    def package_string = packages.collect { pkg ->
-        "\"${pkg}\""
-    }.join(" \\\n        ")
+    def package_string = packages
+        .collect { pkg ->
+            "\"${pkg}\""
+        }
+        .join(" \\\n        ")
 
     """
     set -euo pipefail
@@ -363,22 +353,13 @@ process SETUP_MODULE4_TOOLS {
 process PREPARE_MAG_COLLECTION {
     tag "prepare_mag_collection"
 
-    publishDir "${params.outdir}/gathered_bins",
-        mode: params.publish_gathered_bins_mode,
-        pattern: "gathered_bins/*",
-        saveAs: { filename -> filename.replaceFirst(/^gathered_bins\//, '') }
+    publishDir "${params.outdir}/gathered_bins", mode: params.publish_gathered_bins_mode, pattern: "gathered_bins/*", saveAs: { filename -> filename.replaceFirst(/^gathered_bins\//, '') }
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "*.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "*.tsv"
 
-    publishDir "${params.outdir}/concat",
-        mode: 'copy',
-        pattern: "mag_contigs.fa"
+    publishDir "${params.outdir}/concat", mode: 'copy', pattern: "mag_contigs.fa"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "prepare_mag_collection.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "prepare_mag_collection.log"
 
     input:
     path binning_manifest
@@ -629,17 +610,11 @@ PY
 process RUN_PRODIGAL_ON_MAG_CONTIGS {
     tag "prodigal_mag_contigs"
 
-    publishDir "${params.outdir}/prodigal",
-        mode: 'copy',
-        pattern: "mag_contigs.prodigal.*"
+    publishDir "${params.outdir}/prodigal", mode: 'copy', pattern: "mag_contigs.prodigal.*"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "prodigal.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "prodigal.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "prodigal_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "prodigal_status.tsv"
 
     input:
     path mag_contigs_fasta
@@ -718,21 +693,13 @@ process RUN_PRODIGAL_ON_MAG_CONTIGS {
 process RUN_HMMSEARCH_MAG_CONTIGS {
     tag "hmmsearch_mag_contigs"
 
-    publishDir "${params.outdir}/hmm",
-        mode: 'copy',
-        pattern: "mag_contigs.hmm*"
+    publishDir "${params.outdir}/hmm", mode: 'copy', pattern: "mag_contigs.hmm*"
 
-    publishDir "${params.outdir}/hmm",
-        mode: 'copy',
-        pattern: "mag_contigs.*fam*"
+    publishDir "${params.outdir}/hmm", mode: 'copy', pattern: "mag_contigs.*fam*"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "hmmsearch.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "hmmsearch.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "hmm_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "hmm_status.tsv"
 
     cpus {
         params.threads != null
@@ -849,18 +816,11 @@ process RUN_HMMSEARCH_MAG_CONTIGS {
 process RUN_MAGSCOT {
     tag "run_magscot"
 
-    publishDir "${params.outdir}/magscot",
-        mode: 'copy',
-        pattern: "magscot_outputs/**",
-        saveAs: { filename -> filename.replaceFirst(/^magscot_outputs\//, '') }
+    publishDir "${params.outdir}/magscot", mode: 'copy', pattern: "magscot_outputs/**", saveAs: { filename -> filename.replaceFirst(/^magscot_outputs\//, '') }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "magscot.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "magscot.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "magscot_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "magscot_status.tsv"
 
     input:
     path contigs_to_bin
@@ -876,10 +836,10 @@ process RUN_MAGSCOT {
 
     script:
 
-def magscot_threshold_arg = params.magscot_threshold != null && params.magscot_threshold.toString().trim()
-    ? "--threshold ${params.magscot_threshold}"
-    : ""
-"""
+    def magscot_threshold_arg = params.magscot_threshold != null && params.magscot_threshold.toString().trim()
+        ? "--threshold ${params.magscot_threshold}"
+        : ""
+    """
 
 set -euo pipefail
 
@@ -988,18 +948,11 @@ set -e
 process BUILD_REFINED_MAGS {
     tag "build_refined_mags"
 
-    publishDir "${params.outdir}/refined_bins",
-        mode: params.publish_refined_bins_mode,
-        pattern: "refined_bins/*.fa",
-        saveAs: { filename -> filename.replaceFirst(/^refined_bins\//, '') }
+    publishDir "${params.outdir}/refined_bins", mode: params.publish_refined_bins_mode, pattern: "refined_bins/*.fa", saveAs: { filename -> filename.replaceFirst(/^refined_bins\//, '') }
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "magscot_refined_bins_*.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "magscot_refined_bins_*.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "build_refined_mags.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "build_refined_mags.log"
 
     input:
     path mag_contigs_fasta
@@ -1399,9 +1352,7 @@ PY
 process WRITE_MODULE4_SUMMARY {
     tag "write_module4_summary"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "module4_run_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module4_run_summary.tsv"
 
     input:
     path collection_stats

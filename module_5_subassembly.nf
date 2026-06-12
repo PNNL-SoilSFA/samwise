@@ -1,36 +1,36 @@
 #!/usr/bin/env nextflow
 
-nextflow.enable.dsl=2
+nextflow.enable.dsl = 2
 
 /*
  * Module 5: Subtractive assembly + second-pass binning + final joint MAG refinement.
  */
 
 params.working_dir = null
-params.output_dir  = null
+params.output_dir = null
 
 params.input_trimmed_manifest = null
 params.input_original_binning_manifest = null
 params.input_refined_manifest = null
 
-params.megahit    = false
+params.megahit = false
 params.metaspades = false
 
 params.auto_install = true
 params.tool_env_dir = null
 
 params.threads = null
-params.mapping_threads  = 4
+params.mapping_threads = 4
 params.assembly_threads = 4
 
-params.bbmap_version    = "39.81"
-params.megahit_version  = "1.2.9"
-params.spades_version   = "4.2.0"
+params.bbmap_version = "39.81"
+params.megahit_version = "1.2.9"
+params.spades_version = "4.2.0"
 
 params.bbmap_extra_args = ""
-params.bbmap_minid      = 0.99
-params.bbmap_ambig      = "random"
-params.bbmap_xmx        = null
+params.bbmap_minid = 0.99
+params.bbmap_ambig = "random"
+params.bbmap_xmx = null
 
 params.megahit_preset = "meta-large"
 params.megahit_threads = null
@@ -40,40 +40,40 @@ params.run_second_pass_binning_refinement = true
 
 params.secondpass_metabat2 = true
 params.secondpass_quickbin = true
-params.secondpass_maxbin2  = true
+params.secondpass_maxbin2 = true
 
 params.module3_script = "${projectDir}/module_3_binning.nf"
 params.module4_script = "${projectDir}/module_4_binRefinement.nf"
-params.nextflow_exe   = "nextflow"
+params.nextflow_exe = "nextflow"
 
 params.secondpass_working_dir = null
 params.final_joint_working_dir = null
 
 params.dependencies_dir = "${projectDir}/dependencies"
-params.tigrfam_hmm      = null
-params.pfam_hmm         = null
-params.magscot_script   = null
+params.tigrfam_hmm = null
+params.pfam_hmm = null
+params.magscot_script = null
 params.magscot_extra_args = ""
 
-params.publish_reference_mode  = "copy"
-params.publish_unmapped_mode   = "symlink"
+params.publish_reference_mode = "copy"
+params.publish_unmapped_mode = "symlink"
 params.publish_assemblies_mode = "symlink"
 params.publish_final_mags_mode = "copy"
 
-params.results_dir    = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
+params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module3_outdir = "${params.results_dir}/module_3_binning"
 params.module4_outdir = "${params.results_dir}/module_4_binRefinement"
-params.outdir         = "${params.results_dir}/module_5_subtractiveAssembly"
+params.outdir = "${params.results_dir}/module_5_subtractiveAssembly"
 
-params.secondpass_dir  = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
+params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
 params.final_joint_dir = params.final_joint_working_dir ?: "${params.outdir}/final_joint_refinement"
 
 
 def absOrEmpty(value) {
     def s = value == null ? "" : value.toString().trim()
 
-    if( !s || s == "null" || s == "NA" ) {
+    if (!s || s == "null" || s == "NA") {
         return ""
     }
 
@@ -87,27 +87,30 @@ def absOrEmpty(value) {
 
 workflow {
 
-    def use_megahit    = params.megahit.toString().toBoolean()
+    def use_megahit = params.megahit.toString().toBoolean()
     def use_metaspades = params.metaspades.toString().toBoolean()
 
-    if( !use_megahit && !use_metaspades ) {
-        error """
+    if (!use_megahit && !use_metaspades) {
+        error(
+            """
         No subtractive assembler selected.
 
         Please specify at least one of:
           --megahit
           --metaspades
         """.stripIndent()
+        )
     }
 
     def do_secondpass = params.run_second_pass_binning_refinement.toString().toBoolean()
 
     def use_secondpass_metabat2 = params.secondpass_metabat2.toString().toBoolean()
     def use_secondpass_quickbin = params.secondpass_quickbin.toString().toBoolean()
-    def use_secondpass_maxbin2  = params.secondpass_maxbin2.toString().toBoolean()
+    def use_secondpass_maxbin2 = params.secondpass_maxbin2.toString().toBoolean()
 
-    if( do_secondpass && !use_secondpass_metabat2 && !use_secondpass_quickbin && !use_secondpass_maxbin2 ) {
-        error """
+    if (do_secondpass && !use_secondpass_metabat2 && !use_secondpass_quickbin && !use_secondpass_maxbin2) {
+        error(
+            """
         Second-pass binning/final refinement is enabled, but no second-pass binner is selected.
 
         Enable at least one:
@@ -118,70 +121,71 @@ workflow {
         Or disable second pass:
           --run_second_pass_binning_refinement false
         """.stripIndent()
+        )
     }
 
     def trimmed_manifest_file = params.input_trimmed_manifest ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
     def original_binning_manifest_file = params.input_original_binning_manifest ?: "${params.module3_outdir}/summary/binning_manifest.tsv"
     def refined_manifest_file = params.input_refined_manifest ?: "${params.module4_outdir}/summary/magscot_refined_bins_manifest.tsv"
 
-    log.info "Module 5 results directory: ${params.results_dir}"
-    log.info "Using Module 1 trimmed manifest: ${trimmed_manifest_file}"
-    log.info "Using original Module 3 binning manifest: ${original_binning_manifest_file}"
-    log.info "Using Module 4 refined MAG manifest as subtractive reference: ${refined_manifest_file}"
-    log.info "Writing Module 5 outputs to: ${params.outdir}"
-    log.info "Subtractive assemblers: MEGAHIT=${use_megahit}, metaSPAdes=${use_metaspades}"
-    log.info "Second-pass enabled: ${do_secondpass}"
-    log.info "Second-pass binners: MetaBAT2=${use_secondpass_metabat2}, QuickBin=${use_secondpass_quickbin}, MaxBin2=${use_secondpass_maxbin2}"
-    log.info "Second-pass working directory: ${params.secondpass_dir}"
-    log.info "Final joint refinement working directory: ${params.final_joint_dir}"
+    log.info("Module 5 results directory: ${params.results_dir}")
+    log.info("Using Module 1 trimmed manifest: ${trimmed_manifest_file}")
+    log.info("Using original Module 3 binning manifest: ${original_binning_manifest_file}")
+    log.info("Using Module 4 refined MAG manifest as subtractive reference: ${refined_manifest_file}")
+    log.info("Writing Module 5 outputs to: ${params.outdir}")
+    log.info("Subtractive assemblers: MEGAHIT=${use_megahit}, metaSPAdes=${use_metaspades}")
+    log.info("Second-pass enabled: ${do_secondpass}")
+    log.info("Second-pass binners: MetaBAT2=${use_secondpass_metabat2}, QuickBin=${use_secondpass_quickbin}, MaxBin2=${use_secondpass_maxbin2}")
+    log.info("Second-pass working directory: ${params.secondpass_dir}")
+    log.info("Final joint refinement working directory: ${params.final_joint_dir}")
 
     def assembler_list = []
 
-    if( use_megahit ) {
+    if (use_megahit) {
         assembler_list << "megahit"
     }
 
-    if( use_metaspades ) {
+    if (use_metaspades) {
         assembler_list << "metaspades"
     }
 
     def trimmed_manifest_ch = channel.fromPath(
         trimmed_manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def original_binning_manifest_ch = channel.fromPath(
         original_binning_manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def refined_manifest_ch = channel.fromPath(
         refined_manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def reads_ch = trimmed_manifest_ch
         .splitCsv(header: true, sep: '\t')
         .map { row ->
             def sample_id = row.sample_id.toString()
-            def safe_id   = row.safe_sample_id.toString()
-            def layout    = row.layout.toString()
+            def safe_id = row.safe_sample_id.toString()
+            def layout = row.layout.toString()
 
             def assembly_sample_id = sample_id.replaceAll('[^A-Za-z0-9]+', '')
 
-            if( !assembly_sample_id ) {
+            if (!assembly_sample_id) {
                 assembly_sample_id = safe_id.replaceAll('[^A-Za-z0-9]+', '')
             }
 
-            if( !assembly_sample_id ) {
-                error "Could not derive non-empty assembly SampleID from sample '${sample_id}'"
+            if (!assembly_sample_id) {
+                error("Could not derive non-empty assembly SampleID from sample '${sample_id}'")
             }
 
-            if( layout != "paired" && layout != "interleaved" ) {
-                error "Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}"
+            if (layout != "paired" && layout != "interleaved") {
+                error("Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}")
             }
 
             tuple(
@@ -191,7 +195,7 @@ workflow {
                 layout,
                 absOrEmpty(row.read1),
                 absOrEmpty(row.read2),
-                absOrEmpty(row.interleaved)
+                absOrEmpty(row.interleaved),
             )
         }
 
@@ -202,37 +206,27 @@ workflow {
     )
 
     MAP_READS_TO_REFINED_MAGS(
-        reads_ch
-            .combine(PREPARE_REFINED_MAG_REFERENCE.out.reference_info)
-            .combine(SETUP_MODULE5_TOOLS.out.status)
+        reads_ch.combine(PREPARE_REFINED_MAG_REFERENCE.out.reference_info).combine(SETUP_MODULE5_TOOLS.out.status)
     )
 
     WRITE_SUBTRACTIVE_MAPPING_SUMMARY(
         MAP_READS_TO_REFINED_MAGS.out.mapping_stats.collect()
     )
 
-    def assembly_jobs_ch = MAP_READS_TO_REFINED_MAGS.out.unmapped_reads
-        .flatMap {
-            sample_id,
-            safe_id,
-            assembly_sample_id,
-            _layout,
-            unmapped_interleaved,
-            unmapped_records,
-            unmapped_pairs_or_fragments ->
+    def assembly_jobs_ch = MAP_READS_TO_REFINED_MAGS.out.unmapped_reads.flatMap { sample_id, safe_id, assembly_sample_id, _layout, unmapped_interleaved, unmapped_records, unmapped_pairs_or_fragments ->
 
-            assembler_list.collect { assembler_name ->
-                tuple(
-                    sample_id,
-                    safe_id,
-                    assembly_sample_id,
-                    unmapped_interleaved,
-                    unmapped_records,
-                    unmapped_pairs_or_fragments,
-                    assembler_name
-                )
-            }
+        assembler_list.collect { assembler_name ->
+            tuple(
+                sample_id,
+                safe_id,
+                assembly_sample_id,
+                unmapped_interleaved,
+                unmapped_records,
+                unmapped_pairs_or_fragments,
+                assembler_name,
+            )
         }
+    }
 
     ASSEMBLE_SUBTRACTIVE(
         assembly_jobs_ch.combine(SETUP_MODULE5_TOOLS.out.status)
@@ -240,28 +234,28 @@ workflow {
 
     WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES(
         ASSEMBLE_SUBTRACTIVE.out.manifest_record.collect(),
-        ASSEMBLE_SUBTRACTIVE.out.stats_file.collect()
+        ASSEMBLE_SUBTRACTIVE.out.stats_file.collect(),
     )
 
     WRITE_SUBTRACTIVE_MODULE3_INPUTS(
         MAP_READS_TO_REFINED_MAGS.out.trimmed_manifest_record.collect(),
-        ASSEMBLE_SUBTRACTIVE.out.module3_manifest_record.collect()
+        ASSEMBLE_SUBTRACTIVE.out.module3_manifest_record.collect(),
     )
 
-    if( do_secondpass ) {
+    if (do_secondpass) {
         RUN_SECOND_PASS_BINNING(
             WRITE_SUBTRACTIVE_MODULE3_INPUTS.out.trimmed_manifest,
-            WRITE_SUBTRACTIVE_MODULE3_INPUTS.out.assembly_manifest
+            WRITE_SUBTRACTIVE_MODULE3_INPUTS.out.assembly_manifest,
         )
 
         COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS(
             original_binning_manifest_ch,
-            RUN_SECOND_PASS_BINNING.out.status
+            RUN_SECOND_PASS_BINNING.out.status,
         )
 
         RUN_FINAL_JOINT_REFINEMENT(
             COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS.out.combined_manifest,
-            COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS.out.stats
+            COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS.out.stats,
         )
 
         BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT(
@@ -274,9 +268,7 @@ workflow {
 process SETUP_MODULE5_TOOLS {
     tag "setup_subtractive_assembly_tools"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "module5_tools_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module5_tools_status.env"
 
     output:
     path "module5_tools_status.env", emit: status
@@ -284,7 +276,7 @@ process SETUP_MODULE5_TOOLS {
     script:
     def env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs/module5_tools"
 
-    def want_megahit    = params.megahit.toString().toBoolean()
+    def want_megahit = params.megahit.toString().toBoolean()
     def want_metaspades = params.metaspades.toString().toBoolean()
 
     def packages = []
@@ -292,18 +284,20 @@ process SETUP_MODULE5_TOOLS {
     packages << "openjdk=17.*"
     packages << "bbmap=${params.bbmap_version}"
 
-    if( want_megahit ) {
+    if (want_megahit) {
         packages << "megahit=${params.megahit_version}"
     }
 
-    if( want_metaspades ) {
+    if (want_metaspades) {
         def spades_version_for_conda = params.spades_version.toString().replaceFirst(/-\d+$/, '')
         packages << "spades=${spades_version_for_conda}"
     }
 
-    def package_string = packages.collect { pkg ->
-        "\"${pkg}\""
-    }.join(" \\\n        ")
+    def package_string = packages
+        .collect { pkg ->
+            "\"${pkg}\""
+        }
+        .join(" \\\n        ")
 
     """
     set -euo pipefail
@@ -410,25 +404,17 @@ process SETUP_MODULE5_TOOLS {
 process PREPARE_REFINED_MAG_REFERENCE {
     tag "prepare_refined_mag_reference"
 
-    publishDir "${params.outdir}/reference",
-        mode: params.publish_reference_mode,
-        pattern: "refined_mags_reference.fa"
+    publishDir "${params.outdir}/reference", mode: params.publish_reference_mode, pattern: "refined_mags_reference.fa"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "refined_mags_reference_stats.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "refined_mags_reference_stats.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "prepare_refined_mag_reference.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "prepare_refined_mag_reference.log"
 
     input:
     path refined_manifest
 
     output:
-    tuple path("refined_mags_reference.fa"),
-          path("refined_mags_reference_stats.tsv"),
-          emit: reference_info
+    tuple path("refined_mags_reference.fa"), path("refined_mags_reference_stats.tsv"), emit: reference_info
 
     path "prepare_refined_mag_reference.log", emit: log_file
 
@@ -528,17 +514,11 @@ process MAP_READS_TO_REFINED_MAGS {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/unmapped_reads",
-        mode: params.publish_unmapped_mode,
-        pattern: "*.unmapped_interleaved.fastq.gz"
+    publishDir "${params.outdir}/unmapped_reads", mode: params.publish_unmapped_mode, pattern: "*.unmapped_interleaved.fastq.gz"
 
-    publishDir "${params.outdir}/summary/per_sample_mapping",
-        mode: 'copy',
-        pattern: "*.subtractive_mapping_stats.tsv"
+    publishDir "${params.outdir}/summary/per_sample_mapping", mode: 'copy', pattern: "*.subtractive_mapping_stats.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.bbmap_subtractive.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.bbmap_subtractive.log"
 
     cpus {
         params.threads != null
@@ -547,26 +527,10 @@ process MAP_READS_TO_REFINED_MAGS {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_id),
-          val(assembly_sample_id),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          path(refined_reference_fasta),
-          path(reference_stats),
-          path(tools_status)
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), path(refined_reference_fasta), path(reference_stats), path(tools_status)
 
     output:
-    tuple val(sample_id),
-          val(safe_id),
-          val(assembly_sample_id),
-          val(layout),
-          path("${safe_id}.unmapped_interleaved.fastq.gz"),
-          val(0),
-          val(0),
-          emit: unmapped_reads
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), path("${safe_id}.unmapped_interleaved.fastq.gz"), val(0), val(0), emit: unmapped_reads
 
     path "${safe_id}.subtractive_mapping_stats.tsv", emit: mapping_stats
     path "${safe_id}.subtractive_trimmed_manifest_record.tsv", emit: trimmed_manifest_record
@@ -738,24 +702,16 @@ process ASSEMBLE_SUBTRACTIVE {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/assemblies",
-        mode: params.publish_assemblies_mode,
-        pattern: "*.subtractive.renamed.fa"
+    publishDir "${params.outdir}/assemblies", mode: params.publish_assemblies_mode, pattern: "*.subtractive.renamed.fa"
 
-    publishDir "${params.outdir}/header_maps",
-        mode: 'copy',
-        pattern: "*.subtractive.header_map.tsv"
+    publishDir "${params.outdir}/header_maps", mode: 'copy', pattern: "*.subtractive.header_map.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.subtractive_assembly.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.subtractive_assembly.log"
 
-    publishDir "${params.outdir}/summary/per_assembly_stats",
-        mode: 'copy',
-        pattern: "*.subtractive_assembly_stats.tsv"
+    publishDir "${params.outdir}/summary/per_assembly_stats", mode: 'copy', pattern: "*.subtractive_assembly_stats.tsv"
 
     cpus {
-        if( assembler == 'megahit' && params.megahit_threads != null ) {
+        if (assembler == 'megahit' && params.megahit_threads != null) {
             return params.megahit_threads as int
         }
 
@@ -765,14 +721,7 @@ process ASSEMBLE_SUBTRACTIVE {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_id),
-          val(assembly_sample_id),
-          path(unmapped_interleaved),
-          val(_unmapped_records_placeholder),
-          val(_unmapped_pairs_placeholder),
-          val(assembler),
-          path(tools_status)
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), path(unmapped_interleaved), val(_unmapped_records_placeholder), val(_unmapped_pairs_placeholder), val(assembler), path(tools_status)
 
     output:
     path "*.subtractive.renamed.fa", emit: renamed_contigs
@@ -1108,9 +1057,7 @@ PY
 process WRITE_SUBTRACTIVE_MAPPING_SUMMARY {
     tag "write_subtractive_mapping_summary"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "subtractive_mapping_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_mapping_summary.tsv"
 
     input:
     path stats_files
@@ -1119,9 +1066,11 @@ process WRITE_SUBTRACTIVE_MAPPING_SUMMARY {
     path "subtractive_mapping_summary.tsv", emit: summary
 
     script:
-    def stats_file_list = stats_files.collect { stats_file ->
-        stats_file.name
-    }.join(' ')
+    def stats_file_list = stats_files
+        .collect { stats_file ->
+            stats_file.name
+        }
+        .join(' ')
 
     """
     set -euo pipefail
@@ -1144,13 +1093,9 @@ process WRITE_SUBTRACTIVE_MAPPING_SUMMARY {
 process WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES {
     tag "write_subtractive_assembly_summaries"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "subtractive_assembly_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_assembly_manifest.tsv"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "subtractive_assembly_stats_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_assembly_stats_summary.tsv"
 
     input:
     path manifest_records
@@ -1161,13 +1106,17 @@ process WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES {
     path "subtractive_assembly_stats_summary.tsv", emit: stats_summary
 
     script:
-    def manifest_file_list = manifest_records.collect { manifest_file ->
-        manifest_file.name
-    }.join(' ')
+    def manifest_file_list = manifest_records
+        .collect { manifest_file ->
+            manifest_file.name
+        }
+        .join(' ')
 
-    def stats_file_list = stats_files.collect { stats_file ->
-        stats_file.name
-    }.join(' ')
+    def stats_file_list = stats_files
+        .collect { stats_file ->
+            stats_file.name
+        }
+        .join(' ')
 
     """
     set -euo pipefail
@@ -1196,9 +1145,7 @@ process WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES {
 process WRITE_SUBTRACTIVE_MODULE3_INPUTS {
     tag "write_subtractive_module3_inputs"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "subtractive_*_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_*_manifest.tsv"
 
     input:
     path trimmed_manifest_records
@@ -1209,13 +1156,17 @@ process WRITE_SUBTRACTIVE_MODULE3_INPUTS {
     path "subtractive_assembly_manifest.tsv", emit: assembly_manifest
 
     script:
-    def trimmed_files = trimmed_manifest_records.collect { record_file ->
-        record_file.name
-    }.join(' ')
+    def trimmed_files = trimmed_manifest_records
+        .collect { record_file ->
+            record_file.name
+        }
+        .join(' ')
 
-    def assembly_files = assembly_manifest_records.collect { record_file ->
-        record_file.name
-    }.join(' ')
+    def assembly_files = assembly_manifest_records
+        .collect { record_file ->
+            record_file.name
+        }
+        .join(' ')
 
     """
     set -euo pipefail
@@ -1246,13 +1197,9 @@ process WRITE_SUBTRACTIVE_MODULE3_INPUTS {
 process RUN_SECOND_PASS_BINNING {
     tag "run_second_pass_binning"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "second_pass_binning_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "second_pass_binning_status.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "second_pass_binning.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "second_pass_binning.log"
 
     input:
     path subtractive_trimmed_manifest
@@ -1265,15 +1212,15 @@ process RUN_SECOND_PASS_BINNING {
     script:
     def binner_args = []
 
-    if( params.secondpass_metabat2.toString().toBoolean() ) {
+    if (params.secondpass_metabat2.toString().toBoolean()) {
         binner_args << "--metabat2"
     }
 
-    if( params.secondpass_quickbin.toString().toBoolean() ) {
+    if (params.secondpass_quickbin.toString().toBoolean()) {
         binner_args << "--quickbin"
     }
 
-    if( params.secondpass_maxbin2.toString().toBoolean() ) {
+    if (params.secondpass_maxbin2.toString().toBoolean()) {
         binner_args << "--maxbin2"
     }
 
@@ -1371,17 +1318,11 @@ process RUN_SECOND_PASS_BINNING {
 process COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS {
     tag "combine_original_and_subtractive_binning_manifests"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "combined_original_plus_subtractive_binning_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "combined_original_plus_subtractive_binning_manifest.tsv"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "combined_original_plus_subtractive_binning_manifest_stats.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "combined_original_plus_subtractive_binning_manifest_stats.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "combine_binning_manifests.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "combine_binning_manifests.log"
 
     input:
     path original_binning_manifest
@@ -1444,13 +1385,9 @@ process COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS {
 process RUN_FINAL_JOINT_REFINEMENT {
     tag "run_final_joint_refinement"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "final_joint_refinement_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "final_joint_refinement_status.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "final_joint_refinement.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "final_joint_refinement.log"
 
     input:
     path combined_binning_manifest
@@ -1465,19 +1402,19 @@ process RUN_FINAL_JOINT_REFINEMENT {
 
     def module4_extra_args = "--dependencies_dir \"${params.dependencies_dir}\""
 
-    if( params.tigrfam_hmm ) {
+    if (params.tigrfam_hmm) {
         module4_extra_args += " --tigrfam_hmm \"${params.tigrfam_hmm}\""
     }
 
-    if( params.pfam_hmm ) {
+    if (params.pfam_hmm) {
         module4_extra_args += " --pfam_hmm \"${params.pfam_hmm}\""
     }
 
-    if( params.magscot_script ) {
+    if (params.magscot_script) {
         module4_extra_args += " --magscot_script \"${params.magscot_script}\""
     }
 
-    if( params.magscot_extra_args ) {
+    if (params.magscot_extra_args) {
         module4_extra_args += " --magscot_extra_args \"${params.magscot_extra_args}\""
     }
 
@@ -1550,18 +1487,11 @@ process RUN_FINAL_JOINT_REFINEMENT {
 process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
     tag "build_final_mag_database_from_joint_refinement"
 
-    publishDir "${params.outdir}/final_mag_database",
-        mode: params.publish_final_mags_mode,
-        pattern: "final_mag_database/*.fa",
-        saveAs: { filename -> filename.replaceFirst(/^final_mag_database\//, '') }
+    publishDir "${params.outdir}/final_mag_database", mode: params.publish_final_mags_mode, pattern: "final_mag_database/*.fa", saveAs: { filename -> filename.replaceFirst(/^final_mag_database\//, '') }
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "final_mag_database_*.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "final_mag_database_*.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "build_final_mag_database.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "build_final_mag_database.log"
 
     input:
     path final_joint_refinement_status

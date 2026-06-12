@@ -1,44 +1,46 @@
 #!/usr/bin/env nextflow
 
-nextflow.enable.dsl=2
+nextflow.enable.dsl = 2
 
 /*
  * Module 0: Read naming validation, optional FASTQ structure validation,
  * and raw-read FastQC.
  */
- 
-params.input_dir       = null
-params.outdir          = "./results/module_0_readprocess"
-params.working_dir      = null
-params.file_pattern    = "*.{fastq.gz,fq.gz,fastq,fq}"
-params.fastqc_threads  = 2
-params.threads         = null
-params.skip_validate   = false
-params.fastqc_version  = "0.12.1"
-params.auto_install    = true
-params.tool_env_dir    = null
+
+params.input_dir = null
+params.outdir = "./results/module_0_readprocess"
+params.working_dir = null
+params.file_pattern = "*.{fastq.gz,fq.gz,fastq,fq}"
+params.fastqc_threads = 2
+params.threads = null
+params.skip_validate = false
+params.fastqc_version = "0.12.1"
+params.auto_install = true
+params.tool_env_dir = null
 params.module0_outdir = params.working_dir ? "${params.working_dir}/module_0_readprocess" : params.outdir
 
 workflow {
 
-    if( !params.input_dir ) {
-        error """
+    if (!params.input_dir) {
+        error(
+            """
         Missing required parameter: --input_dir
 
         Example:
           nextflow run module_0_readprocess.nf --input_dir ./reads --working_dir ./results
         """.stripIndent()
+        )
     }
 
-    log.info "Module 0 input directory: ${params.input_dir}"
-    log.info "Module 0 output directory: ${params.module0_outdir}"
+    log.info("Module 0 input directory: ${params.input_dir}")
+    log.info("Module 0 output directory: ${params.module0_outdir}")
 
     def all_files_ch = channel.fromPath(
-        "${params.input_dir}/${params.file_pattern}",
-        type: 'file',
-        checkIfExists: true
-    )
-    .map { path -> path.toAbsolutePath() }
+            "${params.input_dir}/${params.file_pattern}",
+            type: 'file',
+            checkIfExists: true,
+        )
+        .map { path -> path.toAbsolutePath() }
 
     SETUP_MODULE0_TOOLS()
 
@@ -47,11 +49,11 @@ workflow {
     def valid_named_reads_ch = CHECK_READ_NAMING.out.manifest
         .splitCsv(header: true, sep: '\t')
         .flatMap { row ->
-            if( row.layout == 'paired' ) {
-                return [ file(row.read1), file(row.read2) ]
+            if (row.layout == 'paired') {
+                return [file(row.read1), file(row.read2)]
             }
-            else if( row.layout == 'interleaved' ) {
-                return [ file(row.interleaved) ]
+            else if (row.layout == 'interleaved') {
+                return [file(row.interleaved)]
             }
             else {
                 return []
@@ -60,7 +62,7 @@ workflow {
 
     def reads_ready_for_fastqc_ch
 
-    if( params.skip_validate.toString().toBoolean() ) {
+    if (params.skip_validate.toString().toBoolean()) {
         SKIP_VALIDATE_READS(valid_named_reads_ch)
         reads_ready_for_fastqc_ch = SKIP_VALIDATE_READS.out
     }
@@ -78,9 +80,7 @@ process SETUP_MODULE0_TOOLS {
 
     tag "setup_fastqc"
 
-    publishDir "${params.module0_outdir}/setup",
-        mode: 'copy',
-        pattern: "module0_tools_status.env"
+    publishDir "${params.module0_outdir}/setup", mode: 'copy', pattern: "module0_tools_status.env"
 
     output:
     path "module0_tools_status.env", emit: status
@@ -201,9 +201,7 @@ process CHECK_READ_NAMING {
 
     tag "check_read_naming"
 
-    publishDir "${params.module0_outdir}/naming",
-        mode: 'copy',
-        pattern: "*.{txt,tsv}"
+    publishDir "${params.module0_outdir}/naming", mode: 'copy', pattern: "*.{txt,tsv}"
 
     input:
     val read_files
@@ -440,9 +438,7 @@ process VALIDATE_READS {
 
     stageInMode 'symlink'
 
-    publishDir "${params.module0_outdir}/validation_reports",
-        mode: 'copy',
-        pattern: "*_validation*.txt"
+    publishDir "${params.module0_outdir}/validation_reports", mode: 'copy', pattern: "*_validation*.txt"
 
     input:
     path read_file
@@ -551,9 +547,7 @@ process SKIP_VALIDATE_READS {
 
     stageInMode 'symlink'
 
-    publishDir "${params.module0_outdir}/validation_reports",
-        mode: 'copy',
-        pattern: "*_validation*.txt"
+    publishDir "${params.module0_outdir}/validation_reports", mode: 'copy', pattern: "*_validation*.txt"
 
     input:
     path read_file
@@ -583,8 +577,7 @@ process RUN_FASTQC {
 
     stageInMode 'symlink'
 
-    publishDir "${params.module0_outdir}/fastqc_reports",
-        mode: 'copy'
+    publishDir "${params.module0_outdir}/fastqc_reports", mode: 'copy'
 
     cpus {
         params.threads != null

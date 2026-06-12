@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-nextflow.enable.dsl=2
+nextflow.enable.dsl = 2
 
 /*
 * Module 2: Read assembly from Module 1 trimmed reads.
@@ -9,24 +9,24 @@ nextflow.enable.dsl=2
 /*
 * Parameters
 */
-params.working_dir       = null
-params.input_manifest    = null
-params.output_dir        = null
+params.working_dir = null
+params.input_manifest = null
+params.output_dir = null
 
-params.megahit           = false
-params.metaspades        = false
+params.megahit = false
+params.metaspades = false
 
-params.single_assembly   = true
+params.single_assembly = true
 params.rarefied_assembly = false
 params.rarefaction_splits = 2
 
-params.megahit_version   = "1.2.9"
-params.spades_version    = "4.2.0"
-params.auto_install      = true
-params.tool_env_dir      = null
+params.megahit_version = "1.2.9"
+params.spades_version = "4.2.0"
+params.auto_install = true
+params.tool_env_dir = null
 
-params.threads           = null
-params.assembly_threads  = 4
+params.threads = null
+params.assembly_threads = 4
 
 /*
 * Global memory in GB.
@@ -36,7 +36,7 @@ params.assembly_threads  = 4
 *
 * Use 0 to leave memory unset.
 */
-params.memory_gb         = 0
+params.memory_gb = 0
 
 /*
 * Optional MEGAHIT-specific thread override.
@@ -44,8 +44,8 @@ params.memory_gb         = 0
 * Example:
 *   --megahit_threads 1
 */
-params.megahit_threads   = null
-params.megahit_preset    = "meta-large"
+params.megahit_threads = null
+params.megahit_preset = "meta-large"
 
 params.publish_assemblies_mode = "symlink"
 
@@ -54,92 +54,100 @@ params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.outdir = "${params.results_dir}/module_2_readassembly"
 
 
-def rareLabelFromIndex(int index) {
+def rareLabelFromIndex(index: int) {
     def alphabet = "abcdefghijklmnopqrstuvwxyz"
 
-    if( index < 0 ) {
-        error "Rarefaction label index cannot be negative: ${index}"
+    if (index < 0) {
+        error("Rarefaction label index cannot be negative: ${index}")
     }
 
-    if( index < 26 ) {
+    if (index < 26) {
         return alphabet.charAt(index).toString()
     }
 
-    def prefix_index = ((int)(index / 26)) - 1
+    def prefix_index = (int.call(
+        index / 26
+    )) - 1
     def suffix_index = index % 26
 
     return rareLabelFromIndex(prefix_index) + alphabet.charAt(suffix_index).toString()
 }
 
 
-def rareLabels(int count) {
+def rareLabels(count: int) {
     return (0..<count).collect { idx -> rareLabelFromIndex(idx as int) }
 }
 
 
 workflow {
 
-    def use_megahit    = params.megahit.toString().toBoolean()
+    def use_megahit = params.megahit.toString().toBoolean()
     def use_metaspades = params.metaspades.toString().toBoolean()
 
-    def do_single   = params.single_assembly.toString().toBoolean()
+    def do_single = params.single_assembly.toString().toBoolean()
     def do_rarefied = params.rarefied_assembly.toString().toBoolean()
 
-    if( !use_megahit && !use_metaspades ) {
-        error """
+    if (!use_megahit && !use_metaspades) {
+        error(
+            """
         No assembler selected.
 
         Please specify at least one of:
           --megahit
           --metaspades
         """.stripIndent()
+        )
     }
 
-    if( !do_single && !do_rarefied ) {
-        error """
+    if (!do_single && !do_rarefied) {
+        error(
+            """
         No assembly mode selected.
 
         Please enable at least one of:
           --single_assembly true
           --rarefied_assembly true
         """.stripIndent()
+        )
     }
 
     def rare_split_count = params.rarefaction_splits as int
 
-    if( rare_split_count < 2 ) {
-        error """
+    if (rare_split_count < 2) {
+        error(
+            """
         Invalid rarefaction split count: ${rare_split_count}
 
         Rarefied assembly requires at least 2 splits.
         """.stripIndent()
+        )
     }
 
     def manifest_file = params.input_manifest ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
 
-    log.info "Module 2 results directory: ${params.results_dir}"
-    log.info "Using Module 1 trimmed manifest: ${manifest_file}"
-    log.info "Writing Module 2 outputs to: ${params.outdir}"
-    log.info "Assembler selected: MEGAHIT=${use_megahit}, metaSPAdes=${use_metaspades}"
-    log.info "Assembly modes: single=${do_single}, rarefied=${do_rarefied}"
-    log.info "Global threads: ${params.threads ?: params.assembly_threads}"
-    log.info "MEGAHIT thread override: ${params.megahit_threads ?: 'not supplied'}"
-    log.info "Global memory: ${(params.memory_gb as int) > 0 ? params.memory_gb + ' GB' : 'not supplied'}"
+    log.info("Module 2 results directory: ${params.results_dir}")
+    log.info("Using Module 1 trimmed manifest: ${manifest_file}")
+    log.info("Writing Module 2 outputs to: ${params.outdir}")
+    log.info("Assembler selected: MEGAHIT=${use_megahit}, metaSPAdes=${use_metaspades}")
+    log.info("Assembly modes: single=${do_single}, rarefied=${do_rarefied}")
+    log.info("Global threads: ${params.threads ?: params.assembly_threads}")
+    log.info("MEGAHIT thread override: ${params.megahit_threads ?: 'not supplied'}")
+    log.info("Global memory: ${(params.memory_gb as int) > 0 ? params.memory_gb + ' GB' : 'not supplied'}")
 
     def assembler_list = []
 
-    if( use_megahit ) {
+    if (use_megahit) {
         assembler_list << "megahit"
     }
 
-    if( use_metaspades ) {
+    if (use_metaspades) {
         assembler_list << "metaspades"
     }
 
     def manifest_ch = channel.fromPath(
         manifest_file,
         type: 'file',
-        checkIfExists: true
+        checkIfExists: true,
     )
 
     def reads_ch = manifest_ch
@@ -147,21 +155,21 @@ workflow {
         .map { row ->
 
             def sample_id = row.sample_id.toString()
-            def safe_id   = row.safe_sample_id.toString()
-            def layout    = row.layout.toString()
+            def safe_id = row.safe_sample_id.toString()
+            def layout = row.layout.toString()
 
             def assembly_sample_id = sample_id.replaceAll('[^A-Za-z0-9]+', '')
 
-            if( !assembly_sample_id ) {
+            if (!assembly_sample_id) {
                 assembly_sample_id = safe_id.replaceAll('[^A-Za-z0-9]+', '')
             }
 
-            if( !assembly_sample_id ) {
-                error "Could not derive non-empty assembly SampleID from sample '${sample_id}'"
+            if (!assembly_sample_id) {
+                error("Could not derive non-empty assembly SampleID from sample '${sample_id}'")
             }
 
-            if( layout != 'paired' && layout != 'interleaved' ) {
-                error "Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}"
+            if (layout != 'paired' && layout != 'interleaved') {
+                error("Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}")
             }
 
             tuple(
@@ -171,25 +179,18 @@ workflow {
                 layout,
                 row.read1.toString(),
                 row.read2.toString(),
-                row.interleaved.toString()
+                row.interleaved.toString(),
             )
         }
 
     SETUP_MODULE2_TOOLS()
 
     def manifest_records_ch = channel.empty()
-    def stats_files_ch      = channel.empty()
+    def stats_files_ch = channel.empty()
 
-    if( do_single ) {
+    if (do_single) {
 
-        def single_jobs_ch = reads_ch.flatMap {
-            sample_id,
-            safe_id,
-            assembly_sample_id,
-            layout,
-            read1,
-            read2,
-            interleaved ->
+        def single_jobs_ch = reads_ch.flatMap { sample_id, safe_id, assembly_sample_id, layout, read1, read2, interleaved ->
 
             assembler_list.collect { assembler ->
                 tuple(
@@ -200,7 +201,7 @@ workflow {
                     read1,
                     read2,
                     interleaved,
-                    assembler
+                    assembler,
                 )
             }
         }
@@ -210,23 +211,16 @@ workflow {
         )
 
         manifest_records_ch = manifest_records_ch.mix(ASSEMBLE_SINGLE.out.manifest_record)
-        stats_files_ch      = stats_files_ch.mix(ASSEMBLE_SINGLE.out.stats_file)
+        stats_files_ch = stats_files_ch.mix(ASSEMBLE_SINGLE.out.stats_file)
     }
 
-    if( do_rarefied ) {
+    if (do_rarefied) {
 
         def rare_letters = rareLabels(rare_split_count)
 
-        log.info "Rarefied assembly enabled with ${rare_split_count} splits: ${rare_letters.join(', ')}"
+        log.info("Rarefied assembly enabled with ${rare_split_count} splits: ${rare_letters.join(', ')}")
 
-        def rare_jobs_ch = reads_ch.flatMap {
-            sample_id,
-            safe_id,
-            assembly_sample_id,
-            layout,
-            read1,
-            read2,
-            interleaved ->
+        def rare_jobs_ch = reads_ch.flatMap { sample_id, safe_id, assembly_sample_id, layout, read1, read2, interleaved ->
 
             def jobs = []
 
@@ -245,7 +239,7 @@ workflow {
                         assembler,
                         idx,
                         rare_letter,
-                        rare_split_count
+                        rare_split_count,
                     )
                 }
             }
@@ -258,12 +252,12 @@ workflow {
         )
 
         manifest_records_ch = manifest_records_ch.mix(ASSEMBLE_RAREFIED.out.manifest_record)
-        stats_files_ch      = stats_files_ch.mix(ASSEMBLE_RAREFIED.out.stats_file)
+        stats_files_ch = stats_files_ch.mix(ASSEMBLE_RAREFIED.out.stats_file)
     }
 
     WRITE_ASSEMBLY_SUMMARIES(
         manifest_records_ch.collect(),
-        stats_files_ch.collect()
+        stats_files_ch.collect(),
     )
 }
 
@@ -272,9 +266,7 @@ process SETUP_MODULE2_TOOLS {
 
     tag "setup_assemblers"
 
-    publishDir "${params.outdir}/setup",
-        mode: 'copy',
-        pattern: "module2_tools_status.env"
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module2_tools_status.env"
 
     output:
     path "module2_tools_status.env", emit: status
@@ -282,17 +274,17 @@ process SETUP_MODULE2_TOOLS {
     script:
     def env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs/module2_tools"
 
-    def want_megahit    = params.megahit.toString().toBoolean()
+    def want_megahit = params.megahit.toString().toBoolean()
     def want_metaspades = params.metaspades.toString().toBoolean()
 
     def packages = []
     packages << "python"
 
-    if( want_megahit ) {
+    if (want_megahit) {
         packages << "megahit=${params.megahit_version}"
     }
 
-    if( want_metaspades ) {
+    if (want_metaspades) {
         def spades_version_for_conda = params.spades_version.toString().replaceFirst(/-\d+$/, '')
         packages << "spades=${spades_version_for_conda}"
     }
@@ -424,24 +416,16 @@ process ASSEMBLE_SINGLE {
 
     tag { "${sample_id}:${assembler}:single" }
 
-    publishDir "${params.outdir}/assemblies",
-        mode: params.publish_assemblies_mode,
-        pattern: "*.renamed.fa"
+    publishDir "${params.outdir}/assemblies", mode: params.publish_assemblies_mode, pattern: "*.renamed.fa"
 
-    publishDir "${params.outdir}/header_maps",
-        mode: 'copy',
-        pattern: "*.header_map.tsv"
+    publishDir "${params.outdir}/header_maps", mode: 'copy', pattern: "*.header_map.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.log"
 
-    publishDir "${params.outdir}/summary/per_assembly_stats",
-        mode: 'copy',
-        pattern: "*.assembly_stats.tsv"
+    publishDir "${params.outdir}/summary/per_assembly_stats", mode: 'copy', pattern: "*.assembly_stats.tsv"
 
     cpus {
-        if( assembler == 'megahit' && params.megahit_threads != null ) {
+        if (assembler == 'megahit' && params.megahit_threads != null) {
             return params.megahit_threads as int
         }
 
@@ -456,15 +440,7 @@ process ASSEMBLE_SINGLE {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_id),
-          val(assembly_sample_id),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          val(assembler),
-          path(tools_status)
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), val(assembler), path(tools_status)
 
     output:
     path "*.renamed.fa", emit: renamed_contigs
@@ -833,24 +809,16 @@ process ASSEMBLE_RAREFIED {
 
     tag { "${sample_id}:${assembler}:rarefied:${rare_letter}" }
 
-    publishDir "${params.outdir}/assemblies",
-        mode: params.publish_assemblies_mode,
-        pattern: "*.renamed.fa"
+    publishDir "${params.outdir}/assemblies", mode: params.publish_assemblies_mode, pattern: "*.renamed.fa"
 
-    publishDir "${params.outdir}/header_maps",
-        mode: 'copy',
-        pattern: "*.header_map.tsv"
+    publishDir "${params.outdir}/header_maps", mode: 'copy', pattern: "*.header_map.tsv"
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "*.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.log"
 
-    publishDir "${params.outdir}/summary/per_assembly_stats",
-        mode: 'copy',
-        pattern: "*.assembly_stats.tsv"
+    publishDir "${params.outdir}/summary/per_assembly_stats", mode: 'copy', pattern: "*.assembly_stats.tsv"
 
     cpus {
-        if( assembler == 'megahit' && params.megahit_threads != null ) {
+        if (assembler == 'megahit' && params.megahit_threads != null) {
             return params.megahit_threads as int
         }
 
@@ -865,18 +833,7 @@ process ASSEMBLE_RAREFIED {
     }
 
     input:
-    tuple val(sample_id),
-          val(safe_id),
-          val(assembly_sample_id),
-          val(layout),
-          val(read1),
-          val(read2),
-          val(interleaved),
-          val(assembler),
-          val(rare_index),
-          val(rare_letter),
-          val(rare_split_count),
-          path(tools_status)
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), val(assembler), val(rare_index), val(rare_letter), val(rare_split_count), path(tools_status)
 
     output:
     path "*.renamed.fa", emit: renamed_contigs
@@ -1326,13 +1283,9 @@ process WRITE_ASSEMBLY_SUMMARIES {
 
     tag "write_assembly_summaries"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "assembly_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "assembly_manifest.tsv"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "assembly_stats_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "assembly_stats_summary.tsv"
 
     input:
     path manifest_records
