@@ -43,8 +43,8 @@ def absOrEmpty(value) {
     return java.nio.file.Paths.get(s).toAbsolutePath().normalize().toString()
 }
 
-def firstExistingPath(paths: List) {
-    def found = paths.find { p ->
+def firstExistingPath(List paths) {
+        def found = paths.find { p ->
         java.nio.file.Files.exists(java.nio.file.Paths.get(p.toString()))
     }
 
