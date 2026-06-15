@@ -202,7 +202,7 @@ nextflow run module_3_binning.nf \
 
 ```
 
-# Step 4: module_4_binRefinement.nf
+# Step 4: module_4_binrefinement.nf
 
 This module performs the following steps:
 
@@ -214,7 +214,7 @@ This module performs the following steps:
 
 ## Usage:
 ```bash
-nextflow run module_4_binRefinement.nf \
+nextflow run module_4_binrefinement.nf \
 --working_dir ./output_samwise \
 --magscot_threshold 0
 
@@ -234,7 +234,7 @@ This module performs the following steps:
 
 ## Usage:
 ```bash
-nextflow run module_5_subtractiveassembly.nf \
+nextflow run module_5_subassembly.nf \
 --working_dir ./output_samwise \
 --threads 20 \
 --megahit \
@@ -243,4 +243,6 @@ nextflow run module_5_subtractiveassembly.nf \
 --secondpass_quickbin true \
 --secondpass_maxbin2 true \
 --run_second_pass_binning_refinement true
+
+# --run_second_pass_binning_refinement specifies whether or not you want it to re-bin after subassembly - some users may want to disable this if they want to make sure subassemblies are worth performing after looking at the assembly stats, but most should leave on. Default is true.
 ```

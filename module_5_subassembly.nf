@@ -64,7 +64,7 @@ params.results_dir = params.working_dir ? params.working_dir : (params.output_di
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module3_outdir = "${params.results_dir}/module_3_binning"
 params.module4_outdir = "${params.results_dir}/module_4_binrefinement"
-params.outdir = "${params.results_dir}/module_5_subtractiveAssembly"
+params.outdir = "${params.results_dir}/module_5_subtractiveassembly"
 
 params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
 params.final_joint_dir = params.final_joint_working_dir ?: "${params.outdir}/final_joint_refinement"
@@ -612,7 +612,7 @@ PY
 
         cp -L "${refined_reference_fasta}" refined_mags_reference.fa
 
-        BBMAP_ARGS="ref=refined_mags_reference.fa outu=\$OUT_FASTQ threads=${task.cpus} overwrite=t minid=${params.bbmap_minid} ambig=${params.bbmap_ambig}"
+        BBMAP_ARGS="ref=${refined_reference_fasta} outu=\$OUT_FASTQ threads=${task.cpus} overwrite=t minid=${params.bbmap_minid} ambig=${params.bbmap_ambig}"
 
         if [[ -n "${params.bbmap_extra_args}" ]]; then
             BBMAP_ARGS="\${BBMAP_ARGS} ${params.bbmap_extra_args}"
