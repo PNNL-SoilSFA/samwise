@@ -19,7 +19,6 @@ params.pfam_hmm = null
 params.magscot_script = null
 params.magscot_profiles_dir = null
 params.auto_install = true
-params.auto_install = true
 params.tool_env_dir = null
 params.threads = null
 params.hmm_threads = 8
