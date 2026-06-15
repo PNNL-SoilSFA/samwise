@@ -32,7 +32,7 @@ params.publish_gathered_bins_mode = "copy"
 params.publish_refined_bins_mode = "copy"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module3_outdir = "${params.results_dir}/module_3_binning"
-params.outdir = "${params.results_dir}/module_4_binRefinement"
+params.outdir = "${params.results_dir}/module_4_binrefinement"
 
 def absOrEmpty(value) {
     def s = value == null ? "" : value.toString().trim()

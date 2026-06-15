@@ -43,7 +43,7 @@ params.secondpass_quickbin = true
 params.secondpass_maxbin2 = true
 
 params.module3_script = "${projectDir}/module_3_binning.nf"
-params.module4_script = "${projectDir}/module_4_binRefinement.nf"
+params.module4_script = "${projectDir}/module_4_binrefinement.nf"
 params.nextflow_exe = "nextflow"
 
 params.secondpass_working_dir = null
@@ -63,7 +63,7 @@ params.publish_final_mags_mode = "copy"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module3_outdir = "${params.results_dir}/module_3_binning"
-params.module4_outdir = "${params.results_dir}/module_4_binRefinement"
+params.module4_outdir = "${params.results_dir}/module_4_binrefinement"
 params.outdir = "${params.results_dir}/module_5_subtractiveAssembly"
 
 params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
@@ -1511,7 +1511,7 @@ process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
     FINAL_STATUS="\$(tail -n 1 "${final_joint_refinement_status}" | cut -f2 || true)"
     FINAL_MESSAGE="\$(tail -n 1 "${final_joint_refinement_status}" | cut -f4- || true)"
 
-    FINAL_JOINT_MANIFEST="${params.final_joint_dir}/module_4_binRefinement/summary/magscot_refined_bins_manifest.tsv"
+    FINAL_JOINT_MANIFEST="${params.final_joint_dir}/module_4_binrefinement/summary/magscot_refined_bins_manifest.tsv"
     ORIGINAL_REFINED_MANIFEST="${params.module4_outdir}/summary/magscot_refined_bins_manifest.tsv"
 
     echo "Final MAG database construction started: \$(date)" > "\$LOG_FILE"
