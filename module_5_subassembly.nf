@@ -1630,7 +1630,7 @@ process RUN_FINAL_JOINT_REFINEMENT {
 
 process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
     tag "build_final_mag_database_from_joint_refinement"
-    
+
     publishDir "${params.outdir}/final_mag_database", mode: params.publish_final_mags_mode, pattern: "final_mag_database/*.fa", saveAs: { filename -> filename.replaceFirst(/^final_mag_database\//, '') }
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "final_mag_database_*.tsv"
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "build_final_mag_database.log"
