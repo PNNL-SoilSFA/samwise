@@ -1630,11 +1630,9 @@ process RUN_FINAL_JOINT_REFINEMENT {
 
 process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
     tag "build_final_mag_database_from_joint_refinement"
-
+    
     publishDir "${params.outdir}/final_mag_database", mode: params.publish_final_mags_mode, pattern: "final_mag_database/*.fa", saveAs: { filename -> filename.replaceFirst(/^final_mag_database\//, '') }
-
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "final_mag_database_*.tsv"
-
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "build_final_mag_database.log"
 
     input:
@@ -1658,27 +1656,46 @@ process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
     FINAL_JOINT_MANIFEST="${params.final_joint_dir}/module_4_binrefinement/summary/magscot_refined_bins_manifest.tsv"
     ORIGINAL_REFINED_MANIFEST="${params.module4_outdir}/summary/magscot_refined_bins_manifest.tsv"
 
+    FINAL_JOINT_REFINED_BINS_DIR="${params.final_joint_dir}/module_4_binrefinement/refined_bins"
+    ORIGINAL_REFINED_BINS_DIR="${params.module4_outdir}/refined_bins"
+
     echo "Final MAG database construction started: \$(date)" > "\$LOG_FILE"
     echo "Final joint refinement status file: ${final_joint_refinement_status}" >> "\$LOG_FILE"
     echo "Final status: \$FINAL_STATUS" >> "\$LOG_FILE"
     echo "Final message: \$FINAL_MESSAGE" >> "\$LOG_FILE"
     echo "Final joint refined MAG manifest: \$FINAL_JOINT_MANIFEST" >> "\$LOG_FILE"
     echo "Original refined MAG manifest: \$ORIGINAL_REFINED_MANIFEST" >> "\$LOG_FILE"
+    echo "Final joint refined MAG directory: \$FINAL_JOINT_REFINED_BINS_DIR" >> "\$LOG_FILE"
+    echo "Original refined MAG directory: \$ORIGINAL_REFINED_BINS_DIR" >> "\$LOG_FILE"
 
     mkdir -p final_mag_database
 
     if [[ "\$FINAL_STATUS" == "completed" ]]; then
         SELECTED_MANIFEST="\$FINAL_JOINT_MANIFEST"
+        SELECTED_REFINED_BINS_DIR="\$FINAL_JOINT_REFINED_BINS_DIR"
         FINAL_DATABASE_MODE="final_joint_refinement"
     elif [[ "\$FINAL_STATUS" == "skipped_no_new_mags" || "\$FINAL_STATUS" == "skipped_no_bins" ]]; then
         echo "No new MAGs were added with subtractive assembly." >> "\$LOG_FILE"
         echo "Using original Module 4 refined MAGs as final MAG database." >> "\$LOG_FILE"
         SELECTED_MANIFEST="\$ORIGINAL_REFINED_MANIFEST"
+        SELECTED_REFINED_BINS_DIR="\$ORIGINAL_REFINED_BINS_DIR"
         FINAL_DATABASE_MODE="original_refined_mags_only"
     else
         echo "ERROR: Final joint refinement did not complete or skip cleanly." >> "\$LOG_FILE"
         echo "Status: \$FINAL_STATUS" >> "\$LOG_FILE"
         exit 1
+    fi
+
+    echo "Copying refined MAGs from: \$SELECTED_REFINED_BINS_DIR" >> "\$LOG_FILE"
+
+    if [[ -d "\$SELECTED_REFINED_BINS_DIR" ]]; then
+        if compgen -G "\$SELECTED_REFINED_BINS_DIR/*.fa" > /dev/null; then
+            cp -v "\$SELECTED_REFINED_BINS_DIR"/*.fa final_mag_database/ >> "\$LOG_FILE" 2>&1
+        else
+            echo "WARNING: no .fa files found in: \$SELECTED_REFINED_BINS_DIR" >> "\$LOG_FILE"
+        fi
+    else
+        echo "WARNING: refined MAG directory does not exist: \$SELECTED_REFINED_BINS_DIR" >> "\$LOG_FILE"
     fi
 
     python3 - \\
@@ -1731,7 +1748,6 @@ def fasta_stats(path):
     bp = 0
     cur = 0
     seen = False
-
     with opener(path, "rt", errors="replace") as h:
         for line in h:
             line = line.rstrip("\\n")
@@ -1743,10 +1759,8 @@ def fasta_stats(path):
                 contigs += 1
             else:
                 cur += len(line.strip())
-
     if seen:
         bp += cur
-
     return contigs, bp
 
 rows = []
@@ -1765,7 +1779,6 @@ else:
                 rows.append((bin_id, fasta))
 
 seen_names = set()
-
 copied = 0
 missing = 0
 total_contigs = 0
@@ -1786,7 +1799,6 @@ with final_manifest.open("w") as out:
 
     for idx, (bin_id, fasta) in enumerate(rows, start=1):
         fasta = Path(fasta)
-
         if not fasta.exists():
             log(f"WARNING: missing source MAG FASTA: {fasta}")
             missing += 1
@@ -1801,8 +1813,8 @@ with final_manifest.open("w") as out:
             name = f"{base}_{suffix}.fa"
 
         seen_names.add(name)
-
         dest = final_dir / name
+
         shutil.copyfile(fasta, dest)
 
         contigs, bp = fasta_stats(dest)
