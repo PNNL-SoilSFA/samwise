@@ -189,8 +189,8 @@ This module is designed to run alongside the normal Module 2 assembly workflow. 
    - Runs MEGAHIT co-assembly on each grouped interleaved FASTQ and renames scaffolds with letter E.
    
 ## Usage:
-```bash
-## 
+```bash 
+#Run with max mem on 5 threads
 
 nextflow run module_2b_coassembly.nf \
 --working_dir ./output_samwise-main \
@@ -219,6 +219,7 @@ This module performs the following steps:
    - Users can choose either assembler or both: with flags `--quickbin`, `--metabat2`, `--maxbin2`
    - Binning will be run on all assemblies generated from the prior modules
    - Minimum scaffold length required for binning can be modified with `--min_scaffold_length` flag, default is 2500.
+   - Automatically scans for all possible assemblies from both module 2 and 2b
 
 ## Usage:
 ```bash
