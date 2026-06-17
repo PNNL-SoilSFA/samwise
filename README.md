@@ -174,6 +174,40 @@ nextflow run module_2_readassembly.nf \
 #if on a mac, megahit running on more than 1 thread doesnt play nice, so there is an explicit --megahit_threads you can set separately from the global argument --threads which will set it for both.
 ```
 
+# Step 2b: module_2b_coassembly.nf
+
+`module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**.
+
+This module is designed to run alongside the normal Module 2 assembly workflow. It produces Module-3-compatible manifests so that Module 3 can automatically bin co-assemblies using the exact concatenated reads that were used to generate each co-assembly.
+
+1. **Checks for assembly software and installs if necessary**
+   - Looks for MEGAHIT and installs if needed
+   
+2. **Co-assembles reads as specified within reads manifest**
+   - Users specify which read groupings are relevant for co-assembly and software automatically reads in from the previous Module 0 and Module 1.
+   - SAMWISE concatenates the reads for each group into one interleaved FASTQ file (used later for binning).
+   - Runs MEGAHIT co-assembly on each grouped interleaved FASTQ and renames scaffolds with letter E.
+   
+## Usage:
+```bash
+## 
+
+nextflow run module_2b_coassembly.nf \
+--working_dir ./output_samwise-main \
+--coassembly_groups ./coassembly_manifest.txt \
+--threads 5 \
+--memory_gb 0
+
+```
+
+Coassembly_manifest.txt must be a tab-separated table and contain two columns:
+
+| read_or_sample_id | group_id |
+| sampleA	| group_1 |
+| sampleB	| group_1 |
+| sampleC	| group_2 |
+| sampleD	| group_2 |
+  
 # Step 3: module_3_binning.nf
 
 This module performs the following steps:

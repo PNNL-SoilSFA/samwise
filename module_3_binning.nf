@@ -12,6 +12,10 @@ nextflow.enable.dsl = 2
 params.working_dir = null
 params.input_assembly_manifest = null
 params.input_trimmed_manifest = null
+params.input_coassembly_assembly_manifest = null
+params.input_coassembly_trimmed_manifest = null
+params.include_module2 = true
+params.include_module2b = true
 params.output_dir = null
 
 params.metabat2 = false
@@ -65,6 +69,7 @@ params.publish_bins_mode = "symlink"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module2_outdir = "${params.results_dir}/module_2_readassembly"
+params.module2b_outdir = "${params.results_dir}/module_2b_coassembly"
 params.outdir = "${params.results_dir}/module_3_binning"
 
 
@@ -76,9 +81,25 @@ def absOrEmpty(value) {
     return java.nio.file.Paths.get(s).toAbsolutePath().normalize().toString()
 }
 
+def resolveForDiscoveryPath(value, launchDir) {
+    def p = java.nio.file.Paths.get(value.toString())
+
+    if (!p.isAbsolute()) {
+        p = java.nio.file.Paths.get(launchDir.toString()).resolve(p)
+    }
+
+    return p.toAbsolutePath().normalize().toString()
+}
+
+def existsForDiscoveryPath(value, launchDir) {
+    return java.nio.file.Files.exists(
+        java.nio.file.Paths.get(
+            resolveForDiscoveryPath(value, launchDir)
+        )
+    )
+}
 
 workflow {
-
     def use_metabat2 = params.metabat2.toString().toBoolean()
     def use_quickbin = params.quickbin.toString().toBoolean()
     def use_maxbin2 = params.maxbin2.toString().toBoolean()
@@ -87,42 +108,196 @@ workflow {
         error(
             """
         No binner selected.
-
         Please specify at least one of:
           --metabat2
           --quickbin
           --maxbin2
-
         Example:
           nextflow run module_3_binning.nf --working_dir ./output_samwise --threads 6 --metabat2 --quickbin --maxbin2
         """.stripIndent()
         )
     }
 
-    def assembly_manifest_file = params.input_assembly_manifest ?: "${params.module2_outdir}/summary/assembly_manifest.tsv"
-    def trimmed_manifest_file = params.input_trimmed_manifest ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
+    def include_module2 = params.include_module2.toString().toBoolean()
+    def include_module2b = params.include_module2b.toString().toBoolean()
+    def launch_dir = workflow.launchDir.toString()
+
+    /*
+     * Regular Module 2 inputs.
+     */
+    def module2_assembly_manifest_file = params.input_assembly_manifest ?: "${params.module2_outdir}/summary/assembly_manifest.tsv"
+    def module2_trimmed_manifest_file = params.input_trimmed_manifest ?: "${params.module1_outdir}/summary/trimmed_manifest.tsv"
+
+    /*
+     * Module 2b coassembly inputs.
+     */
+    def module2b_assembly_manifest_file = params.input_coassembly_assembly_manifest ?: "${params.module2b_outdir}/summary/assembly_manifest.tsv"
+    def module2b_trimmed_manifest_file = params.input_coassembly_trimmed_manifest ?: "${params.module2b_outdir}/summary/coassembly_trimmed_manifest.tsv"
+
+    def assembly_manifest_files = []
+    def trimmed_manifest_files = []
+    def module2_explicit = params.input_assembly_manifest != null
+    def module2_exists = existsForDiscoveryPath(module2_assembly_manifest_file, launch_dir)
+
+    if (module2_explicit && !module2_exists) {
+        error(
+            """
+        Explicit Module 2 assembly manifest was supplied but does not exist:
+
+          --input_assembly_manifest ${module2_assembly_manifest_file}
+        """.stripIndent()
+        )
+    }
+
+    if (module2_explicit || (include_module2 && module2_exists)) {
+        if (!existsForDiscoveryPath(module2_trimmed_manifest_file, launch_dir)) {
+            error(
+                """
+        Regular Module 2 assembly manifest was selected, but the corresponding
+        trimmed-read manifest does not exist.
+
+        Assembly manifest:
+          ${module2_assembly_manifest_file}
+
+        Trimmed manifest:
+          ${module2_trimmed_manifest_file}
+
+        If you only want to bin Module 2b coassemblies, run with:
+
+          --include_module2 false
+        """.stripIndent()
+            )
+        }
+
+        assembly_manifest_files << resolveForDiscoveryPath(module2_assembly_manifest_file, launch_dir)
+        trimmed_manifest_files << resolveForDiscoveryPath(module2_trimmed_manifest_file, launch_dir)
+    }
+
+    def module2b_explicit = (
+        params.input_coassembly_assembly_manifest != null ||
+        params.input_coassembly_trimmed_manifest != null
+    )
+
+    def module2b_exists = existsForDiscoveryPath(module2b_assembly_manifest_file, launch_dir)
+
+    if (params.input_coassembly_assembly_manifest != null && !module2b_exists) {
+        error(
+            """
+        Explicit Module 2b coassembly assembly manifest was supplied but does not exist:
+
+          --input_coassembly_assembly_manifest ${module2b_assembly_manifest_file}
+        """.stripIndent()
+        )
+    }
+
+    if (module2b_explicit || (include_module2b && module2b_exists)) {
+        if (!existsForDiscoveryPath(module2b_assembly_manifest_file, launch_dir)) {
+            error(
+                """
+        Module 2b coassembly discovery was requested, but the coassembly
+        assembly manifest does not exist:
+
+          ${module2b_assembly_manifest_file}
+        """.stripIndent()
+            )
+        }
+
+        if (!existsForDiscoveryPath(module2b_trimmed_manifest_file, launch_dir)) {
+            error(
+                """
+        Module 2b coassembly assembly manifest was selected, but the corresponding
+        coassembly trimmed-read manifest does not exist.
+
+        Coassembly assembly manifest:
+          ${module2b_assembly_manifest_file}
+
+        Coassembly trimmed manifest:
+          ${module2b_trimmed_manifest_file}
+
+        Expected Module 2b output:
+          ${params.module2b_outdir}/summary/coassembly_trimmed_manifest.tsv
+        """.stripIndent()
+            )
+        }
+
+        assembly_manifest_files << resolveForDiscoveryPath(module2b_assembly_manifest_file, launch_dir)
+        trimmed_manifest_files << resolveForDiscoveryPath(module2b_trimmed_manifest_file, launch_dir)
+    }
+
+    assembly_manifest_files = assembly_manifest_files.unique()
+    trimmed_manifest_files = trimmed_manifest_files.unique()
+
+    if (assembly_manifest_files.isEmpty()) {
+        error(
+            """
+        No assembly manifests were found for Module 3.
+
+        Checked regular Module 2:
+          ${module2_assembly_manifest_file}
+
+        Checked Module 2b coassembly:
+          ${module2b_assembly_manifest_file}
+
+        At least one assembly manifest is required.
+
+        Options:
+          1. Run Module 2 first.
+          2. Run Module 2b first.
+          3. Provide explicit manifest paths.
+
+        Examples:
+
+          --input_assembly_manifest path/to/module2/assembly_manifest.tsv
+          --input_trimmed_manifest path/to/module1/trimmed_manifest.tsv
+
+        or:
+
+          --input_coassembly_assembly_manifest path/to/module2b/assembly_manifest.tsv
+          --input_coassembly_trimmed_manifest path/to/module2b/coassembly_trimmed_manifest.tsv
+        """.stripIndent()
+        )
+    }
+
+    if (trimmed_manifest_files.isEmpty()) {
+        error(
+            """
+        No read manifests were found for Module 3.
+
+        This should not happen if assembly manifests were detected.
+        Please check Module 1 and/or Module 2b outputs.
+        """.stripIndent()
+        )
+    }
 
     log.info("Module 3 results directory: ${params.results_dir}")
-    log.info("Using Module 2 assembly manifest: ${assembly_manifest_file}")
-    log.info("Using Module 1 trimmed manifest: ${trimmed_manifest_file}")
     log.info("Writing Module 3 outputs to: ${params.outdir}")
     log.info("Minimum scaffold length for binning: ${params.min_scaffold_length}")
     log.info("Binners selected: MetaBAT2=${use_metabat2}, QuickBin=${use_quickbin}, MaxBin2=${use_maxbin2}")
+    log.info("Regular Module 2 discovery enabled: ${include_module2}")
+    log.info("Module 2b coassembly discovery enabled: ${include_module2b}")
 
-    def assembly_manifest_ch = channel.fromPath(
-        assembly_manifest_file,
-        type: 'file',
-        checkIfExists: true,
-    )
+    log.info("Assembly manifests selected for Module 3:")
+    assembly_manifest_files.each { manifest_path ->
+        log.info("  ${manifest_path}")
+    }
 
-    def trimmed_manifest_ch = channel.fromPath(
-        trimmed_manifest_file,
-        type: 'file',
-        checkIfExists: true,
-    )
+    log.info("Read manifests selected for Module 3:")
+    trimmed_manifest_files.each { manifest_path ->
+        log.info("  ${manifest_path}")
+    }
+
+    def assembly_manifest_ch = channel.fromList(assembly_manifest_files)
+        .map { manifest_path ->
+            file(manifest_path)
+        }
+
+    def trimmed_manifest_ch = channel.fromList(trimmed_manifest_files)
+        .map { manifest_path ->
+            file(manifest_path)
+        }
 
     /*
-     * Module 2 assembly_manifest.tsv columns:
+     * Module 2 and Module 2b assembly_manifest.tsv columns:
      *
      * sample_id
      * safe_sample_id
@@ -137,6 +312,7 @@ workflow {
         .splitCsv(header: true, sep: '\t')
         .map { row ->
             def fasta_path = absOrEmpty(row.renamed_fasta)
+
             if (!fasta_path) {
                 error("Empty renamed_fasta path in assembly manifest for sample '${row.sample_id}'")
             }
@@ -154,7 +330,7 @@ workflow {
         }
 
     /*
-     * Module 1 trimmed_manifest.tsv columns:
+     * Module 1 and Module 2b coassembly trimmed_manifest.tsv columns:
      *
      * sample_id
      * safe_sample_id
@@ -187,6 +363,7 @@ workflow {
      *   sample + assembler + single
      *   sample + assembler + rarefied a
      *   sample + assembler + rarefied b
+     *   coassembly group + megahit + coassembly
      *
      * join() is unsafe with duplicate keys. combine(..., by: 0)
      * gives the desired one-to-many match by sample_id.
@@ -194,9 +371,7 @@ workflow {
     def binning_jobs_ch = assemblies_ch
         .combine(trimmed_reads_ch, by: 0)
         .map { sample_id, safe_sample_id, assembly_sample_id, assembly_assembler, assembly_mode, rarefaction_label, assembly_strategy, renamed_fasta, layout, read1, read2, interleaved ->
-
             def rare_part = rarefaction_label ? "_${rarefaction_label}" : ""
-
             def binning_id = "${safe_sample_id}${rare_part}_${assembly_assembler}_${assembly_mode}".replaceAll('[^A-Za-z0-9._-]+', '_')
 
             if (layout != 'paired' && layout != 'interleaved') {
@@ -275,7 +450,6 @@ workflow {
         stats_files_ch.collect(),
     )
 }
-
 
 process SETUP_MODULE3_TOOLS {
     tag "setup_binning_tools"
@@ -522,7 +696,7 @@ process FILTER_ASSEMBLY_BY_LENGTH {
     tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path(original_assembly_fasta), val(layout), val(read1), val(read2), val(interleaved), path(tools_status)
 
     output:
-    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path("${binning_id}.min${params.min_scaffold_length}.fa"), val(layout), val(read1), val(read2), val(interleaved), emit: filtered_jobs
+    tuple val(sample_id), val(safe_sample_id), val(assembly_sample_id), val(assembly_assembler), val(assembly_mode), val(rarefaction_label), val(assembly_strategy), val(binning_id), path("${binning_id}.min${params.min_scaffold_length}.fa"), val(layout), val(read1), val(read2), val(interleaved), emit: filtered_jobs, optional: true
 
     path "${binning_id}.filtered_assembly_stats.tsv", emit: stats_file
     path "${binning_id}.filter_assembly.log", emit: log_file
@@ -671,11 +845,21 @@ with open(stats_file, "w") as out:
     )
 
 if filt_count == 0:
-    raise SystemExit(
-        f"ERROR: No contigs >= {min_len} bp remained after filtering for {binning_id}."
+    try:
+        Path(filtered_fasta).unlink()
+    except FileNotFoundError:
+        pass
+    print(
+        f"WARNING: No contigs >= {min_len} bp remained after filtering for {binning_id}; "
+        "skipping mapping and binning for this assembly.",
+        file=sys.stderr
     )
 PY
 
+    if [[ ! -e "\$OUT_FASTA" ]]; then
+        echo "WARNING: No contigs >= ${params.min_scaffold_length} bp remained after filtering; skipping mapping and binning for ${binning_id}." >> "\$LOG_FILE"
+    fi
+    
     echo "Assembly length filtering finished: \$(date)" >> "\$LOG_FILE"
     """
 }
@@ -1685,8 +1869,9 @@ process WRITE_FILTERED_ASSEMBLY_STATS_SUMMARY {
     set -euo pipefail
 
     if [[ -z "${stats_file_list}" ]]; then
-        echo "ERROR: No filtered assembly stats files were received." >&2
-        exit 1
+        echo "WARNING: No binning stats files were received; no assemblies passed the minimum scaffold length filter." >&2
+        printf 'sample_id\tsafe_sample_id\tassembly_sample_id\tassembly_assembler\tassembly_mode\trarefaction_label\tassembly_strategy\tbinning_id\tbinner\tbin_count\ttotal_bin_bp\tlargest_bin_bp\tbins_dir\tlog_file\treport_file\tbinner_exit_status\tbinner_status\tbinner_message\n' > binning_stats_summary.tsv
+        exit 0
     fi
 
     first=1
