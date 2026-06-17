@@ -174,7 +174,7 @@ nextflow run module_2_readassembly.nf \
 #if on a mac, megahit running on more than 1 thread doesnt play nice, so there is an explicit --megahit_threads you can set separately from the global argument --threads which will set it for both.
 ```
 
-# Step 2b: module_2b_coassembly.nf
+# Step 2b (optional): module_2b_coassembly.nf
 
 `module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**.
 
@@ -256,7 +256,7 @@ nextflow run module_4_binrefinement.nf \
 #MAGScoT original code sets this threshold at 0.5, but since we are doing gtdb + checkm runs after on the latest databases, its better to just pass this as default 0 and retain all possible MAGs. Feel free to change that --magscot_threshold param to 0.5
 ```
 
-# Step 5 (OPTIONAL): module_5_subassembly.nf
+# Step 5 (optional): module_5_subassembly.nf
 
 This module performs the following steps:
 
