@@ -1,0 +1,6 @@
+read_or_sample_id	group_id
+sample1	group_1
+sample2	group_1
+sample3	group_1
+sample4	group_2
+sample5	group_2
