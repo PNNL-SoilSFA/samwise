@@ -281,3 +281,33 @@ nextflow run module_5_subassembly.nf \
 
 # --run_second_pass_binning_refinement specifies whether or not you want it to re-bin after subassembly - some users may want to disable this if they want to make sure subassemblies are worth performing after looking at the assembly stats, but most should leave on. Default is true.
 ```
+# Step 6: module_6_magannotate.nf
+
+This module performs the following steps:
+
+1. **Checks for dependencies and installs them if necessary**
+   -Module 2 will attempt to find the MAG annotation tools and will annotate them if not found. 
+   -Module 2 will download required databases for each tool if needed, but arguments can be passed to directly point to dbs.
+2. **Runs CheckM2, GTDB-tk, and Eggnog (or DRAM2)**
+
+## Usage:
+```bash
+nextflow run module_6_magannotate.nf \
+--working_dir ./output_samwise \
+--run_checkm2 true \
+--run_gtdbtk true \
+--run_eggnog true \
+--threads 32
+
+# If you already pre-downloaded the databases and have them installed elsewhere, you can directly pass arguments:
+# --checkm2_db_path /path/to/uniref100.KO.1.dmnd
+# --gtdbtk_data_path /path/to/gtdbtk/database_directory
+# --eggnog_data_path /path/to/eggnog/database_directory
+
+# You can also explicitly pass which directories you want the files downloaded into, for example:
+
+# --checkm2_db_dir /path/to/download/checkm2_db_dir
+# --gtdbtk_db_dir /path/to/download/gtdbtk_db_dir
+# --eggnog_data_path /path/to/eggnog/database_directory
+
+```
