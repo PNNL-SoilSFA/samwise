@@ -289,6 +289,7 @@ This module performs the following steps:
    -Module 2 will attempt to find the MAG annotation tools and will annotate them if not found. 
    -Module 2 will download required databases for each tool if needed, but arguments can be passed to directly point to dbs.
 2. **Runs CheckM2, GTDB-tk, and Eggnog (or DRAM2)**
+   -We note that for right now, DRAM2 has been replaced with eggnog v2 since DRAM2 is undergoing significant development and is currently not fully installable. Once development is finished, we will update our module to incldue both DRAM2 and eggnog (and can updated to eggnog v3 once available as well).
 
 ## Usage:
 ```bash
