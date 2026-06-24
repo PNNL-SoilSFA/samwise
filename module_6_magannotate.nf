@@ -107,7 +107,6 @@ params.outdir = "${params.results_dir}/module_6_magannotation"
 /*
  * Candidate MAG locations
  */
-params.module5_final_joint_refined_mag_dir = "${params.results_dir}/module_5_subtractiveassembly/final_joint_refinement/module_4_binrefinement/refined_bins"
 params.module5_final_mag_dir = "${params.results_dir}/module_5_subtractiveassembly/final_mag_database"
 params.module4_refined_mag_dir = "${params.results_dir}/module_4_binrefinement/refined_bins"
 
@@ -174,7 +173,6 @@ workflow {
         ? absPath(params.input_mag_dir)
         : firstExistingMagDir(
             [
-                params.module5_final_joint_refined_mag_dir,
                 params.module5_final_mag_dir,
                 params.module4_refined_mag_dir
             ]
@@ -259,7 +257,6 @@ workflow {
 process PREPARE_MAG_INPUTS {
     tag "prepare_final_mags"
 
-    publishDir "${params.outdir}/refined_genomes", mode: params.publish_mags_mode, pattern: "refined_genomes/*.fa", saveAs: { filename -> filename.replaceFirst(/^refined_genomes\//, '') }
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module6_mag_input_*.tsv"
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "prepare_mag_inputs.log"
 
@@ -288,15 +285,16 @@ process PREPARE_MAG_INPUTS {
 
     mkdir -p refined_genomes
 
-    python3 - \\
-        "${input_mag_dir}" \\
-        "${input_mag_manifest}" \\
-        "${params.mag_extension}" \\
-        "refined_genomes" \\
-        "module6_mag_input_manifest.tsv" \\
-        "module6_mag_input_stats.tsv" \\
-        "\$LOG_FILE" \\
-        "${params.outdir}/refined_genomes" <<'PY'
+    python3 - \
+    "${input_mag_dir}" \
+    "${input_mag_manifest}" \
+    "${params.mag_extension}" \
+    "refined_genomes" \
+    "module6_mag_input_manifest.tsv" \
+    "module6_mag_input_stats.tsv" \
+    "\$LOG_FILE" \
+    "\$(pwd -P)/refined_genomes" <<'PY'
+    
 import csv
 import gzip
 import re
@@ -819,7 +817,7 @@ process RUN_CHECKM2 {
     output:
     path "checkm2_status.tsv", emit: status
     path "checkm2.log", emit: log_file
-    path "checkm2_out", emit: checkm2_out
+    path "checkm2_out/**", emit: checkm2_out
 
     script:
     """
@@ -1130,7 +1128,7 @@ process RUN_GTDBTK {
     output:
     path "gtdbtk_status.tsv", emit: status
     path "gtdbtk.log", emit: log_file
-    path "gtdbtk_out", emit: gtdbtk_out
+    path "gtdbtk_out/**", emit: gtdbtk_out
 
     script:
     """
@@ -1149,7 +1147,6 @@ process RUN_GTDBTK {
     echo "GTDBTK_DATA_PATH: \$GTDBTK_DATA_PATH" >> "\$LOG"
     echo "Threads: ${task.cpus}" >> "\$LOG"
 
-    mkdir -p gtdbtk_out gtdbtk_mash
 
     MAG_COUNT="\$(find -L "${mags_dir}" -maxdepth 1 -type f -name '*.${params.gtdbtk_extension}' | wc -l | tr -d ' ')"
     echo "MAG files matching extension .${params.gtdbtk_extension}: \$MAG_COUNT" >> "\$LOG"
@@ -1165,7 +1162,6 @@ process RUN_GTDBTK {
     gtdbtk classify_wf \\
         --genome_dir "${mags_dir}" \\
         --out_dir gtdbtk_out \\
-        --mash_db gtdbtk_mash \\
         --extension ${params.gtdbtk_extension} \\
         --cpus ${task.cpus} \\
         >> "\$LOG" 2>&1
@@ -1509,7 +1505,7 @@ process RUN_EGGNOG {
     path "eggnog_status.tsv", emit: status
     path "eggnog.log", emit: log_file
     path "eggnog_input_manifest.tsv", emit: input_manifest
-    path "eggnog_out", emit: eggnog_out
+    path "eggnog_out/**", emit: eggnog_out
 
     script:
     """
