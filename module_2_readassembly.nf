@@ -6,25 +6,18 @@ nextflow.enable.dsl = 2
 * Module 2: Read assembly from Module 1 trimmed reads.
 */
 
-/*
-* Parameters
-*/
 params.working_dir = null
 params.input_manifest = null
 params.output_dir = null
-
 params.megahit = false
 params.metaspades = false
-
 params.single_assembly = true
 params.rarefied_assembly = false
 params.rarefaction_splits = 2
-
 params.megahit_version = "1.2.9"
 params.spades_version = "4.2.0"
 params.auto_install = true
 params.tool_env_dir = null
-
 params.threads = null
 params.assembly_threads = 4
 
@@ -46,13 +39,10 @@ params.memory_gb = 0
 */
 params.megahit_threads = null
 params.megahit_preset = "meta-large"
-
 params.publish_assemblies_mode = "symlink"
-
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.outdir = "${params.results_dir}/module_2_readassembly"
-
 
 def rareLabelFromIndex(index: int) {
     def alphabet = "abcdefghijklmnopqrstuvwxyz"

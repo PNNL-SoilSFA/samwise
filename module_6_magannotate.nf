@@ -172,10 +172,7 @@ workflow {
     def selected_mag_dir = params.input_mag_dir
         ? absPath(params.input_mag_dir)
         : firstExistingMagDir(
-            [
-                params.module5_final_mag_dir,
-                params.module4_refined_mag_dir
-            ]
+            [params.module5_final_mag_dir, params.module4_refined_mag_dir]
         )
 
     def selected_mag_manifest = params.input_mag_manifest
@@ -196,14 +193,14 @@ workflow {
 
     PREPARE_MAG_INPUTS(
         channel.value(selected_mag_dir),
-        channel.value(selected_mag_manifest)
+        channel.value(selected_mag_manifest),
     )
 
     if (run_checkm2) {
         SETUP_CHECKM2()
         RUN_CHECKM2(
             PREPARE_MAG_INPUTS.out.mags_dir,
-            SETUP_CHECKM2.out.status
+            SETUP_CHECKM2.out.status,
         )
     }
 
@@ -211,7 +208,7 @@ workflow {
         SETUP_GTDBTK()
         RUN_GTDBTK(
             PREPARE_MAG_INPUTS.out.mags_dir,
-            SETUP_GTDBTK.out.status
+            SETUP_GTDBTK.out.status,
         )
     }
 
@@ -219,7 +216,7 @@ workflow {
         SETUP_EGGNOG()
         RUN_EGGNOG(
             PREPARE_MAG_INPUTS.out.mags_dir,
-            SETUP_EGGNOG.out.status
+            SETUP_EGGNOG.out.status,
         )
     }
 
@@ -249,7 +246,7 @@ workflow {
 
     WRITE_MODULE6_SUMMARY(
         PREPARE_MAG_INPUTS.out.input_stats,
-        status_ch.collect()
+        status_ch.collect(),
     )
 }
 

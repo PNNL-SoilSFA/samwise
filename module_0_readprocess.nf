@@ -35,8 +35,7 @@ workflow {
     log.info("Module 0 input directory: ${params.input_dir}")
     log.info("Module 0 output directory: ${params.module0_outdir}")
 
-    def all_files_ch = channel
-        .fromPath(
+    def all_files_ch = channel.fromPath(
             "${params.input_dir}/${params.file_pattern}",
             type: 'file',
             checkIfExists: true,

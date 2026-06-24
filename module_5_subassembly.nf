@@ -8,67 +8,51 @@ nextflow.enable.dsl = 2
 
 params.working_dir = null
 params.output_dir = null
-
 params.input_trimmed_manifest = null
 params.input_original_binning_manifest = null
 params.input_refined_manifest = null
-
 params.megahit = false
 params.metaspades = false
-
 params.auto_install = true
 params.tool_env_dir = null
-
 params.threads = null
 params.mapping_threads = 4
 params.assembly_threads = 4
-
 params.bbmap_version = "39.81"
 params.megahit_version = "1.2.9"
 params.spades_version = "4.2.0"
-
 params.bbmap_extra_args = ""
 params.bbmap_minid = 0.99
 params.bbmap_ambig = "random"
 params.bbmap_xmx = null
-
 params.megahit_preset = "meta-large"
 params.megahit_threads = null
 params.metaspades_memory_gb = 0
-
 params.run_second_pass_binning_refinement = true
-
 params.secondpass_metabat2 = true
 params.secondpass_quickbin = true
 params.secondpass_maxbin2 = true
-
 params.module3_script = "${projectDir}/module_3_binning.nf"
 params.module4_script = "${projectDir}/module_4_binrefinement.nf"
 params.nextflow_exe = "nextflow"
-
 params.secondpass_working_dir = null
 params.final_joint_working_dir = null
-
 params.dependencies_dir = "${projectDir}/dependencies"
 params.tigrfam_hmm = null
 params.pfam_hmm = null
 params.magscot_script = null
 params.magscot_extra_args = ""
-
 params.publish_reference_mode = "copy"
 params.publish_unmapped_mode = "symlink"
 params.publish_assemblies_mode = "symlink"
 params.publish_final_mags_mode = "copy"
-
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module3_outdir = "${params.results_dir}/module_3_binning"
 params.module4_outdir = "${params.results_dir}/module_4_binrefinement"
 params.outdir = "${params.results_dir}/module_5_subtractiveassembly"
-
 params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
 params.final_joint_dir = params.final_joint_working_dir ?: "${params.outdir}/final_joint_refinement"
-
 
 def absOrEmpty(value) {
     def s = value == null ? "" : value.toString().trim()

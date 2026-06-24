@@ -6,10 +6,6 @@ nextflow.enable.dsl = 2
  * Module 1: Read trimming / quality control with fastp, followed by FastQC.
  */
 
-/*
- * Parameters
- */
-
 params.working_dir = null
 params.input_manifest = null
 params.output_dir = null

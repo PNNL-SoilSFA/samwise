@@ -5,12 +5,8 @@ nextflow.enable.dsl = 2
  * Module 2b: MEGAHIT co-assembly from Module 1 trimmed reads.
  */
 
-/*
- * Parameters
- */
 params.working_dir = null
 params.output_dir = null
-
 params.input_manifest = null
 params.coassembly_groups = null
 params.megahit_version = "1.2.9"

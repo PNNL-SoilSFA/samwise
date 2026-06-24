@@ -6,10 +6,6 @@ nextflow.enable.dsl = 2
  * Module 4: Bin refinement / MAGScoT preparation and execution.
 */
 
-/*
- * Parameters
- */
-
 params.working_dir = null
 params.output_dir = null
 params.input_binning_manifest = null
