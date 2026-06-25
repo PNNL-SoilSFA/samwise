@@ -20,8 +20,9 @@ Then, you need to install NextFlow - this can be done via `mamba` / `conda`: htt
 
 Now, you are ready to proceed with SAMWISE!
 
-## Quick recommended usage for the impatient
-Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. All good. Here is how I would run this as an sbatch script on a server. Just save this into a bash script and run it -
+<img width="1253" height="125" alt="image" src="https://github.com/user-attachments/assets/f9615b8d-2b8d-4922-86e4-8e1439604a35" />
+
+Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. Here is how I would run this as an sbatch script on a server.
 
 NOTE: Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
 have extensions (.fq or .fastq - gzipped or not gzipped is fine). See module_0 info below!
@@ -132,7 +133,7 @@ reads_dir/
 └── SampleC_interleaved.fastq
 ```
 
-Step 1: Read trimming<img width="1330" height="216" alt="image" src="https://github.com/user-attachments/assets/3a86020b-e44c-4446-bc3d-55bf4cc2d272" />
+<img width="1330" height="216" alt="image" src="https://github.com/user-attachments/assets/3a86020b-e44c-4446-bc3d-55bf4cc2d272" />
 
 `module_1_readtrimming.nf` is a workflow for trimming of reads that have been validated in module 0. Module 1 will trim all reads with `fastp`, run `fastqc` on the trimmed reads, and provide a summary table of the trimming statistics.
 
@@ -309,7 +310,7 @@ nextflow run module_2b_coassembly.nf \
 metaSPAdes support for this we can certainly add it, just reach out to devs or open an issue.
 ```
 
-Step 3: Binning MAGs<img width="1040" height="216" alt="image" src="https://github.com/user-attachments/assets/e89a21cf-7e75-45ce-a749-ac2698f7af6f" />
+<img width="1040" height="216" alt="image" src="https://github.com/user-attachments/assets/e89a21cf-7e75-45ce-a749-ac2698f7af6f" />
 
 `module_3_binning.nf` performs binning of metagenome assembled genomes (MAGs). It produces a folder with all of the MAGs that can then be fed into refinement pipelines (Module 4). For this, we run 3 different binners: `quickbin`, `metabat2`, and `maxbin2`
 
@@ -317,7 +318,7 @@ Step 3: Binning MAGs<img width="1040" height="216" alt="image" src="https://gith
 ```bash
 nextflow run module_3_binning.nf \
 --working_dir ./output_samwise \
---threads 5 \
+--threads 6 \
 --metabat2 \
 --quickbin \
 --maxbin2 \
@@ -401,6 +402,32 @@ nextflow run module_4_binrefinement.nf \
 # use `--` for any additional flags as well
 ```
 
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 4 outputs are written to `<working_dir>/module_4_binrefinement`. |
+| `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
+| `input_binning_manifest` | `null` | Input binning manifest file, typically produced by Module 3. This should describe the bins to be refined. |
+| `dependencies_dir` | `${projectDir}/dependencies` | Directory containing external dependency files used by Module 4. |
+| `tigrfam_hmm` | `null` | Path to the TIGRFAM HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
+| `pfam_hmm` | `null` | Path to the Pfam HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
+| `magscot_script` | `null` | Path to the MAGSCOT script. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
+| `magscot_profiles_dir` | `null` | Path to the MAGSCOT profiles directory. |
+| `auto_install` | `true` | Whether to automatically install required tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
+| `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 4 tools. |
+| `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
+| `hmm_threads` | `8` | Number of threads to use for HMM-related steps. Used if `threads` is not provided. |
+| `r_base_version` | `null` | Version of `r-base` to install/use. If `null`, the environment/tool setup may use its default version. |
+| `hmmer_version` | `null` | Version of HMMER to install/use. If `null`, the environment/tool setup may use its default version. |
+| `prodigal_version` | `null` | Version of Prodigal to install/use. If `null`, the environment/tool setup may use its default version. |
+| `parallel_version` | `null` | Version of GNU Parallel to install/use. If `null`, the environment/tool setup may use its default version. |
+| `magscot_extra_args` | `""` | Additional custom arguments to pass directly to MAGSCOT. |
+| `magscot_threshold` | `0` | MAGSCOT threshold value used during bin refinement/scoring. |
+| `publish_gathered_bins_mode` | `copy` | How gathered bin files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `publish_refined_bins_mode` | `copy` | How refined bin files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `results_dir` | Derived | Internal results directory. Uses `working_dir` if provided, otherwise `output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `module3_outdir` | `<results_dir>/module_3_binning` | Expected Module 3 output directory. Usually derived automatically and does not need to be set directly. |
+| `outdir` | `<results_dir>/module_4_binrefinement` | Module 4 output directory. Usually derived automatically and does not need to be set directly. |
+
 <img width="1216" height="216" alt="image" src="https://github.com/user-attachments/assets/086518a7-12d5-4528-8d9f-376b95c432cb" />
 
 This module performs the following steps:
@@ -428,6 +455,55 @@ nextflow run module_5_subassembly.nf \
 
 # use `--` for any additional flags as well\
 ```
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 5 outputs are written to `<working_dir>/module_5_subtractiveassembly`. |
+| `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
+| `input_trimmed_manifest` | `null` | Input trimmed-read manifest file, typically produced by Module 1. |
+| `input_original_binning_manifest` | `null` | Input original binning manifest file, typically produced by Module 3. |
+| `input_refined_manifest` | `null` | Input refined-bin manifest file, typically produced by Module 4. |
+| `megahit` | `false` | Enables subtractive assembly with MEGAHIT. |
+| `metaspades` | `false` | Enables subtractive assembly with metaSPAdes. |
+| `auto_install` | `true` | Whether to automatically install required tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
+| `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 5 tools. |
+| `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
+| `mapping_threads` | `4` | Number of threads to use for read mapping steps, such as BBMap. |
+| `assembly_threads` | `4` | Number of threads to use for subtractive assembly if `threads` is not provided. |
+| `bbmap_version` | `39.81` | Version of BBMap to install/use. |
+| `megahit_version` | `1.2.9` | Version of MEGAHIT to install/use. |
+| `spades_version` | `4.2.0` | Version of SPAdes/metaSPAdes to install/use. |
+| `bbmap_extra_args` | `""` | Additional custom arguments to pass directly to BBMap. |
+| `bbmap_minid` | `0.99` | Minimum sequence identity for BBMap mapping during subtraction. |
+| `bbmap_ambig` | `random` | How BBMap handles ambiguous read mappings. |
+| `bbmap_xmx` | `null` | Optional Java memory setting for BBMap. If unset, no custom BBMap memory value is used. |
+| `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Options can be `meta-large` or `meta-sensitive`. |
+| `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. |
+| `metaspades_memory_gb` | `0` | Memory limit in GB for metaSPAdes. Use `0` to leave memory unset. |
+| `run_second_pass_binning_refinement` | `true` | Whether to run a second-pass binning and refinement workflow after subtractive assembly. |
+| `secondpass_metabat2` | `true` | Enables MetaBAT2 during second-pass binning. |
+| `secondpass_quickbin` | `true` | Enables QuickBin during second-pass binning. |
+| `secondpass_maxbin2` | `true` | Enables MaxBin2 during second-pass binning. |
+| `module3_script` | `${projectDir}/module_3_binning.nf` | Path to the Module 3 binning Nextflow script used for second-pass binning. |
+| `module4_script` | `${projectDir}/module_4_binrefinement.nf` | Path to the Module 4 bin refinement Nextflow script used for final/second-pass refinement. |
+| `nextflow_exe` | `nextflow` | Nextflow executable used to launch nested/second-pass workflows. |
+| `secondpass_working_dir` | `null` | Optional custom working directory for second-pass binning/refinement. If unset, defaults to `<outdir>/second_pass`. |
+| `final_joint_working_dir` | `null` | Optional custom working directory for final joint refinement. If unset, defaults to `<outdir>/final_joint_refinement`. |
+| `dependencies_dir` | `${projectDir}/dependencies` | Directory containing external dependency files used by downstream refinement steps. |
+| `tigrfam_hmm` | `null` | Path to the TIGRFAM HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
+| `pfam_hmm` | `null` | Path to the Pfam HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
+| `magscot_script` | `null` | Path to the MAGSCOT script. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
+| `magscot_extra_args` | `""` | Additional custom arguments to pass directly to MAGSCOT during final refinement. |
+| `publish_reference_mode` | `copy` | How reference files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `publish_unmapped_mode` | `symlink` | How unmapped read files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `publish_final_mags_mode` | `copy` | How final MAG files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `results_dir` | `null` | Internal results directory. Uses `working_dir` if provided, otherwise `output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
+| `module3_outdir` | `<results_dir>/module_3_binning` | Expected Module 3 output directory. Usually derived automatically and does not need to be set directly. |
+| `module4_outdir` | `<results_dir>/module_4_binrefinement` | Expected Module 4 output directory. Usually derived automatically and does not need to be set directly. |
+| `outdir` | `<results_dir>/module_5_subtractiveassembly` | Module 5 output directory. Usually derived automatically and does not need to be set directly. |
+| `secondpass_dir` | `<outdir>/second_pass` | Derived second-pass output directory. Uses `secondpass_working_dir` if provided. Usually does not need to be set directly. |
+| `final_joint_dir` | `<outdir>/final_joint_refinement` | Derived final joint refinement output directory. Uses `final_joint_working_dir` if provided. Usually does not need to be set directly. |
 
 <img width="1253" height="216" alt="image" src="https://github.com/user-attachments/assets/af6c2f46-ff9a-43c2-b603-1327b5fe48f3" />
 
@@ -462,122 +538,54 @@ nextflow run module_6_magannotate.nf \
 # use `--` for any additional flags as well
 ```
 
-
-### Advanced workflow explanations:
-
-## Module 0 Steps:
-1. **Check for FastQC**
-
-   The module first checks whether `fastqc` is available in the current environment.
-
-   - If FastQC is found, the existing installation is used.
-   - If FastQC is not found and `--auto_install true` is set, the module attempts to install FastQC using `mamba` or `conda`.
-   - If `--auto_install false` is set, FastQC must already be available in your environment.
-
-2. **Check Input Read Names**
-
-   The module scans `--input_dir` for FASTQ files and checks that filenames follow supported naming conventions.
-
-   Supported paired-end read patterns include:
-
-   - `sample_R1.fastq.gz` and `sample_R2.fastq.gz`
-   - `sample_R1.fastq` and `sample_R2.fastq`
-   - `sample_1.fastq.gz` and `sample_2.fastq.gz`
-   - `sample_1.fastq` and `sample_2.fastq`
-
-   Supported interleaved read pattern:
-
-   - `sample_interleaved.fastq.gz`
-   - `sample_interleaved.fastq`
-
-   The module also checks for common problems such as:
-
-   - Missing R1 or R2 files
-   - Duplicate read files for the same sample
-   - Mixed naming styles, such as using both `_R1/_R2` and `_1/_2`
-   - Samples with both paired-end and interleaved reads
-   - Unsupported FASTQ filenames
-
-   Original input files are not modified.
-
-3. **Validate FASTQ Structure**
-
-   Unless `--skip_validate` is used, the module validates the structure of each FASTQ file.
-
-   The validation step checks that:
-
-   - FASTQ records contain 4 lines
-   - Header lines start with `@`
-   - Separator lines start with `+`
-   - Sequence and quality strings are the same length
-   - The file is not empty
-   - The total number of lines is divisible by 4
-
-   This step can be slow for large compressed FASTQ files. If you are confident your reads are valid FASTQ files, you can skip this step using:
-   `--skip_validate`
-
-
-## Module 1 Steps:
-
-1. **Trims reads using fastp**
-   - Looks for `fastp` in the current environment.
-   - If missing, attempts to install FastP using `mamba`.
-   - Trims reads using fastp default trimming parameters - highly customizable with any and all fastp flags if needed.
-
-2. **Provides trimming statistics**
-   - Pre / Post trimming read quality statitsitcs in tabulated format
-
-3. **Re-runs fastqc on trimmed reads**
-   - Re-analysis of the fastqc outputs to confirm succesful trimming.
-
-
-## Module 2 Steps:
-
-1. **Checks for assembly software and installs if necessary**
-   - Looks for MEGAHIT and metaSPAdes and installs into a local conda environment if needed.
-   
-2. **Assembles using multiple assemblers and assembly methods**
-   - Users can choose either assembler or both: with flags `--megahit` and `--metaspades`
-   - This step can also perform rarefied assemblies by adding the flag `--rarefied_assembly TRUE` and specifying how many "fragments" you want the reads to be split into with `--rarefaction_splits #` (default is 2). Tl;dr - this will split the fastq files into # of split files and assemble them individually via a round robin by pair index approach.  
-     
-3. **Renames scaffold outputs and provides assembly statistics**
-   - Implements naming scheme specifically:
-
-```bash
-   MEGAHIT single assembly:
-   SampleID_A_k###_#
-    
-metaSPAdes single assembly:
-   SampleID_B_NODE_#
-
-MEGAHIT rarefied assembly:
-   SampleIDa_C_k###_#
-   SampleIDb_C_k###_#
-   SampleIDc_C_k###_#
-
-metaSPAdes rarefied assembly:
-   SampleIDa_D_NODE_#
-   SampleIDb_D_NODE_#
-   SampleIDc_D_NODE_#
-```   
-
-## Module 2 Steps:
-1. **Checks for assembly software and installs if necessary**
-   - Looks for MEGAHIT and installs if needed
-   
-2. **Co-assembles reads as specified within reads manifest**
-   - Users specify which read groupings are relevant for co-assembly and software automatically reads in from the previous Module 0 and Module 1.
-   - SAMWISE concatenates the reads for each group into one interleaved FASTQ file (used later for binning).
-   - Runs MEGAHIT co-assembly on each grouped interleaved FASTQ and renames scaffolds with letter E.
-
-
-
-## Module 3 Steps
-1. **Checks for binning software and installs if necessary**
-   - Looks for Quickbin, Metabat2, and MaxBIN2 and installs if needed
-   
-2. **Assembles using multiple assemblers and assembly methods**
-   - Users can choose either assembler or both: with flags `--quickbin`, `--metabat2`, `--maxbin2`
-   - Binning will be run on all assemblies generated from the prior modules
-   - Minimum scaffold length required for binning can be modified with `--min_scaffold_length` flag, default is 2500.
-   - Automatically scans for all possible assemblies from both module 2 and 2b
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 6 outputs are written to `<working_dir>/module_6_magannotation`. |
+| `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
+| `input_mag_dir` | `null` | Directory containing MAG/bin FASTA files to annotate. |
+| `input_mag_manifest` | `null` | Input MAG manifest file describing MAG/bin files to annotate. |
+| `mag_extension` | `fa` | File extension used to detect MAG files in `input_mag_dir`. |
+| `threads` | `null` | Total number of threads to use. If unset, tool-specific defaults may be used. |
+| `tool_env_dir` | `null` | Optional custom path for the conda/mamba environment containing Module 6 tools. |
+| `auto_install` | `true` | Whether to automatically install required tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
+| `conda_pkgs_dir` | `null` | Optional workflow-local conda/mamba package cache directory. |
+| `run_checkm2` | `true` | Whether to run CheckM2 for MAG quality assessment. |
+| `run_gtdbtk` | `true` | Whether to run GTDB-Tk for taxonomic classification. |
+| `run_eggnog` | `true` | Whether to run EggNOG-mapper for functional annotation. |
+| `checkm2_version` | `null` | Version of CheckM2 to install/use. If `null`, the environment/tool setup may use its default version. |
+| `gtdbtk_version` | `2.7.2` | Version of GTDB-Tk to install/use. |
+| `checkm2_db_path` | `null` | Path to an existing CheckM2 database file. If provided, this database is used directly. |
+| `checkm2_db_dir` | `null` | Directory where the CheckM2 database should be stored or checked. If unset, defaults to `<outdir>/databases/checkm2`. |
+| `checkm2_zenodo_record` | `14897628` | Zenodo record ID used for downloading the CheckM2 database. |
+| `checkm2_auto_download_db` | `true` | Whether to automatically download the CheckM2 database if it is missing. |
+| `checkm2_extension` | `fa` | File extension used for MAG files passed to CheckM2. |
+| `gtdbtk_data_path` | `null` | Path to an existing GTDB-Tk database directory. If provided, this database is used directly. |
+| `gtdbtk_db_dir` | `null` | Directory where the GTDB-Tk database should be stored or checked. If unset, defaults to `<outdir>/databases/gtdbtk`. |
+| `gtdbtk_auto_download_db` | `true` | Whether to automatically download the GTDB-Tk database if it is missing. |
+| `gtdbtk_extension` | `fa` | File extension used for MAG files passed to GTDB-Tk. |
+| `gtdbtk_download_url` | `https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz` | URL used to download the GTDB-Tk database package. |
+| `eggnog_env_dir` | `null` | Optional custom environment directory for EggNOG-mapper. |
+| `eggnog_mapper_version` | `2.1.13` | Version of EggNOG-mapper to install/use. |
+| `eggnog_data_path` | `null` | Path to an existing EggNOG-mapper data directory. If provided, this database/data path is used directly. |
+| `eggnog_data_dir` | `null` | Directory where the EggNOG-mapper database should be stored or checked. If unset, defaults to `<outdir>/databases/eggnog`. |
+| `eggnog_auto_download_db` | `true` | Whether to automatically download the EggNOG-mapper database if it is missing. |
+| `eggnog_download_args` | `-y` | Arguments passed to the EggNOG-mapper database download command. |
+| `eggnog_fixurl` | `true` | Whether to use/apply the EggNOG-mapper URL fix package during setup. |
+| `eggnog_fixurl_package` | `eggnog-mapper-fixurl` | Package used to fix EggNOG-mapper database download URLs. |
+| `eggnog_method` | `diamond` | Search method used by EggNOG-mapper. Common options include `diamond` and other EggNOG-supported methods. |
+| `eggnog_itype` | `metagenome` | Input type passed to EggNOG-mapper. |
+| `eggnog_genepred` | `prodigal` | Gene prediction method used by EggNOG-mapper. |
+| `eggnog_trans_table` | `11` | Translation table used for gene prediction/annotation. |
+| `eggnog_output_prefix` | `samwise_eggnog` | Prefix used for EggNOG-mapper output files. |
+| `eggnog_extra_args` | `""` | Additional custom arguments to pass directly to EggNOG-mapper. |
+| `eggnog_mmseqs_db` | `null` | Optional MMseqs database path for EggNOG-mapper workflows that use MMseqs. |
+| `eggnog_fail_nonfatal` | `false` | If enabled, EggNOG-mapper failures are treated as non-fatal, allowing the workflow to continue. |
+| `publish_mags_mode` | `copy` | How MAG files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `publish_tool_outputs_mode` | `copy` | How annotation and quality-control tool outputs are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `results_dir` | `null` | Internal results directory. Uses `working_dir` if provided, otherwise `output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `outdir` | `<results_dir>/module_6_magannotation` | Module 6 output directory. Usually derived automatically and does not need to be set directly. |
+| `module5_final_mag_dir` | `<results_dir>/module_5_subtractiveassembly/final_mag_database` | Candidate MAG directory from Module 5 subtractive assembly. |
+| `module4_refined_mag_dir` | `<results_dir>/module_4_binrefinement/refined_bins` | Candidate refined MAG directory from Module 4 bin refinement. |
+| `checkm2_db_outdir` | `<outdir>/databases/checkm2` | Derived CheckM2 database output directory. Uses `checkm2_db_dir` if provided. Usually does not need to be set directly. |
+| `gtdbtk_db_outdir` | `<outdir>/databases/gtdbtk` | Derived GTDB-Tk database output directory. Uses `gtdbtk_db_dir` if provided. Usually does not need to be set directly. |
+| `eggnog_db_outdir` | `<outdir>/databases/eggnog` | Derived EggNOG-mapper database output directory. Uses `eggnog_data_path` or `eggnog_data_dir` if provided. Usually does not need to be set directly. |
