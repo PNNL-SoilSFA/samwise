@@ -22,6 +22,72 @@ Now, you are ready to proceed with SAMWISE!
 
 ---
 
+# Quick recommended usage for the impatient
+Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. All good. Here is how I would run this as an sbatch script on a server. 
+
+NOTE: Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
+have extensions (.fq or .fastq - gzipped or not gzipped is fine).
+
+```bash
+
+# Pre-process your reads
+nextflow run module_0_readprocess.nf \
+--working_dir ./samwise-main \
+--input_dir ./reads_dir \
+--threads 36
+
+# Trim your reads
+nextflow run module_1_readtrimming.nf \
+--working_dir ./samwise-main \
+--threads 36
+
+# Assemble your reads
+nextflow run module_2_readassembly.nf \
+--working_dir ./samwise-main \
+--threads 36 \
+--memory_gb 0 \
+--megahit \
+--metaspades \
+--rarefied_assembly TRUE \
+--rarefaction_splits 2
+
+# Bin your assemblies
+nextflow run module_3_binning.nf \
+--working_dir ./samwise-main \
+--threads 36 \
+--metabat2 \
+--quickbin \
+--maxbin2 \
+--min_scaffold_length 2500
+
+# Refine the MAGs
+nextflow run module_4_binrefinement.nf \
+--working_dir ./samwise-main \
+--threads 36
+
+# Run a subtractive assembly
+nextflow run module_5_subassembly.nf \
+--working_dir ./samwise-main \
+--threads 36 \
+--megahit \
+--metaspades \
+--secondpass_metabat2 true \
+--secondpass_quickbin true \
+--secondpass_maxbin2 true
+
+# Run final MAG annotation:
+nextflow run module_6_magannotate.nf \
+--working_dir ./samwise-main \
+--run_checkm2 true \
+--run_gtdbtk true \
+--run_eggnog true \
+--threads 36
+```
+
+```
+Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer!
+```
+
 # Step 0: module_0_readprocess.nf
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
@@ -85,6 +151,8 @@ SAMWISE workflow.
 nextflow run module_1_readtrimming.nf \
 --working_dir ./output_samwise \
 --threads 6
+
+# use `--` for any additional flags as well
 ```
 
 ## Module 1 Arguments
@@ -148,16 +216,17 @@ nextflow run module_2_readassembly.nf \
 ## metaspades and megahit with rarefied assemblies:
 nextflow run module_2_readassembly.nf \
 --working_dir ./output_samwise \
---threads 5 \
+--threads 6 \
 --megahit \
 --metaspades \
---megahit_threads 1 \
 --memory_gb 0 \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
 
 #if on a mac, megahit running on more than 1 thread doesnt work, so there is an explicit arg:
 #--megahit_threads that you can set separately from the global --threads (which will set it for both)
+
+# use `--` for any additional flags as well
 ```
 
 | Argument | Default | Description |
@@ -176,8 +245,8 @@ nextflow run module_2_readassembly.nf \
 | `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 2 assembly tools. |
 | `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
 | `assembly_threads` | `4` | Number of threads to use for assembly if `--threads` is not provided. |
-| `memory_gb` | `0` | Global memory limit in GB for assembly processes. Use `0` to leave memory unset. |
-| `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. |
+| `memory_gb` | `0` | Global memory limit in GB for assembly processes. Use `0` to leave memory unset / at max. |
+| `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. This is really only important for mac users that need to specify a single thread for it to work. |
 | `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. |
 | `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Common options are `symlink`, `copy`, or `move`. |
 | `results_dir` | null | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
@@ -212,9 +281,10 @@ This module is designed to run alongside the normal Module 2 assembly workflow. 
 nextflow run module_2b_coassembly.nf \
 --working_dir ./output_samwise-main \
 --coassembly_groups ./coassembly_manifest.txt \
---threads 5 \
+--threads 6 \
 --memory_gb 0
 
+# use `--` for any additional flags as well
 ```
 
 Coassembly_manifest.txt must be a tab-separated table and contain two columns:
@@ -252,6 +322,7 @@ nextflow run module_3_binning.nf \
 
 # --publish_bins_mode copy tells code to copy the genomes instead of making a symlink
 
+# use `--` for any additional flags as well
 ```
 
 # Step 4: module_4_binrefinement.nf
@@ -271,6 +342,8 @@ nextflow run module_4_binrefinement.nf \
 --magscot_threshold 0
 
 #MAGScoT original code sets this threshold at 0.5, but since we are doing gtdb + checkm runs after on the latest databases, its better to just pass this as default 0 and retain all possible MAGs. Feel free to change that --magscot_threshold param to 0.5
+
+# use `--` for any additional flags as well
 ```
 
 # Step 5 (optional): module_5_subassembly.nf
@@ -297,6 +370,8 @@ nextflow run module_5_subassembly.nf \
 --run_second_pass_binning_refinement true
 
 # --run_second_pass_binning_refinement specifies whether or not you want it to re-bin after subassembly - some users may want to disable this if they want to make sure subassemblies are worth performing after looking at the assembly stats, but most should leave on. Default is true.
+
+# use `--` for any additional flags as well\
 ```
 # Step 6: module_6_magannotate.nf
 
@@ -328,6 +403,7 @@ nextflow run module_6_magannotate.nf \
 # --gtdbtk_db_dir /path/to/download/gtdbtk_db_dir
 # --eggnog_data_path /path/to/eggnog/database_directory
 
+# use `--` for any additional flags as well
 ```
 
 
