@@ -20,16 +20,13 @@ Then, you need to install NextFlow - this can be done via `mamba` / `conda`: htt
 
 Now, you are ready to proceed with SAMWISE!
 
----
-
-# Quick recommended usage for the impatient
-Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. All good. Here is how I would run this as an sbatch script on a server. 
+## Quick recommended usage for the impatient
+Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. All good. Here is how I would run this as an sbatch script on a server. Just save this into a bash script and run it -
 
 NOTE: Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
-have extensions (.fq or .fastq - gzipped or not gzipped is fine).
+have extensions (.fq or .fastq - gzipped or not gzipped is fine). See module_0 info below!
 
 ```bash
-
 # Pre-process your reads
 nextflow run module_0_readprocess.nf \
 --working_dir ./samwise-main \
@@ -88,7 +85,7 @@ nextflow run module_6_magannotate.nf \
 Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer!
 ```
 
-# Step 0: module_0_readprocess.nf
+<img width="1330" height="216" alt="image" src="https://github.com/user-attachments/assets/985ba335-2976-4374-ae8d-136b5c42c6bf" />
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
 
@@ -116,7 +113,6 @@ nextflow run module_0_readprocess.nf \
 | `auto_install` | `true` | Controls whether SAMWISE installs required packages, such as FastQC. If set to `false`, FastQC must already be available in your environment. |
 | `outdir` | `<results_dir>/module_0_readprocess` | Only used if `working_dir` is not specified. |
 
-
 ```
 *IMPORTANT*
 Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
@@ -136,9 +132,7 @@ reads_dir/
 └── SampleC_interleaved.fastq
 ```
 
----
-
-# Step 1: module_1_readtrimming.nf
+Step 1: Read trimming<img width="1330" height="216" alt="image" src="https://github.com/user-attachments/assets/3a86020b-e44c-4446-bc3d-55bf4cc2d272" />
 
 `module_1_readtrimming.nf` is a workflow for trimming of reads that have been validated in module 0. Module 1 will trim all reads with `fastp`, run `fastqc` on the trimmed reads, and provide a summary table of the trimming statistics.
 
@@ -169,7 +163,7 @@ nextflow run module_1_readtrimming.nf \
 | `fastqc_version` | `0.12.1` | Version of FastQC to install/use. |
 | `auto_install` | `true` | Whether to automatically install required tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
 | `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 1 tools. |
-| `publish_trimmed_mode` | `symlink` | How trimmed read files are published to the output directory. Options are `symlink`, `copy`, or `move`. |
+| `publish_trimmed_mode` | `symlink` | How trimmed read files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
 | `compression` | `4` | Compression level used by `fastp` for output FASTQ files. |
 | `detect_adapter_for_pe` | `true` | Enables adapter sequence detection for paired-end reads in `fastp`. |
 | `enable_correction` | `false` | Enables base correction for paired-end data in `fastp`. |
@@ -187,8 +181,6 @@ nextflow run module_1_readtrimming.nf \
 | `module0_outdir` | `<results_dir>/module_0_readprocess` | Expected Module 0 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_1_readtrimming` | Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 
----
-
 ```
 *IMPORTANT*
 Currently, rarefied assemblies are set to run as paralell processes to single assemblies to speed things up.
@@ -196,7 +188,7 @@ In theory, they should play nice. However, if you run into issues with clobberin
 on adding a flag so that the rarefied assemblies run only after single assemblies are complete.
 ```
 
-# Step 2: module_2_readassembly.nf
+<img width="1103" height="218" alt="image" src="https://github.com/user-attachments/assets/401bdff3-eca6-41bd-aa77-f11f38265620" />
 
 `module_2_readassembly.nf` is a workflow for assembly of reads that have been trimmed in module 1. 
 This module will run single assemblies using either `megahit`, `metaspades` or both, and then also 
@@ -247,9 +239,9 @@ nextflow run module_2_readassembly.nf \
 | `assembly_threads` | `4` | Number of threads to use for assembly if `--threads` is not provided. |
 | `memory_gb` | `0` | Global memory limit in GB for assembly processes. Use `0` to leave memory unset / at max. |
 | `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. This is really only important for mac users that need to specify a single thread for it to work. |
-| `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. |
-| `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Common options are `symlink`, `copy`, or `move`. |
-| `results_dir` | null | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. Could also use `meta-sensitive` |
+| `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `results_dir` | `null` | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
 | `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_2_readassembly` | Module 2 output directory. Usually derived automatically and does not need to be set directly. |
 
@@ -260,24 +252,23 @@ write out the output assemblies into a more accessible location, you can set pub
 `copy`. Argument `move` here would also work but may cause issues with NextFlow not finding what it needs.
 ```
 
-# Step 2b (optional): module_2b_coassembly.nf
+<img width="1128" height="216" alt="image" src="https://github.com/user-attachments/assets/320f7e04-39c5-4041-a83f-6a24b672d25a" />
 
-`module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**.
+`module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**. This module is designed to run alongside the normal Module 2 assembly workflow. It produces Module-3-compatible manifests so that Module 3 can automatically bin co-assemblies using the exact concatenated reads that were used to generate each co-assembly.
 
-This module is designed to run alongside the normal Module 2 assembly workflow. It produces Module-3-compatible manifests so that Module 3 can automatically bin co-assemblies using the exact concatenated reads that were used to generate each co-assembly.
+This module needs a co-assembly reads manifest that shows which reads you want to co-assemble.
 
-1. **Checks for assembly software and installs if necessary**
-   - Looks for MEGAHIT and installs if needed
-   
-2. **Co-assembles reads as specified within reads manifest**
-   - Users specify which read groupings are relevant for co-assembly and software automatically reads in from the previous Module 0 and Module 1.
-   - SAMWISE concatenates the reads for each group into one interleaved FASTQ file (used later for binning).
-   - Runs MEGAHIT co-assembly on each grouped interleaved FASTQ and renames scaffolds with letter E.
-   
+Coassembly_manifest.txt must be a tab-separated table and contain two columns:
+
+| read_or_sample_id | group_id |
+|---|---|
+| sampleA	| group_1 |
+| sampleB	| group_1 |
+| sampleC	| group_2 |
+| sampleD	| group_2 |
+
 ## Usage:
 ```bash 
-#Run with max mem on 5 threads
-
 nextflow run module_2b_coassembly.nf \
 --working_dir ./output_samwise-main \
 --coassembly_groups ./coassembly_manifest.txt \
@@ -287,31 +278,43 @@ nextflow run module_2b_coassembly.nf \
 # use `--` for any additional flags as well
 ```
 
-Coassembly_manifest.txt must be a tab-separated table and contain two columns:
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 2B outputs are written to `<working_dir>/module_2_readassembly`. |
+| `input_manifest` | `null` | Input manifest file containing reads for assembly. This is typically produced by Module 1 after read trimming. |
+| `output_dir` | `null` | Alternative output directory used only if `--working_dir` is not provided. |
+| `megahit` | `false` | Enables assembly with MEGAHIT. |
+| `metaspades` | `false` | Enables assembly with metaSPAdes. |
+| `single_assembly` | `true` | Performs a single assembly using the available input reads. |
+| `rarefied_assembly` | `false` | Enables rarefied assembly mode. |
+| `rarefaction_splits` | `2` | Number of rarefaction splits to generate when `--rarefied_assembly` is enabled. |
+| `megahit_version` | `1.2.9` | Version of MEGAHIT to install/use. |
+| `spades_version` | `4.2.0` | Version of SPAdes/metaSPAdes to install/use. |
+| `auto_install` | `true` | Whether to automatically install required assembly tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
+| `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 2B assembly tools. |
+| `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
+| `assembly_threads` | `4` | Number of threads to use for assembly if `--threads` is not provided. |
+| `memory_gb` | `0` | Global memory limit in GB for assembly processes. Use `0` to leave memory unset. |
+| `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. |
+| `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. |
+| `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`.|
+| `results_dir` | `null` | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
+| `outdir` | `<results_dir>/module_2_readassembly` | Module 2B output directory. Usually derived automatically and does not need to be set directly. |
 
-| read_or_sample_id | group_id |
-| sampleA	| group_1 |
-| sampleB	| group_1 |
-| sampleC	| group_2 |
-| sampleD	| group_2 |
-  
-# Step 3: module_3_binning.nf
+```
+*IMPORTANT*
+-For the coassembly manifest, only include the reads that you want coassembled.
+-Currently, only MEGAHIT is used for running co-assemblies because of memory constraints. If enough users want
+metaSPAdes support for this we can certainly add it, just reach out to devs or open an issue.
+```
 
-This module performs the following steps:
+Step 3: Binning MAGs<img width="1040" height="216" alt="image" src="https://github.com/user-attachments/assets/e89a21cf-7e75-45ce-a749-ac2698f7af6f" />
 
-1. **Checks for binning software and installs if necessary**
-   - Looks for Quickbin, Metabat2, and MaxBIN2 and installs if needed
-   
-2. **Assembles using multiple assemblers and assembly methods**
-   - Users can choose either assembler or both: with flags `--quickbin`, `--metabat2`, `--maxbin2`
-   - Binning will be run on all assemblies generated from the prior modules
-   - Minimum scaffold length required for binning can be modified with `--min_scaffold_length` flag, default is 2500.
-   - Automatically scans for all possible assemblies from both module 2 and 2b
+`module_3_binning.nf` performs binning of metagenome assembled genomes (MAGs). It produces a folder with all of the MAGs that can then be fed into refinement pipelines (Module 4). For this, we run 3 different binners: `quickbin`, `metabat2`, and `maxbin2`
 
 ## Usage:
 ```bash
-## All binners run on scaffolds >2500bp unless otherwise specified:
-
 nextflow run module_3_binning.nf \
 --working_dir ./output_samwise \
 --threads 5 \
@@ -320,12 +323,64 @@ nextflow run module_3_binning.nf \
 --maxbin2 \
 --min_scaffold_length 2500
 
-# --publish_bins_mode copy tells code to copy the genomes instead of making a symlink
-
 # use `--` for any additional flags as well
 ```
 
-# Step 4: module_4_binrefinement.nf
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 3 outputs are written to `<working_dir>/module_3_binning`. |
+| `input_assembly_manifest` | `null` | Input assembly manifest file. Used to provide assemblies for binning. |
+| `input_trimmed_manifest` | `null` | Input trimmed-read manifest file. Used to provide trimmed reads for read mapping/coverage generation. |
+| `input_coassembly_assembly_manifest` | `null` | Input coassembly assembly manifest file, typically produced by Module 2B/coassembly. |
+| `input_coassembly_trimmed_manifest` | `null` | Input coassembly trimmed-read manifest file, typically used with Module 2B/coassembly outputs. |
+| `include_module2` | `true` | Whether to include/use assemblies from Module 2. |
+| `include_module2b` | `true` | Whether to include/use coassemblies from Module 2B. |
+| `output_dir` | `null` | Alternative output directory used only if `--working_dir` is not provided. |
+| `metabat2` | `false` | Enables binning with MetaBAT2. |
+| `quickbin` | `false` | Enables binning with QuickBin. |
+| `maxbin2` | `false` | Enables binning with MaxBin2. |
+| `auto_install` | `true` | Whether to automatically install required tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
+| `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 3 tools. |
+| `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
+| `mapping_threads` | `4` | Number of threads to use for read mapping steps, such as BBMap. |
+| `binning_threads` | `4` | Number of threads to use for binning tools. |
+| `seqkit_version` | `2.8.2` | Version of SeqKit to install/use. |
+| `bbmap_version` | `39.81` | Version of BBMap to install/use. |
+| `samtools_version` | `1.23.1` | Version of Samtools to install/use. |
+| `metabat2_version` | `2.18` | Version of MetaBAT2 to install/use. |
+| `maxbin2_version` | `2.2.7` | Version of MaxBin2 to install/use. |
+| `min_scaffold_length` | `2500` | Minimum scaffold/contig length to keep before binning. |
+| `bbmap_minid` | `0.90` | Minimum sequence identity for BBMap read mapping. |
+| `bbmap_maxindel` | `10` | Maximum allowed indel length for BBMap alignments. |
+| `bbmap_ambig` | `random` | How BBMap handles ambiguous read mappings. |
+| `bbmap_mateqtag` | `true` | Enables BBMap mate quality tagging. |
+| `bbmap_extra_args` | `""` | Additional custom arguments to pass directly to BBMap. |
+| `bbmap_xmx` | `4g` | Java memory setting for BBMap, passed as an `-Xmx` value. |
+| `metabat2_min_contig` | `2500` | Minimum contig length to use for MetaBAT2 binning. |
+| `metabat2_extra_args` | `""` | Additional custom arguments to pass directly to MetaBAT2. |
+| `maxbin2_extra_args` | `""` | Additional custom arguments to pass directly to MaxBin2. |
+| `quickbin_mincluster` | `50k` | Minimum cluster size setting for QuickBin. |
+| `quickbin_mincontig` | `2500` | Minimum contig length to use for QuickBin. |
+| `quickbin_minseed` | `2500` | Minimum seed contig length for QuickBin. |
+| `quickbin_stringency` | `normal` | QuickBin stringency setting. |
+| `quickbin_gzip` | `false` | Enables gzip-compressed QuickBin output, if supported. |
+| `quickbin_chaff` | `false` | Enables QuickBin chaff-related output/handling, if supported. |
+| `quickbin_clade` | `false` | Enables QuickBin clade-related output/handling, if supported. |
+| `quickbin_sketch` | `false` | Enables QuickBin sketch-related output/handling, if supported. |
+| `quickbin_server` | `false` | Enables QuickBin server mode/options, if supported. |
+| `quickbin_xmx` | `null` | Optional Java memory setting for QuickBin. If unset, no custom QuickBin memory value is used. |
+| `quickbin_extra_args` | `""` | Additional custom arguments to pass directly to QuickBin. |
+| `quickbin_use_positional_bam` | `false` | Whether to use positional BAM input behavior for QuickBin, if supported by the workflow. |
+| `publish_filtered_assemblies_mode` | `symlink` | How filtered assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`.|
+| `publish_bam_mode` | `symlink` | How BAM mapping files are published. Options can be `symlink`, `copy`, or `move`.| 
+| `publish_bins_mode` | `symlink` | How final bin files are published. Options can be `symlink`, `copy`, or `move`.|
+| `results_dir` | null | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly.|
+| `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
+| `module2_outdir` | `<results_dir>/module_2_readassembly` | Expected Module 2 output directory. Usually derived automatically and does not need to be set directly. |
+| `module2b_outdir` | `<results_dir>/module_2b_coassembly` | Expected Module 2B/coassembly output directory. Usually derived automatically and does not need to be set directly. |
+| `outdir` | `<results_dir>/module_3_binning` | Module 3 output directory. Usually derived automatically and does not need to be set directly. |
+
+<img width="1120" height="216" alt="image" src="https://github.com/user-attachments/assets/28592f10-8c44-49f7-88d8-d14455ddd254" />
 
 This module performs the following steps:
 
@@ -346,7 +401,7 @@ nextflow run module_4_binrefinement.nf \
 # use `--` for any additional flags as well
 ```
 
-# Step 5 (optional): module_5_subassembly.nf
+<img width="1216" height="216" alt="image" src="https://github.com/user-attachments/assets/086518a7-12d5-4528-8d9f-376b95c432cb" />
 
 This module performs the following steps:
 
@@ -373,7 +428,8 @@ nextflow run module_5_subassembly.nf \
 
 # use `--` for any additional flags as well\
 ```
-# Step 6: module_6_magannotate.nf
+
+<img width="1253" height="216" alt="image" src="https://github.com/user-attachments/assets/af6c2f46-ff9a-43c2-b603-1327b5fe48f3" />
 
 This module performs the following steps:
 
@@ -504,3 +560,24 @@ metaSPAdes rarefied assembly:
    SampleIDb_D_NODE_#
    SampleIDc_D_NODE_#
 ```   
+
+## Module 2 Steps:
+1. **Checks for assembly software and installs if necessary**
+   - Looks for MEGAHIT and installs if needed
+   
+2. **Co-assembles reads as specified within reads manifest**
+   - Users specify which read groupings are relevant for co-assembly and software automatically reads in from the previous Module 0 and Module 1.
+   - SAMWISE concatenates the reads for each group into one interleaved FASTQ file (used later for binning).
+   - Runs MEGAHIT co-assembly on each grouped interleaved FASTQ and renames scaffolds with letter E.
+
+
+
+## Module 3 Steps
+1. **Checks for binning software and installs if necessary**
+   - Looks for Quickbin, Metabat2, and MaxBIN2 and installs if needed
+   
+2. **Assembles using multiple assemblers and assembly methods**
+   - Users can choose either assembler or both: with flags `--quickbin`, `--metabat2`, `--maxbin2`
+   - Binning will be run on all assemblies generated from the prior modules
+   - Minimum scaffold length required for binning can be modified with `--min_scaffold_length` flag, default is 2500.
+   - Automatically scans for all possible assemblies from both module 2 and 2b
