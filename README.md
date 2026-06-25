@@ -11,41 +11,103 @@ SAMWISE is an automated, end-to-end metagenomic read processing program. Here is
 ## Requirements
 
 - [Nextflow](https://www.nextflow.io/)
-- Java, required by Nextflow
-- `mamba` (or `conda`), if using automatic package installation
-  
+- `mamba` (or `conda`) for automatic package installation
+- `Java`, required by Nextflow (auto installed if installing with `mamba` / `conda`
+
+To start with SAMWISE, you will want to make sure that you have `mamba` (or `conda`) installed. We recommend mamba, and you can follow the instructions here: https://conda-forge.org/download/
+
+Then, you need to install NextFlow - this can be done via `mamba` / `conda`: https://anaconda.org/channels/bioconda/packages/nextflow/overview
+
+Now, you are ready to proceed with SAMWISE!
+
 ---
 
 # Step 0: module_0_readprocess.nf
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
 
-This module performs the following steps:
+## Basic / Recommended Usage:
 
+```bash
+nextflow run module_0_readprocess.nf \
+--input_dir ./reads_dir \
+--threads 6 \
+--working_dir ./output_samwise
 
-1. **Checks for FastQC**
-   - Looks for `fastqc` in the current environment.
-   - If missing, attempts to install FastQC using `mamba`.
+# use `--` for any advanced flags as well
+```
+## Advanced flags:
+| Argument | Description |
+|---|---|
+| `working_dir` | Working directory where output files will be written. |
+| `input_dir` | Directory where the metagenomic reads are stored. Please see the required filename formats. |
+| `threads` | Total number of threads to use. |
+| `outdir` | Only used if `--working_dir` is not specified. Defaults to `./results/module_0_process`. |
+| `skip_validate` | Optional flag to skip validation of read files. This speeds up the process by skipping checks that confirm the reads are valid FASTQ files. If your reads are large, compressed, and you are certain they are valid FASTQ files, we recommend using this flag. |
+| `file_pattern` | Glob/text pattern used to detect input files inside `--input_dir`. The default patterns detect `fastq.gz`, `fq.gz`, `fastq`, and `fq` files. We recommend leaving this unchanged. |
+| `fastqc_threads` | Number of threads to use specifically for FastQC if the global `--threads` argument is not passed. |
+| `fastqc_version` | FastQC version to install if a different version is desired. Default: `0.12.1`. |
+| `auto_install` | Controls whether SAMWISE installs required packages, such as FastQC. If set to `false`, FastQC must already be available in your environment. |
 
-2. **Scans a user-provided input directory**
-   - Checks all files in the directory by default.
+### Workflow Steps
 
-3. **Validates read naming conventions**
-   - Detects paired-end reads using either:
-     - `_R1` / `_R2`
-     - `_1` / `_2`
-   - Detects interleaved reads using:
-     - `_interleaved`
+1. **Check for FastQC**
 
-4. **Normalizes `.fq` filenames**
-   - Accepts `.fq` and `.fq.gz`.
-   - Internally normalizes them to `.fastq` and `.fastq.gz` using symlinks for downstream.
-   - Original input files are not modified.
+   The module first checks whether `fastqc` is available in the current environment.
+
+   - If FastQC is found, the existing installation is used.
+   - If FastQC is not found and `--auto_install true` is set, the module attempts to install FastQC using `mamba` or `conda`.
+   - If `--auto_install false` is set, FastQC must already be available in your environment.
+
+2. **Check Input Read Names**
+
+   The module scans `--input_dir` for FASTQ files and checks that filenames follow supported naming conventions.
+
+   Supported paired-end read patterns include:
+
+   - `sample_R1.fastq.gz` and `sample_R2.fastq.gz`
+   - `sample_R1.fastq` and `sample_R2.fastq`
+   - `sample_1.fastq.gz` and `sample_2.fastq.gz`
+   - `sample_1.fastq` and `sample_2.fastq`
+
+   Supported interleaved read pattern:
+
+   - `sample_interleaved.fastq.gz`
+   - `sample_interleaved.fastq`
+
+   The module also checks for common problems such as:
+
+   - Missing R1 or R2 files
+   - Duplicate read files for the same sample
+   - Mixed naming styles, such as using both `_R1/_R2` and `_1/_2`
+   - Samples with both paired-end and interleaved reads
+   - Unsupported FASTQ filenames
+
+   Original input files are not modified.
+
+3. **Validate FASTQ Structure**
+
+   Unless `--skip_validate` is used, the module validates the structure of each FASTQ file.
+
+   The validation step checks that:
+
+   - FASTQ records contain 4 lines
+   - Header lines start with `@`
+   - Separator lines start with `+`
+   - Sequence and quality strings are the same length
+   - The file is not empty
+   - The total number of lines is divisible by 4
+
+   This step can be slow for large compressed FASTQ files. If you are confident your reads are valid FASTQ files, you can skip this step using:
+   `--skip_validate`
 
 ```
 *IMPORTANT*
-Your reads MUST be in one of the naming formats shown in 4 and 5.
-They are allowed to be gzipped or unzipped.
+Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
+have extensions (.fq or .fastq - gzipped or not gzipped is fine). We recommend naming
+your reads something easy to detect that is all a single identifier, in other words,
+remove "_", "-", ".", etc. and simply have files be like SampleA_R1.fastq.gz.
+SAMWISE will trim the ids up to the first underscore and use it for downstream outputs.
 ```
 
 For example, this is a valid dir structure:
@@ -56,34 +118,6 @@ reads/
 ├── SampleB_1.fq
 ├── SampleB_2.fq
 └── SampleC_interleaved.fastq
-```
-5. **Checks read pairing**
-   - Ensures every read 1 file has a matching read 2 file.
-   - Ensures samples are not supplied as both paired-end and interleaved.
-
-6. **Validates FASTQ structure**
-   - Confirms FASTQ records are 4-line records.
-   - Checks headers start with `@`.
-   - Checks separator lines start with `+`.
-   - Checks sequence and quality strings are the same length.
-
-```
-*Note that this process can be very slow if files are gzipped.
-*If you are certain that your file is a fastq file, you can safely skip this step with the flag --skip_validate
-```
-
-7. **Runs FastQC**
-   - Runs FastQC on validated, normalized read files.
-
-## Usage:
-
-The workflow requires an input directory containing sequencing read files.
-
-```bash
-nextflow run module_0_readprocess.nf \
---input_dir ./reads_dir \
---threads 6 \
---working_dir ./output_samwise
 ```
 
 # Step 1: module_1_readtrimming.nf
