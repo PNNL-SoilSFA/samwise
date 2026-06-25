@@ -20,7 +20,9 @@ Then, you need to install NextFlow - this can be done via `mamba` / `conda`: htt
 
 Now, you are ready to proceed with SAMWISE!
 
-<img width="1253" height="125" alt="image" src="https://github.com/user-attachments/assets/f9615b8d-2b8d-4922-86e4-8e1439604a35" />
+---
+# Quick Start and Recommended Usage
+---
 
 Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. Here is how I would run this as an sbatch script on a server.
 
