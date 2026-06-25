@@ -50,6 +50,7 @@ nextflow run module_0_readprocess.nf \
 | `auto_install` | `true` | Controls whether SAMWISE installs required packages, such as FastQC. If set to `false`, FastQC must already be available in your environment. |
 | `outdir` | `<results_dir>/module_0_readprocess` | Only used if `working_dir` is not specified. |
 
+
 ```
 *IMPORTANT*
 Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
@@ -129,51 +130,20 @@ on adding a flag so that the rarefied assemblies run only after single assemblie
 
 # Step 2: module_2_readassembly.nf
 
-`module_2_readassembly.nf` is a workflow for assembly of reads that have been trimmed in module 1.
+`module_2_readassembly.nf` is a workflow for assembly of reads that have been trimmed in module 1. 
+This module will run single assemblies using either `megahit`, `metaspades` or both, and then also 
+do rarefied assemblies (if specified) using `megahit`. It will rename and standardize all assembled
+output scaffolds.
 
-This module performs the following steps:
+## Recommended Usage:
 
-1. **Checks for assembly software and installs if necessary**
-   - Looks for MEGAHIT and metaSPAdes and installs into a local conda environment if needed.
-   
-2. **Assembles using multiple assemblers and assembly methods**
-   - Users can choose either assembler or both: with flags `--megahit` and `--metaspades`
-   - This step can also perform rarefied assemblies by adding the flag `--rarefied_assembly TRUE` and specifying how many "fragments" you want the reads to be split into with `--rarefaction_splits #` (default is 2). Tl;dr - this will split the fastq files into # of split files and assemble them individually via a round robin by pair index approach.  
-     
-3. **Renames scaffold outputs and provides assembly statistics**
-   - Implements naming scheme specifically:
-
-```bash
-   MEGAHIT single assembly:
-   SampleID_A_k###_#
-    
-metaSPAdes single assembly:
-   SampleID_B_NODE_#
-
-MEGAHIT rarefied assembly:
-   SampleIDa_C_k###_#
-   SampleIDb_C_k###_#
-   SampleIDc_C_k###_#
-
-metaSPAdes rarefied assembly:
-   SampleIDa_D_NODE_#
-   SampleIDb_D_NODE_#
-   SampleIDc_D_NODE_#
-```   
-
-This workflow takes in the same working directory that was generated above and finds whatever files it needs.
-
-## Usage:
 ```bash
 ## metaspades only run:
-
 nextflow run module_2_readassembly.nf \
 --working_dir ./output_samwise \
 --threads 6 \
 --memory_gb 0 \
 --metaspades
-
-#--memory_gb 0 specifies use 90% of available memory
 
 ## metaspades and megahit with rarefied assemblies:
 nextflow run module_2_readassembly.nf \
@@ -186,7 +156,39 @@ nextflow run module_2_readassembly.nf \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
 
-#if on a mac, megahit running on more than 1 thread doesnt play nice, so there is an explicit --megahit_threads you can set separately from the global argument --threads which will set it for both.
+#if on a mac, megahit running on more than 1 thread doesnt work, so there is an explicit arg:
+#--megahit_threads that you can set separately from the global --threads (which will set it for both)
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 2 outputs are written to `<working_dir>/module_2_readassembly`. |
+| `input_manifest` | `null` | Input manifest file containing reads for assembly. This is typically produced by Module 1 after read trimming. |
+| `output_dir` | `null` | Alternative output directory used only if `--working_dir` is not provided. |
+| `megahit` | `false` | Enables assembly with MEGAHIT. |
+| `metaspades` | `false` | Enables assembly with metaSPAdes. |
+| `single_assembly` | `true` | Performs a single assembly using the available input reads. |
+| `rarefied_assembly` | `false` | Enables rarefied assembly mode. |
+| `rarefaction_splits` | `2` | Number of rarefaction splits to generate when `--rarefied_assembly` is enabled. |
+| `megahit_version` | `1.2.9` | Version of MEGAHIT to install/use. |
+| `spades_version` | `4.2.0` | Version of SPAdes/metaSPAdes to install/use. |
+| `auto_install` | `true` | Whether to automatically install required assembly tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
+| `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 2 assembly tools. |
+| `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
+| `assembly_threads` | `4` | Number of threads to use for assembly if `--threads` is not provided. |
+| `memory_gb` | `0` | Global memory limit in GB for assembly processes. Use `0` to leave memory unset. |
+| `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. |
+| `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. |
+| `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Common options are `symlink`, `copy`, or `move`. |
+| `results_dir` | null | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
+| `outdir` | `<results_dir>/module_2_readassembly` | Module 2 output directory. Usually derived automatically and does not need to be set directly. |
+
+```
+*IMPORTANT*
+The default assembly outputs get written into the NextFlow work directories to save space. If you want it to
+write out the output assemblies into a more accessible location, you can set publish_assemblies_mode to be
+`copy`. Argument `move` here would also work but may cause issues with NextFlow not finding what it needs.
 ```
 
 # Step 2b (optional): module_2b_coassembly.nf
@@ -396,4 +398,33 @@ nextflow run module_6_magannotate.nf \
 3. **Re-runs fastqc on trimmed reads**
    - Re-analysis of the fastqc outputs to confirm succesful trimming.
 
-This workflow takes in the same working directory that was generated above and finds whatever files it needs.
+
+## Module 2 Steps:
+
+1. **Checks for assembly software and installs if necessary**
+   - Looks for MEGAHIT and metaSPAdes and installs into a local conda environment if needed.
+   
+2. **Assembles using multiple assemblers and assembly methods**
+   - Users can choose either assembler or both: with flags `--megahit` and `--metaspades`
+   - This step can also perform rarefied assemblies by adding the flag `--rarefied_assembly TRUE` and specifying how many "fragments" you want the reads to be split into with `--rarefaction_splits #` (default is 2). Tl;dr - this will split the fastq files into # of split files and assemble them individually via a round robin by pair index approach.  
+     
+3. **Renames scaffold outputs and provides assembly statistics**
+   - Implements naming scheme specifically:
+
+```bash
+   MEGAHIT single assembly:
+   SampleID_A_k###_#
+    
+metaSPAdes single assembly:
+   SampleID_B_NODE_#
+
+MEGAHIT rarefied assembly:
+   SampleIDa_C_k###_#
+   SampleIDb_C_k###_#
+   SampleIDc_C_k###_#
+
+metaSPAdes rarefied assembly:
+   SampleIDa_D_NODE_#
+   SampleIDb_D_NODE_#
+   SampleIDc_D_NODE_#
+```   
