@@ -120,6 +120,13 @@ nextflow run module_1_readtrimming.nf \
 
 ---
 
+```
+*IMPORTANT*
+Currently, rarefied assemblies are set to run as paralell processes to single assemblies to speed things up.
+In theory, they should play nice. However, if you run into issues with clobbering memory, we will be working
+on adding a flag so that the rarefied assemblies run only after single assemblies are complete.
+```
+
 # Step 2: module_2_readassembly.nf
 
 `module_2_readassembly.nf` is a workflow for assembly of reads that have been trimmed in module 1.
