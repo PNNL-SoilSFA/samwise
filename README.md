@@ -4,7 +4,7 @@
 
 SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
-![SAMWISE workflow](samwise/images/SAMWISE_FULL-git.png)
+![SAMWISE workflow](images/SAMWISE_FULL-git.png)
 
 ---
 
@@ -104,7 +104,7 @@ nextflow run module_6_magannotate.nf \
 Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer!
 ```
 
-![SAMWISE step0](samwise/images/step_0.png)
+![SAMWISE step0](images/step_0.png)
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
 
@@ -151,7 +151,7 @@ reads_dir/
 └── SampleC_interleaved.fastq
 ```
 
-![SAMWISE step1](samwise/images/step_1.png)
+![SAMWISE step1](images/step_1.png)
 
 `module_1_readtrimming.nf` is a workflow for trimming of reads that have been validated in module 0. Module 1 will trim all reads with `fastp`, run `fastqc` on the trimmed reads, and provide a summary table of the trimming statistics.
 
@@ -207,7 +207,7 @@ In theory, they should play nice. However, if you run into issues with clobberin
 on adding a flag so that the rarefied assemblies run only after single assemblies are complete.
 ```
 
-![SAMWISE step2](samwise/images/step_2.png)
+![SAMWISE step2](images/step_2.png)
 
 `module_2_readassembly.nf` is a workflow for assembly of reads that have been trimmed in module 1. 
 This module will run single assemblies using either `megahit`, `metaspades` or both, and then also 
@@ -271,7 +271,7 @@ write out the output assemblies into a more accessible location, you can set pub
 `copy`. Argument `move` here would also work but may cause issues with NextFlow not finding what it needs.
 ```
 
-![SAMWISE step2b](samwise/images/step_2b.png)
+![SAMWISE step2b](images/step_2b.png)
 
 `module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**. This module is designed to run alongside the normal Module 2 assembly workflow. It produces Module-3-compatible manifests so that Module 3 can automatically bin co-assemblies using the exact concatenated reads that were used to generate each co-assembly.
 
@@ -328,7 +328,7 @@ nextflow run module_2b_coassembly.nf \
 metaSPAdes support for this we can certainly add it, just reach out to devs or open an issue.
 ```
 
-![SAMWISE step3](samwise/images/step_3.png)
+![SAMWISE step3](images/step_3.png)
 
 `module_3_binning.nf` performs binning of metagenome assembled genomes (MAGs). It produces a folder with all of the MAGs that can then be fed into refinement pipelines (Module 4). For this, we run 3 different binners: `quickbin`, `metabat2`, and `maxbin2`
 
@@ -399,7 +399,7 @@ nextflow run module_3_binning.nf \
 | `module2b_outdir` | `<results_dir>/module_2b_coassembly` | Expected Module 2B/coassembly output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_3_binning` | Module 3 output directory. Usually derived automatically and does not need to be set directly. |
 
-![SAMWISE step4](samwise/images/step_4.png)
+![SAMWISE step4](images/step_4.png)
 
 This module performs the following steps:
 
@@ -446,7 +446,7 @@ nextflow run module_4_binrefinement.nf \
 | `module3_outdir` | `<results_dir>/module_3_binning` | Expected Module 3 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_4_binrefinement` | Module 4 output directory. Usually derived automatically and does not need to be set directly. |
 
-![SAMWISE step5](samwise/images/step_5.png)
+![SAMWISE step5](images/step_5.png)
 
 This module performs the following steps:
 
@@ -523,7 +523,7 @@ nextflow run module_5_subassembly.nf \
 | `secondpass_dir` | `<outdir>/second_pass` | Derived second-pass output directory. Uses `secondpass_working_dir` if provided. Usually does not need to be set directly. |
 | `final_joint_dir` | `<outdir>/final_joint_refinement` | Derived final joint refinement output directory. Uses `final_joint_working_dir` if provided. Usually does not need to be set directly. |
 
-![SAMWISE step6](samwise/images/step_6.png)
+![SAMWISE step6](images/step_6.png)
 
 This module performs the following steps:
 
