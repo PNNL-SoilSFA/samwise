@@ -23,8 +23,10 @@ Then, go ahead and clone this repo or download it / extract. You can click on `c
 Now, you are ready to proceed with SAMWISE!
 
 ---
-# Quick Start and Recommended Usage
+![SAMWISE quickstart](images/quick_start.png)
 ---
+
+`"In a hole in the ground there lived a hobbit... Not a nasty, dirt..."`
 
 Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. Here is how I would run this as an sbatch script on a server.
 
