@@ -82,6 +82,12 @@ nextflow run module_6_magannotate.nf \
 --run_gtdbtk true \
 --run_eggnog true \
 --threads 36
+
+# If you already pre-downloaded the databases and have them elsewhere, you can directly pass the paths as arguments:
+# --checkm2_db_path /path/to/uniref100.KO.1.dmnd
+# --gtdbtk_data_path /path/to/gtdbtk/database_directory
+# --eggnog_data_path /path/to/eggnog/database_directory
+
 ```
 
 ```
@@ -526,13 +532,18 @@ nextflow run module_6_magannotate.nf \
 --run_eggnog true \
 --threads 32
 
+# IMPORTANT: For some reason, pplacer + gtdbtk do not play very well
+# in HPC-like systems in the way that they try and allocate memory.
+# As such, for this step pplacer thread defaults are set to 2. You
+# can try and add more threads using arg. --pplacer_cpus but if
+# this step fails, this is probably why.
+
 # If you already pre-downloaded the databases and have them installed elsewhere, you can directly pass arguments:
 # --checkm2_db_path /path/to/uniref100.KO.1.dmnd
 # --gtdbtk_data_path /path/to/gtdbtk/database_directory
 # --eggnog_data_path /path/to/eggnog/database_directory
 
 # You can also explicitly pass which directories you want the files downloaded into, for example:
-
 # --checkm2_db_dir /path/to/download/checkm2_db_dir
 # --gtdbtk_db_dir /path/to/download/gtdbtk_db_dir
 # --eggnog_data_path /path/to/eggnog/database_directory

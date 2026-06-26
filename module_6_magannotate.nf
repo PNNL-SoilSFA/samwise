@@ -3,78 +3,40 @@ nextflow.enable.dsl = 2
 
 /*
  * Module 6: MAG annotation / quality / taxonomy.
- *
- * Tools:
- *   - CheckM2
- *   - GTDB-Tk
- *   - EggNOG-mapper
- *
- * DRAM2 and microTrait are intentionally removed for now.
  */
 
-/*
- * Core parameters
- */
 params.working_dir = null
 params.output_dir = null
 params.input_mag_dir = null
 params.input_mag_manifest = null
 params.mag_extension = "fa"
+params.run_drep = true
+params.drep_version = null
+params.drep_env_dir = null
+params.drep_extension = "fa"
+params.drep_threads = null
+params.drep_extra_args = "-sa 0.99 -comp 50 -con 10"
 params.threads = null
 params.tool_env_dir = null
 params.auto_install = true
-
-/*
- * Workflow-local conda/mamba package cache.
- */
 params.conda_pkgs_dir = null
-
-/*
- * Which tools to run
- */
 params.run_checkm2 = true
 params.run_gtdbtk = true
-params.run_eggnog = true
-
-/*
- * Tool versions
- */
+params.run_eggnog = false
 params.checkm2_version = null
 params.gtdbtk_version = "2.7.2"
-
-/*
- * CheckM2 database.
- *
- * If --checkm2_db_path is supplied, use that file directly.
- * Else check/download into:
- *   <outdir>/databases/checkm2
- */
 params.checkm2_db_path = null
 params.checkm2_db_dir = null
 params.checkm2_zenodo_record = "14897628"
 params.checkm2_auto_download_db = true
 params.checkm2_extension = "fa"
-
-/*
- * GTDB-Tk database.
- *
- * If --gtdbtk_data_path is supplied, use that directory directly.
- * Else check/download into:
- *   <outdir>/databases/gtdbtk
- */
 params.gtdbtk_data_path = null
 params.gtdbtk_db_dir = null
 params.gtdbtk_auto_download_db = true
 params.gtdbtk_extension = "fa"
 params.gtdbtk_download_url = "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz"
-
-/*
- * EggNOG-mapper.
- *
- * If --eggnog_data_dir is supplied, use/check/download into that directory.
- * Else check/download into:
- *   <outdir>/databases/eggnog
- */
+params.gtdbtk_pplacer_cpus = 2
+params.gtdbtk_extra_args = ""
 params.eggnog_env_dir = null
 params.eggnog_mapper_version = "2.1.13"
 params.eggnog_data_path = null
@@ -91,29 +53,15 @@ params.eggnog_output_prefix = "samwise_eggnog"
 params.eggnog_extra_args = ""
 params.eggnog_mmseqs_db = null
 params.eggnog_fail_nonfatal = false
-
-/*
- * Publish modes
- */
 params.publish_mags_mode = "copy"
 params.publish_tool_outputs_mode = "copy"
-
-/*
- * Derived directories
- */
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.outdir = "${params.results_dir}/module_6_magannotation"
-
-/*
- * Candidate MAG locations
- */
 params.module5_final_mag_dir = "${params.results_dir}/module_5_subtractiveassembly/final_mag_database"
 params.module4_refined_mag_dir = "${params.results_dir}/module_4_binrefinement/refined_bins"
-
 params.checkm2_db_outdir = params.checkm2_db_dir ?: "${params.outdir}/databases/checkm2"
 params.gtdbtk_db_outdir = params.gtdbtk_db_dir ?: "${params.outdir}/databases/gtdbtk"
 params.eggnog_db_outdir = params.eggnog_data_path ?: (params.eggnog_data_dir ?: "${params.outdir}/databases/eggnog")
-
 
 def absPath(value) {
     def s = value == null ? "" : value.toString().trim()
@@ -152,6 +100,7 @@ def firstExistingMagDir(candidates) {
 
 
 workflow {
+    def run_drep = params.run_drep.toString().toBoolean()
     def run_checkm2 = params.run_checkm2.toString().toBoolean()
     def run_gtdbtk = params.run_gtdbtk.toString().toBoolean()
     def run_eggnog = params.run_eggnog.toString().toBoolean()
@@ -160,11 +109,27 @@ workflow {
         error(
             """
             No Module 6 tools selected.
-
             Enable at least one of:
               --run_checkm2 true
               --run_gtdbtk true
               --run_eggnog true
+            """.stripIndent()
+        )
+    }
+
+    if (run_drep && !run_checkm2) {
+        error(
+            """
+            dRep is enabled, but CheckM2 is disabled.
+
+            This dRep implementation requires CheckM2 because it uses:
+              checkm2_out/**/quality_report.tsv
+
+            to create:
+              modified_quality_report.csv
+
+            Required:
+              --run_drep true --run_checkm2 true
             """.stripIndent()
         )
     }
@@ -185,9 +150,11 @@ workflow {
     log.info("Selected MAG manifest: ${selected_mag_manifest ?: 'not supplied'}")
     log.info("MAG extension: ${params.mag_extension}")
     log.info("Threads: ${params.threads ?: 'tool-specific defaults'}")
+    log.info("Run dRep: ${run_drep}")
     log.info("Run CheckM2: ${run_checkm2}")
     log.info("Run GTDB-Tk: ${run_gtdbtk}")
     log.info("Run EggNOG-mapper: ${run_eggnog}")
+    log.info("dRep extra args: ${params.drep_extra_args}")
     log.info("Conda package cache root: ${params.conda_pkgs_dir ?: params.outdir + '/conda_pkgs'}")
     log.info("Per-tool conda package caches will be used under the cache root.")
 
@@ -196,26 +163,58 @@ workflow {
         channel.value(selected_mag_manifest),
     )
 
+    /*
+     * Default downstream MAG directory.
+     * If dRep runs, this is replaced below with RUN_DREP.out.derep_mags_dir.
+     */
+    def mags_for_annotation = PREPARE_MAG_INPUTS.out.mags_dir
+
+    /*
+     * CheckM2 runs once.
+     *
+     * If dRep is enabled, CheckM2 is run on the prepared MAGs before dRep.
+     * Its quality_report.tsv is converted to modified_quality_report.csv
+     * and passed into dRep with --genomeInfo.
+     */
     if (run_checkm2) {
         SETUP_CHECKM2()
+
         RUN_CHECKM2(
             PREPARE_MAG_INPUTS.out.mags_dir,
             SETUP_CHECKM2.out.status,
         )
     }
 
+    if (run_drep) {
+        PREPARE_DREP_GENOME_INFO(
+            RUN_CHECKM2.out.quality_report,
+        )
+
+        SETUP_DREP()
+
+        RUN_DREP(
+            PREPARE_MAG_INPUTS.out.mags_dir,
+            SETUP_DREP.out.status,
+            PREPARE_DREP_GENOME_INFO.out.genome_info,
+        )
+
+        mags_for_annotation = RUN_DREP.out.derep_mags_dir
+    }
+
     if (run_gtdbtk) {
         SETUP_GTDBTK()
+
         RUN_GTDBTK(
-            PREPARE_MAG_INPUTS.out.mags_dir,
+            mags_for_annotation,
             SETUP_GTDBTK.out.status,
         )
     }
 
     if (run_eggnog) {
         SETUP_EGGNOG()
+
         RUN_EGGNOG(
-            PREPARE_MAG_INPUTS.out.mags_dir,
+            mags_for_annotation,
             SETUP_EGGNOG.out.status,
         )
     }
@@ -244,12 +243,15 @@ workflow {
         status_ch = RUN_EGGNOG.out.status
     }
 
+    if (run_drep) {
+        status_ch = RUN_DREP.out.status.mix(status_ch)
+    }
+
     WRITE_MODULE6_SUMMARY(
         PREPARE_MAG_INPUTS.out.input_stats,
         status_ch.collect(),
     )
 }
-
 
 process PREPARE_MAG_INPUTS {
     tag "prepare_final_mags"
@@ -527,6 +529,388 @@ PY
     """
 }
 
+process SETUP_DREP {
+    tag "setup_drep"
+
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "drep_setup_status.env"
+
+    output:
+    path "drep_setup_status.env", emit: status
+
+    script:
+    def base_env = params.tool_env_dir ? absPath(params.tool_env_dir) : "${absPath(params.outdir)}/conda_envs"
+    def env_dir = params.drep_env_dir ? absPath(params.drep_env_dir) : "${base_env}/drep"
+    def drep_pkg = params.drep_version ? "drep=${params.drep_version}" : "drep"
+    def conda_pkgs_dir = params.conda_pkgs_dir ? "${absPath(params.conda_pkgs_dir)}/drep" : "${absPath(params.outdir)}/conda_pkgs/drep"
+
+    """
+    set -euo pipefail
+
+    STATUS="drep_setup_status.env"
+    DREP_ENV="${env_dir}"
+    CONDA_PKGS_DIRS="${conda_pkgs_dir}"
+    DREP_INSTALL_MARKER="\$DREP_ENV/.samwise_drep_install_mode"
+
+    export CONDA_PKGS_DIRS
+
+    mkdir -p "\$CONDA_PKGS_DIRS"
+
+    echo "dRep setup started: \$(date)" > "\$STATUS"
+    echo "DREP_ENV=\$DREP_ENV" >> "\$STATUS"
+    echo "Requested dRep package: ${drep_pkg}" >> "\$STATUS"
+    echo "Pinned Python: python>=3.8,<3.11" >> "\$STATUS"
+    echo "Pinned pandas: pandas<2.2" >> "\$STATUS"
+    echo "CONDA_PKGS_DIRS=\$CONDA_PKGS_DIRS" >> "\$STATUS"
+    echo "----------------------------------------" >> "\$STATUS"
+
+    find_installer() {
+        if command -v mamba >/dev/null 2>&1; then
+            echo "mamba"
+        elif command -v conda >/dev/null 2>&1; then
+            echo "conda"
+        else
+            echo ""
+        fi
+    }
+
+    check_drep_python_compatibility() {
+        local prefix="\$1"
+
+        "\$prefix/bin/python" - <<'PY'
+import sys
+import io
+import pandas as pd
+
+major, minor = sys.version_info[:2]
+
+# dRep currently behaves more safely outside Python 3.13.
+if not (major == 3 and minor >= 8 and minor < 11):
+    raise SystemExit(f"Bad Python version for this dRep wrapper: {sys.version}")
+
+# This is the exact compatibility issue seen in the failed run.
+# dRep calls pandas.read_csv(..., delim_whitespace=True).
+text = "a b\\n1 2\\n"
+pd.read_csv(io.StringIO(text), delim_whitespace=True)
+
+print("python_ok")
+print(sys.version.replace("\\n", " "))
+print("pandas_ok")
+print(pd.__version__)
+PY
+    }
+
+    check_env() {
+        local prefix="\$1"
+
+        [[ -x "\$prefix/bin/dRep" ]] || return 1
+        [[ -x "\$prefix/bin/python" ]] || return 1
+        [[ -x "\$prefix/bin/fastANI" ]] || return 1
+        [[ -x "\$prefix/bin/mash" ]] || return 1
+
+        check_drep_python_compatibility "\$prefix" >> "\$STATUS" 2>&1 || return 1
+
+        if [[ ! -s "\$prefix/.samwise_drep_install_mode" ]]; then
+            echo "dRep env has no SAMWISE install marker; treating as stale." >> "\$STATUS"
+            return 1
+        fi
+
+        if ! grep -q '^drep_py38_310_pandas_lt22\$' "\$prefix/.samwise_drep_install_mode"; then
+            echo "dRep env marker is not drep_py38_310_pandas_lt22; treating as stale." >> "\$STATUS"
+            echo "Existing marker:" >> "\$STATUS"
+            cat "\$prefix/.samwise_drep_install_mode" >> "\$STATUS" 2>&1 || true
+            return 1
+        fi
+
+        return 0
+    }
+
+    if [[ -d "\$DREP_ENV" ]]; then
+        if check_env "\$DREP_ENV"; then
+            echo "Existing dRep environment passed checks." >> "\$STATUS"
+        else
+            echo "Existing dRep environment failed checks or is stale. Removing." >> "\$STATUS"
+            rm -rf "\$DREP_ENV"
+        fi
+    fi
+
+    if [[ ! -d "\$DREP_ENV" ]]; then
+        if [[ "${params.auto_install}" != "true" ]]; then
+            echo "ERROR: dRep environment missing and --auto_install false." >> "\$STATUS"
+            exit 1
+        fi
+
+        INSTALLER="\$(find_installer)"
+
+        if [[ -z "\$INSTALLER" ]]; then
+            echo "ERROR: Neither mamba nor conda found." >> "\$STATUS"
+            exit 1
+        fi
+
+        mkdir -p "\$(dirname "\$DREP_ENV")"
+
+        echo "Creating dRep environment with pinned Python/pandas." >> "\$STATUS"
+
+        "\$INSTALLER" create -y \\
+            -p "\$DREP_ENV" \\
+            --override-channels \\
+            -c conda-forge \\
+            -c bioconda \\
+            "python>=3.8,<3.11" \\
+            "pandas<2.2" \\
+            "${drep_pkg}" \\
+            "fastani" \\
+            "mash" \\
+            >> "\$STATUS" 2>&1
+
+        echo "drep_py38_310_pandas_lt22" > "\$DREP_INSTALL_MARKER"
+    fi
+
+    if ! check_env "\$DREP_ENV"; then
+        echo "ERROR: dRep environment failed final checks." >> "\$STATUS"
+        echo "Environment bin preview:" >> "\$STATUS"
+        ls -lah "\$DREP_ENV/bin" >> "\$STATUS" 2>&1 || true
+
+        echo "Python/pandas diagnostic:" >> "\$STATUS"
+        "\$DREP_ENV/bin/python" - <<'PY' >> "\$STATUS" 2>&1 || true
+import sys
+print(sys.version)
+try:
+    import pandas as pd
+    print("pandas", pd.__version__)
+except Exception as e:
+    print("pandas import failed:", e)
+PY
+
+        exit 1
+    fi
+
+    export PATH="\$DREP_ENV/bin:\$PATH"
+
+    echo "dRep executable:" >> "\$STATUS"
+    command -v dRep >> "\$STATUS" 2>&1 || true
+    dRep --version >> "\$STATUS" 2>&1 || true
+
+    echo "fastANI executable:" >> "\$STATUS"
+    command -v fastANI >> "\$STATUS" 2>&1 || true
+    fastANI --version >> "\$STATUS" 2>&1 || true
+
+    echo "mash executable:" >> "\$STATUS"
+    command -v mash >> "\$STATUS" 2>&1 || true
+    mash --version >> "\$STATUS" 2>&1 || true
+
+    echo "Python/pandas final diagnostic:" >> "\$STATUS"
+    "\$DREP_ENV/bin/python" - <<'PY' >> "\$STATUS" 2>&1
+import sys
+import pandas as pd
+print(sys.version)
+print("pandas", pd.__version__)
+PY
+
+    echo "DREP_ENV=\$DREP_ENV" >> "\$STATUS"
+    echo "dRep setup finished: \$(date)" >> "\$STATUS"
+    """
+}
+
+process RUN_DREP {
+    tag "drep_dereplicate"
+
+    publishDir "${params.outdir}/drep_out", mode: 'copy', pattern: "drep_out/**", saveAs: { filename -> filename.replaceFirst(/^drep_out\//, '') }
+    publishDir "${params.outdir}/drep_out/dereplicated_genomes", mode: 'copy', pattern: "dereplicated_genomes/*"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "drep.log"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "drep_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "drep_genomeInfo_used.csv"
+
+    cpus {
+        params.drep_threads != null ? params.drep_threads as int : (params.threads != null ? params.threads as int : 16)
+    }
+
+    input:
+    path mags_dir
+    path setup_status
+    path genome_info
+
+    output:
+    path "drep_status.tsv", emit: status
+    path "drep.log", emit: log_file
+    path "drep_genomeInfo_used.csv", emit: genome_info_used
+    path "dereplicated_genomes", emit: derep_mags_dir
+    path "drep_out/**", emit: drep_out
+
+    script:
+    """
+    set -euo pipefail
+
+    LOG="drep.log"
+
+    DREP_ENV="\$(grep '^DREP_ENV=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
+
+    export PATH="\$DREP_ENV/bin:\$PATH"
+
+    echo "dRep dereplication started: \$(date)" > "\$LOG"
+    echo "Input MAG directory: ${mags_dir}" >> "\$LOG"
+    echo "dRep env: \$DREP_ENV" >> "\$LOG"
+    echo "dRep extension: .${params.drep_extension}" >> "\$LOG"
+    echo "Threads: ${task.cpus}" >> "\$LOG"
+    echo "dRep genomeInfo input: ${genome_info}" >> "\$LOG"
+    echo "Extra dRep args: ${params.drep_extra_args}" >> "\$LOG"
+    echo "Published dRep output directory: ${params.outdir}/drep_out" >> "\$LOG"
+    echo "Published dereplicated genomes directory: ${params.outdir}/drep_out/dereplicated_genomes" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
+
+    cp "${genome_info}" drep_genomeInfo_used.csv
+
+    rm -rf drep_out dereplicated_genomes
+    mkdir -p dereplicated_genomes
+
+    mapfile -d '' GENOMES < <(
+        find -L "${mags_dir}" \\
+            -maxdepth 1 \\
+            -type f \\
+            -name '*.${params.drep_extension}' \\
+            -print0 \\
+            | sort -z
+    )
+
+    MAG_COUNT="\${#GENOMES[@]}"
+
+    echo "Input MAG files found for dRep: \$MAG_COUNT" >> "\$LOG"
+
+    if [[ "\$MAG_COUNT" -eq 0 ]]; then
+        echo "ERROR: No MAG files found for dRep." >> "\$LOG"
+
+        printf 'tool\\tstatus\\texit_status\\tinput_genomes\\tdereplicated_genomes\\toutput_dir\\tmessage\\n' > drep_status.tsv
+        printf 'drep\\tfailed\\t1\\t0\\t0\\t%s\\tNo MAG files found\\n' "${params.outdir}/drep_out" >> drep_status.tsv
+
+        exit 1
+    fi
+
+    if [[ ! -s drep_genomeInfo_used.csv ]]; then
+        echo "ERROR: dRep genomeInfo file is missing or empty: drep_genomeInfo_used.csv" >> "\$LOG"
+
+        printf 'tool\\tstatus\\texit_status\\tinput_genomes\\tdereplicated_genomes\\toutput_dir\\tmessage\\n' > drep_status.tsv
+        printf 'drep\\tfailed\\t1\\t%s\\t0\\t%s\\tdRep genomeInfo file missing or empty\\n' "\$MAG_COUNT" "${params.outdir}/drep_out" >> drep_status.tsv
+
+        exit 1
+    fi
+
+    echo "dRep genomeInfo preview:" >> "\$LOG"
+    head -n 10 drep_genomeInfo_used.csv >> "\$LOG" 2>&1 || true
+
+    if [[ "\$MAG_COUNT" -eq 1 ]]; then
+        echo "Only one MAG supplied. Skipping dRep clustering and copying the genome as dereplicated." >> "\$LOG"
+
+        mkdir -p drep_out/dereplicated_genomes
+
+        ONE_GENOME="\${GENOMES[0]}"
+        ONE_BASE="\$(basename "\$ONE_GENOME")"
+
+        cp -L "\$ONE_GENOME" "drep_out/dereplicated_genomes/\$ONE_BASE"
+    else
+        echo "Running dRep dereplicate." >> "\$LOG"
+        echo "Command template:" >> "\$LOG"
+        echo "dRep dereplicate drep_out --processors ${task.cpus} -g <MAG files> --genomeInfo drep_genomeInfo_used.csv ${params.drep_extra_args}" >> "\$LOG"
+
+        set +e
+        dRep dereplicate \\
+            drep_out \\
+            --processors ${task.cpus} \\
+            -g "\${GENOMES[@]}" \\
+            --genomeInfo drep_genomeInfo_used.csv \\
+            ${params.drep_extra_args} \\
+            >> "\$LOG" 2>&1
+
+        DREP_EXIT="\$?"
+        set -e
+
+        if [[ "\$DREP_EXIT" -ne 0 ]]; then
+            echo "ERROR: dRep failed with exit status \$DREP_EXIT" >> "\$LOG"
+            echo "----------------------------------------" >> "\$LOG"
+            echo "dRep output directory preview after failure:" >> "\$LOG"
+            find drep_out -maxdepth 5 \\( -type f -o -type l -o -type d \\) | head -n 300 >> "\$LOG" 2>&1 || true
+            echo "----------------------------------------" >> "\$LOG"
+            echo "GenomeInfo file used by dRep:" >> "\$LOG"
+            cat drep_genomeInfo_used.csv >> "\$LOG" 2>&1 || true
+
+            printf 'tool\\tstatus\\texit_status\\tinput_genomes\\tdereplicated_genomes\\toutput_dir\\tmessage\\n' > drep_status.tsv
+            printf 'drep\\tfailed\\t%s\\t%s\\t0\\t%s\\tdRep dereplicate failed\\n' "\$DREP_EXIT" "\$MAG_COUNT" "${params.outdir}/drep_out" >> drep_status.tsv
+
+            exit "\$DREP_EXIT"
+        fi
+    fi
+
+    if [[ ! -d drep_out/dereplicated_genomes ]]; then
+        echo "ERROR: dRep did not create drep_out/dereplicated_genomes." >> "\$LOG"
+        echo "dRep output preview:" >> "\$LOG"
+        find drep_out -maxdepth 4 \\( -type f -o -type l \\) | head -n 200 >> "\$LOG" 2>&1 || true
+
+        printf 'tool\\tstatus\\texit_status\\tinput_genomes\\tdereplicated_genomes\\toutput_dir\\tmessage\\n' > drep_status.tsv
+        printf 'drep\\tfailed\\t1\\t%s\\t0\\t%s\\tdRep dereplicated_genomes directory missing\\n' "\$MAG_COUNT" "${params.outdir}/drep_out" >> drep_status.tsv
+
+        exit 1
+    fi
+
+    echo "Replacing symlinks inside drep_out with real copied files/directories." >> "\$LOG"
+
+    while IFS= read -r -d '' LINK_PATH; do
+        TARGET_PATH="\$(readlink -f "\$LINK_PATH" || true)"
+
+        if [[ -z "\$TARGET_PATH" || ! -e "\$TARGET_PATH" ]]; then
+            echo "WARNING: broken symlink skipped: \$LINK_PATH" >> "\$LOG"
+            continue
+        fi
+
+        rm -f "\$LINK_PATH"
+
+        if [[ -d "\$TARGET_PATH" ]]; then
+            cp -aL "\$TARGET_PATH" "\$LINK_PATH"
+        else
+            cp -L "\$TARGET_PATH" "\$LINK_PATH"
+        fi
+    done < <(find drep_out -type l -print0)
+
+    rm -rf dereplicated_genomes
+    mkdir -p dereplicated_genomes
+
+    find -L drep_out/dereplicated_genomes \\
+        -maxdepth 1 \\
+        -type f \\
+        -name '*.${params.drep_extension}' \\
+        -print0 \\
+        | while IFS= read -r -d '' genome; do
+            cp -L "\$genome" "dereplicated_genomes/\$(basename "\$genome")"
+        done
+
+    DEREP_COUNT="\$(find dereplicated_genomes -maxdepth 1 -type f -name '*.${params.drep_extension}' | wc -l | tr -d ' ')"
+
+    echo "Dereplicated genome count: \$DEREP_COUNT" >> "\$LOG"
+
+    if [[ "\$DEREP_COUNT" -eq 0 ]]; then
+        echo "ERROR: No dereplicated genomes found after dRep." >> "\$LOG"
+
+        printf 'tool\\tstatus\\texit_status\\tinput_genomes\\tdereplicated_genomes\\toutput_dir\\tmessage\\n' > drep_status.tsv
+        printf 'drep\\tfailed\\t1\\t%s\\t0\\t%s\\tNo dereplicated genomes produced\\n' "\$MAG_COUNT" "${params.outdir}/drep_out" >> drep_status.tsv
+
+        exit 1
+    fi
+
+    echo "Final dereplicated genomes copied for downstream/publishing:" >> "\$LOG"
+    find dereplicated_genomes -maxdepth 1 -type f -name '*.${params.drep_extension}' -printf '%f\\n' | sort >> "\$LOG" 2>&1 || true
+
+    REMAINING_SYMLINKS="\$(find drep_out -type l | wc -l | tr -d ' ')"
+
+    echo "Remaining symlinks in drep_out: \$REMAINING_SYMLINKS" >> "\$LOG"
+
+    if [[ "\$REMAINING_SYMLINKS" -ne 0 ]]; then
+        echo "WARNING: Some symlinks remain in drep_out:" >> "\$LOG"
+        find drep_out -type l >> "\$LOG" 2>&1 || true
+    fi
+
+    printf 'tool\\tstatus\\texit_status\\tinput_genomes\\tdereplicated_genomes\\toutput_dir\\tmessage\\n' > drep_status.tsv
+    printf 'drep\\tcompleted\\t0\\t%s\\t%s\\t%s\\tdRep completed\\n' "\$MAG_COUNT" "\$DEREP_COUNT" "${params.outdir}/drep_out" >> drep_status.tsv
+
+    echo "dRep dereplication finished: \$(date)" >> "\$LOG"
+    """
+}
 
 process SETUP_CHECKM2 {
     tag "setup_checkm2"
@@ -802,6 +1186,7 @@ process RUN_CHECKM2 {
     publishDir "${params.outdir}/checkm2", mode: params.publish_tool_outputs_mode, pattern: "checkm2_out/**", saveAs: { filename -> filename.replaceFirst(/^checkm2_out\//, '') }
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "checkm2.log"
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "checkm2_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "checkm2_quality_report.tsv"
 
     cpus {
         params.threads != null ? params.threads as int : 8
@@ -814,6 +1199,7 @@ process RUN_CHECKM2 {
     output:
     path "checkm2_status.tsv", emit: status
     path "checkm2.log", emit: log_file
+    path "checkm2_quality_report.tsv", emit: quality_report
     path "checkm2_out/**", emit: checkm2_out
 
     script:
@@ -836,12 +1222,15 @@ process RUN_CHECKM2 {
     mkdir -p checkm2_out
 
     MAG_COUNT="\$(find -L "${mags_dir}" -maxdepth 1 -type f -name '*.${params.checkm2_extension}' | wc -l | tr -d ' ')"
+
     echo "MAG files matching extension .${params.checkm2_extension}: \$MAG_COUNT" >> "\$LOG"
 
     if [[ "\$MAG_COUNT" -eq 0 ]]; then
         echo "ERROR: No MAG files found for CheckM2." >> "\$LOG"
+
         printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > checkm2_status.tsv
         printf 'checkm2\\tfailed\\t1\\t%s\\tNo MAG files found\\n' "${params.outdir}/checkm2" >> checkm2_status.tsv
+
         exit 1
     fi
 
@@ -863,11 +1252,130 @@ process RUN_CHECKM2 {
         exit "\$STATUS"
     fi
 
+    QUALITY_REPORT="\$(find checkm2_out -maxdepth 4 -type f -name 'quality_report.tsv' | head -n 1 || true)"
+
+    if [[ -z "\$QUALITY_REPORT" || ! -s "\$QUALITY_REPORT" ]]; then
+        echo "ERROR: CheckM2 completed but quality_report.tsv was not found." >> "\$LOG"
+        echo "CheckM2 output preview:" >> "\$LOG"
+        find checkm2_out -maxdepth 5 -type f | head -n 200 >> "\$LOG" 2>&1 || true
+
+        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 quality_report.tsv missing\\n' "${params.outdir}/checkm2" >> checkm2_status.tsv
+
+        exit 1
+    fi
+
+    cp "\$QUALITY_REPORT" checkm2_quality_report.tsv
+
+    echo "Copied CheckM2 quality report for dRep:" >> "\$LOG"
+    echo "  source: \$QUALITY_REPORT" >> "\$LOG"
+    echo "  staged: checkm2_quality_report.tsv" >> "\$LOG"
+
     printf 'checkm2\\tcompleted\\t0\\t%s\\tCheckM2 completed\\n' "${params.outdir}/checkm2" >> checkm2_status.tsv
+
     echo "CheckM2 finished: \$(date)" >> "\$LOG"
     """
 }
 
+process PREPARE_DREP_GENOME_INFO {
+    tag "prepare_drep_genome_info"
+
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "modified_quality_report.csv"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "prepare_drep_genome_info.log"
+
+    input:
+    path checkm2_quality_report
+
+    output:
+    path "modified_quality_report.csv", emit: genome_info
+    path "prepare_drep_genome_info.log", emit: log_file
+
+    script:
+    """
+    set -euo pipefail
+
+    LOG="prepare_drep_genome_info.log"
+
+    echo "Preparing dRep genomeInfo file from CheckM2 quality report: \$(date)" > "\$LOG"
+    echo "Input CheckM2 quality report: ${checkm2_quality_report}" >> "\$LOG"
+    echo "Output dRep genomeInfo CSV: modified_quality_report.csv" >> "\$LOG"
+    echo "Required dRep headers: genome,completeness,contamination" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
+
+    python3 - \\
+        "${checkm2_quality_report}" \\
+        "modified_quality_report.csv" \\
+        "\$LOG" <<'PY'
+
+import csv
+import sys
+from pathlib import Path
+
+input_tsv = Path(sys.argv[1])
+output_csv = Path(sys.argv[2])
+log_file = Path(sys.argv[3])
+
+def log(message):
+    with log_file.open("a") as handle:
+        print(message, file=handle)
+
+if not input_tsv.exists() or input_tsv.stat().st_size == 0:
+    raise SystemExit(f"ERROR: CheckM2 quality report missing or empty: {input_tsv}")
+
+with input_tsv.open(newline="") as inp:
+    reader = csv.DictReader(inp, delimiter="\\t")
+
+    required = ["Name", "Completeness", "Contamination"]
+
+    if reader.fieldnames is None:
+        raise SystemExit("ERROR: CheckM2 quality report has no header row.")
+
+    missing = [col for col in required if col not in reader.fieldnames]
+
+    if missing:
+        log(f"Input header fields were: {reader.fieldnames}")
+        raise SystemExit(f"ERROR: CheckM2 quality report missing required columns: {missing}")
+
+    written = 0
+
+    with output_csv.open("w", newline="") as out:
+        writer = csv.writer(out)
+
+        # dRep is case-sensitive and requires exactly these headers.
+        writer.writerow(["genome", "completeness", "contamination"])
+
+        for row in reader:
+            genome = str(row.get("Name", "")).strip()
+            completeness = str(row.get("Completeness", "")).strip()
+            contamination = str(row.get("Contamination", "")).strip()
+
+            if not genome:
+                continue
+
+            # CheckM2 usually reports the genome name without .fa.
+            # dRep wants this to match the basename passed through -g.
+            if not genome.endswith(".fa"):
+                genome = genome + ".fa"
+
+            writer.writerow([genome, completeness, contamination])
+            written += 1
+
+if written == 0:
+    raise SystemExit("ERROR: No rows written to modified_quality_report.csv")
+
+log(f"Rows written to modified_quality_report.csv: {written}")
+log("modified_quality_report.csv preview:")
+
+with output_csv.open() as handle:
+    for idx, line in enumerate(handle):
+        if idx >= 10:
+            break
+        log(line.rstrip("\\n"))
+
+PY
+
+    echo "Finished preparing dRep genomeInfo file: \$(date)" >> "\$LOG"
+    """
+}
 
 process SETUP_GTDBTK {
     tag "setup_gtdbtk"
@@ -1128,6 +1636,9 @@ process RUN_GTDBTK {
     path "gtdbtk_out/**", emit: gtdbtk_out
 
     script:
+    def pplacer_cpus = params.gtdbtk_pplacer_cpus != null ? params.gtdbtk_pplacer_cpus as int : 6
+    def gtdbtk_extra_args = params.gtdbtk_extra_args != null ? params.gtdbtk_extra_args.toString().trim() : ""
+
     """
     set -euo pipefail
 
@@ -1142,18 +1653,29 @@ process RUN_GTDBTK {
     echo "GTDB-Tk started: \$(date)" > "\$LOG"
     echo "MAG directory: ${mags_dir}" >> "\$LOG"
     echo "GTDBTK_DATA_PATH: \$GTDBTK_DATA_PATH" >> "\$LOG"
-    echo "Threads: ${task.cpus}" >> "\$LOG"
-
+    echo "GTDB-Tk CPUs: ${task.cpus}" >> "\$LOG"
+    echo "GTDB-Tk pplacer CPUs: ${pplacer_cpus}" >> "\$LOG"
+    echo "GTDB-Tk extra args: ${gtdbtk_extra_args}" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
 
     MAG_COUNT="\$(find -L "${mags_dir}" -maxdepth 1 -type f -name '*.${params.gtdbtk_extension}' | wc -l | tr -d ' ')"
+
     echo "MAG files matching extension .${params.gtdbtk_extension}: \$MAG_COUNT" >> "\$LOG"
 
     if [[ "\$MAG_COUNT" -eq 0 ]]; then
         echo "ERROR: No MAG files found for GTDB-Tk." >> "\$LOG"
+
         printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > gtdbtk_status.tsv
         printf 'gtdbtk\\tfailed\\t1\\t%s\\tNo MAG files found\\n' "${params.outdir}/gtdbtk" >> gtdbtk_status.tsv
+
         exit 1
     fi
+
+    rm -rf gtdbtk_out
+    mkdir -p gtdbtk_out
+
+    echo "Running GTDB-Tk:" >> "\$LOG"
+    echo "gtdbtk classify_wf --genome_dir ${mags_dir} --out_dir gtdbtk_out --extension ${params.gtdbtk_extension} --cpus ${task.cpus} --pplacer_cpus ${pplacer_cpus} ${gtdbtk_extra_args}" >> "\$LOG"
 
     set +e
     gtdbtk classify_wf \\
@@ -1161,6 +1683,8 @@ process RUN_GTDBTK {
         --out_dir gtdbtk_out \\
         --extension ${params.gtdbtk_extension} \\
         --cpus ${task.cpus} \\
+        --pplacer_cpus ${pplacer_cpus} \\
+        ${gtdbtk_extra_args} \\
         >> "\$LOG" 2>&1
     STATUS="\$?"
     set -e
@@ -1168,15 +1692,43 @@ process RUN_GTDBTK {
     printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > gtdbtk_status.tsv
 
     if [[ "\$STATUS" -ne 0 ]]; then
+        echo "ERROR: GTDB-Tk failed with exit status \$STATUS" >> "\$LOG"
+        echo "----------------------------------------" >> "\$LOG"
+        echo "GTDB-Tk pplacer logs found after failure:" >> "\$LOG"
+
+        find gtdbtk_out \\
+            -type f \\
+            \\( -name '*pplacer*.out' -o -name '*pplacer*.log' -o -name '*pplacer*.err' \\) \\
+            -print \\
+            >> "\$LOG" 2>&1 || true
+
+        echo "----------------------------------------" >> "\$LOG"
+        echo "Tail of pplacer output files:" >> "\$LOG"
+
+        find gtdbtk_out \\
+            -type f \\
+            \\( -name '*pplacer*.out' -o -name '*pplacer*.log' -o -name '*pplacer*.err' \\) \\
+            -print0 \\
+            | while IFS= read -r -d '' pf; do
+                echo "" >> "\$LOG"
+                echo "### \$pf" >> "\$LOG"
+                tail -n 120 "\$pf" >> "\$LOG" 2>&1 || true
+            done
+
+        echo "----------------------------------------" >> "\$LOG"
+        echo "GTDB-Tk output file preview:" >> "\$LOG"
+        find gtdbtk_out -maxdepth 6 -type f | head -n 300 >> "\$LOG" 2>&1 || true
+
         printf 'gtdbtk\\tfailed\\t%s\\t%s\\tGTDB-Tk failed\\n' "\$STATUS" "${params.outdir}/gtdbtk" >> gtdbtk_status.tsv
+
         exit "\$STATUS"
     fi
 
     printf 'gtdbtk\\tcompleted\\t0\\t%s\\tGTDB-Tk completed\\n' "${params.outdir}/gtdbtk" >> gtdbtk_status.tsv
+
     echo "GTDB-Tk finished: \$(date)" >> "\$LOG"
     """
 }
-
 
 process SETUP_EGGNOG {
     tag "setup_eggnog"
@@ -1671,6 +2223,293 @@ PY
     """
 }
 
+process WRITE_DREP_QUALITY_GTDBTK_SUMMARY {
+    tag "write_drep_quality_gtdbtk_summary"
+
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "dereplicated_genomes_quality_taxonomy_summary.tsv"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "write_drep_quality_gtdbtk_summary.log"
+
+    input:
+    path derep_mags_dir
+    path drep_genome_info
+    path gtdbtk_outputs
+
+    output:
+    path "dereplicated_genomes_quality_taxonomy_summary.tsv", emit: summary
+    path "write_drep_quality_gtdbtk_summary.log", emit: log_file
+
+    script:
+    """
+    set -euo pipefail
+
+    LOG="write_drep_quality_gtdbtk_summary.log"
+
+    echo "Writing dRep + CheckM2 quality + GTDB-Tk taxonomy summary: \$(date)" > "\$LOG"
+    echo "Dereplicated MAG directory: ${derep_mags_dir}" >> "\$LOG"
+    echo "dRep genomeInfo CSV: ${drep_genome_info}" >> "\$LOG"
+    echo "GTDB-Tk outputs staged from RUN_GTDBTK." >> "\$LOG"
+    echo "Output summary: dereplicated_genomes_quality_taxonomy_summary.tsv" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
+
+    python3 - \\
+        "${derep_mags_dir}" \\
+        "${drep_genome_info}" \\
+        "${params.drep_extension}" \\
+        "dereplicated_genomes_quality_taxonomy_summary.tsv" \\
+        "\$LOG" <<'PY'
+
+import csv
+import sys
+from pathlib import Path
+
+derep_mags_dir = Path(sys.argv[1])
+drep_genome_info = Path(sys.argv[2])
+extension = sys.argv[3].lstrip(".")
+out_tsv = Path(sys.argv[4])
+log_file = Path(sys.argv[5])
+
+def log(message):
+    with log_file.open("a") as handle:
+        print(message, file=handle)
+
+def strip_known_fasta_suffix(name):
+    name = str(name).strip()
+    for suffix in [".fasta.gz", ".fna.gz", ".fa.gz", ".fasta", ".fna", ".fa"]:
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return Path(name).stem
+
+def add_name_keys(mapping, name, value):
+    name = str(name).strip()
+    if not name:
+        return
+
+    stem = strip_known_fasta_suffix(name)
+
+    keys = set()
+    keys.add(name)
+    keys.add(stem)
+    keys.add(f"{stem}.{extension}")
+
+    for key in keys:
+        mapping[key] = value
+
+if not derep_mags_dir.exists() or not derep_mags_dir.is_dir():
+    raise SystemExit(f"ERROR: Dereplicated MAG directory missing: {derep_mags_dir}")
+
+if not drep_genome_info.exists() or drep_genome_info.stat().st_size == 0:
+    raise SystemExit(f"ERROR: dRep genomeInfo CSV missing or empty: {drep_genome_info}")
+
+derep_fastas = sorted([
+    p for p in derep_mags_dir.iterdir()
+    if p.is_file() and p.name.endswith("." + extension)
+])
+
+if not derep_fastas:
+    raise SystemExit(f"ERROR: No dereplicated .{extension} genomes found in {derep_mags_dir}")
+
+derep_genomes = [p.name for p in derep_fastas]
+
+log(f"Dereplicated genomes found: {len(derep_genomes)}")
+log("First dereplicated genomes:")
+for name in derep_genomes[:20]:
+    log(f"  {name}")
+
+# --------------------------------------------------------------------
+# Load quality information from modified_quality_report.csv /
+# drep_genomeInfo_used.csv style file.
+#
+# Required headers:
+#   genome,completeness,contamination
+# --------------------------------------------------------------------
+quality_by_key = {}
+
+with drep_genome_info.open(newline="") as handle:
+    reader = csv.DictReader(handle)
+
+    if reader.fieldnames is None:
+        raise SystemExit("ERROR: dRep genomeInfo CSV has no header row.")
+
+    required = ["genome", "completeness", "contamination"]
+    missing = [col for col in required if col not in reader.fieldnames]
+
+    if missing:
+        raise SystemExit(f"ERROR: dRep genomeInfo CSV missing required columns: {missing}")
+
+    loaded_quality_rows = 0
+
+    for row in reader:
+        genome = str(row.get("genome", "")).strip()
+        completeness = str(row.get("completeness", "")).strip()
+        contamination = str(row.get("contamination", "")).strip()
+
+        if not genome:
+            continue
+
+        value = {
+            "completeness": completeness,
+            "contamination": contamination,
+        }
+
+        add_name_keys(quality_by_key, genome, value)
+        loaded_quality_rows += 1
+
+log(f"Quality rows loaded: {loaded_quality_rows}")
+
+# --------------------------------------------------------------------
+# Find GTDB-Tk taxonomy summary files.
+#
+# Current GTDB-Tk files of interest:
+#   gtdbtk.bac120.summary.tsv
+#   gtdbtk.ar53.summary.tsv
+#
+# Both bacteria and archaea are handled when present.
+# --------------------------------------------------------------------
+search_root = Path(".")
+gtdbtk_summary_files = []
+
+for p in sorted(search_root.rglob("gtdbtk.*.summary.tsv")):
+    name = p.name
+
+    if name == "gtdbtk.bac120.summary.tsv" or name == "gtdbtk.ar53.summary.tsv":
+        gtdbtk_summary_files.append(p)
+
+if not gtdbtk_summary_files:
+    log("Could not find gtdbtk.bac120.summary.tsv or gtdbtk.ar53.summary.tsv in staged GTDB-Tk outputs.")
+    log("Staged files preview:")
+    for p in list(search_root.rglob("*"))[:300]:
+        log(str(p))
+    raise SystemExit("ERROR: No GTDB-Tk taxonomy summary files found.")
+
+log("GTDB-Tk taxonomy summary files found:")
+for p in gtdbtk_summary_files:
+    log(f"  {p}")
+
+taxonomy_by_key = {}
+taxonomy_headers = []
+
+for summary_file in gtdbtk_summary_files:
+    if summary_file.name == "gtdbtk.bac120.summary.tsv":
+        marker_set = "bac120"
+    elif summary_file.name == "gtdbtk.ar53.summary.tsv":
+        marker_set = "ar53"
+    else:
+        marker_set = "unknown"
+
+    with summary_file.open(newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\\t")
+
+        if reader.fieldnames is None:
+            log(f"WARNING: GTDB-Tk summary file has no header and will be skipped: {summary_file}")
+            continue
+
+        if "user_genome" not in reader.fieldnames:
+            log(f"WARNING: GTDB-Tk summary file lacks user_genome column and will be skipped: {summary_file}")
+            log(f"Headers: {reader.fieldnames}")
+            continue
+
+        local_headers = ["gtdbtk_marker_set", "gtdbtk_summary_file"] + [
+            h for h in reader.fieldnames if h != "user_genome"
+        ]
+
+        for h in local_headers:
+            if h not in taxonomy_headers:
+                taxonomy_headers.append(h)
+
+        row_count = 0
+
+        for row in reader:
+            user_genome = str(row.get("user_genome", "")).strip()
+
+            if not user_genome:
+                continue
+
+            tax_value = {
+                "gtdbtk_marker_set": marker_set,
+                "gtdbtk_summary_file": summary_file.name,
+            }
+
+            for h in reader.fieldnames:
+                if h == "user_genome":
+                    continue
+                tax_value[h] = row.get(h, "")
+
+            add_name_keys(taxonomy_by_key, user_genome, tax_value)
+            row_count += 1
+
+        log(f"Loaded {row_count} taxonomy rows from {summary_file.name}")
+
+log(f"Taxonomy lookup entries loaded: {len(taxonomy_by_key)}")
+log(f"GTDB-Tk taxonomy columns retained: {taxonomy_headers}")
+
+missing_quality = []
+missing_taxonomy = []
+
+with out_tsv.open("w", newline="") as out:
+    writer = csv.writer(out, delimiter="\\t")
+
+    header = ["genome", "completeness", "contamination"] + taxonomy_headers
+    writer.writerow(header)
+
+    for genome_file in derep_genomes:
+        genome_stem = strip_known_fasta_suffix(genome_file)
+
+        quality = (
+            quality_by_key.get(genome_file)
+            or quality_by_key.get(genome_stem)
+            or {}
+        )
+
+        taxonomy = (
+            taxonomy_by_key.get(genome_file)
+            or taxonomy_by_key.get(genome_stem)
+            or {}
+        )
+
+        completeness = quality.get("completeness", "")
+        contamination = quality.get("contamination", "")
+
+        if not quality:
+            missing_quality.append(genome_file)
+
+        if not taxonomy:
+            missing_taxonomy.append(genome_file)
+
+        row = [
+            genome_file,
+            completeness,
+            contamination,
+        ]
+
+        for h in taxonomy_headers:
+            row.append(taxonomy.get(h, ""))
+
+        writer.writerow(row)
+
+if missing_quality:
+    log(f"WARNING: Missing quality information for {len(missing_quality)} dereplicated genomes.")
+    for name in missing_quality[:50]:
+        log(f"  missing_quality: {name}")
+
+if missing_taxonomy:
+    log(f"WARNING: Missing GTDB-Tk taxonomy for {len(missing_taxonomy)} dereplicated genomes.")
+    for name in missing_taxonomy[:50]:
+        log(f"  missing_taxonomy: {name}")
+
+log(f"Final summary rows written: {len(derep_genomes)}")
+log("Final summary preview:")
+
+with out_tsv.open() as handle:
+    for idx, line in enumerate(handle):
+        if idx >= 10:
+            break
+        log(line.rstrip("\\n"))
+
+PY
+
+    echo "Finished writing dRep + CheckM2 quality + GTDB-Tk taxonomy summary: \$(date)" >> "\$LOG"
+    """
+}
 
 process WRITE_MODULE6_SUMMARY {
     tag "write_module6_summary"
