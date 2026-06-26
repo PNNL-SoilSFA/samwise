@@ -4,7 +4,7 @@
 
 SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
-<img width="1406" height="1577" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/dfa4ee38-55ab-4b02-9837-7abfc0cb1528" />
+<img width="1406" height="1577" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/bf50500b-68ae-47b2-a4f5-8303a037b0a1" />
 
 ---
 
