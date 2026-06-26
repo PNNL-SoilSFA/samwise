@@ -1,4 +1,4 @@
-![alt text][images/SAMWISE_title.png](https://github.com/jrr-microbio/samwise/blob/main/images/SAMWISE_title.png)
+/images/SAMWISE_title.png
 
 # Welcome to SAMWISE!
 
