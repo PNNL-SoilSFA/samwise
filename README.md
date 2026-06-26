@@ -564,7 +564,7 @@ nextflow run module_6_magannotate.nf \
 | `conda_pkgs_dir` | `null` | Optional workflow-local conda/mamba package cache directory. |
 | `run_checkm2` | `true` | Whether to run CheckM2 for MAG quality assessment. |
 | `run_gtdbtk` | `true` | Whether to run GTDB-Tk for taxonomic classification. |
-| `run_eggnog` | `true` | Whether to run EggNOG-mapper for functional annotation. |
+| `run_eggnog` | `false` | Whether to run EggNOG-mapper for functional annotation. |
 | `checkm2_version` | `null` | Version of CheckM2 to install/use. If `null`, the environment/tool setup may use its default version. |
 | `gtdbtk_version` | `2.7.2` | Version of GTDB-Tk to install/use. |
 | `checkm2_db_path` | `null` | Path to an existing CheckM2 database file. If provided, this database is used directly. |
