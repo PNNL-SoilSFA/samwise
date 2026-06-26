@@ -18,6 +18,8 @@ To start with SAMWISE, you will want to make sure that you have `mamba` (or `con
 
 Then, you need to install NextFlow - this can be done via `mamba` / `conda`: https://anaconda.org/channels/bioconda/packages/nextflow/overview
 
+Then, go ahead and clone this repo or download it / extract. Change directory into the directory of the cloned repo: `cd ./samwise-main`
+
 Now, you are ready to proceed with SAMWISE!
 
 ---
@@ -51,6 +53,14 @@ nextflow run module_2_readassembly.nf \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
 
+nextflow run module_2b_coassembly.nf \
+--working_dir ./samwise-main \
+--coassembly_groups ./coassembly_manifest.txt \
+--threads 36 \
+--memory_gb 0
+
+#check the module notes for coassembly_manifest.txt examples / format
+
 # Bin your assemblies
 nextflow run module_3_binning.nf \
 --working_dir ./samwise-main \
@@ -83,7 +93,7 @@ nextflow run module_6_magannotate.nf \
 --run_eggnog true \
 --threads 36
 
-# If you already pre-downloaded the databases and have them elsewhere, you can directly pass the paths as arguments:
+# If you already pre-downloaded the gtdb, checkm2, and eggnog databases and have them elsewhere, you can directly pass the paths as arguments:
 # --checkm2_db_path /path/to/uniref100.KO.1.dmnd
 # --gtdbtk_data_path /path/to/gtdbtk/database_directory
 # --eggnog_data_path /path/to/eggnog/database_directory

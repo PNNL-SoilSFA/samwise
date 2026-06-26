@@ -210,12 +210,14 @@ workflow {
     }
 
     if (run_drep && run_checkm2 && run_gtdbtk) {
-        WRITE_DREP_QUALITY_GTDBTK_SUMMARY(
-            RUN_DREP.out.derep_mags_dir,
-            PREPARE_DREP_GENOME_INFO.out.genome_info,
-            RUN_GTDBTK.out.gtdbtk_out,
-        )
-    }
+    WRITE_DREP_QUALITY_GTDBTK_SUMMARY(
+        RUN_DREP.out.derep_mags_dir,
+        PREPARE_DREP_GENOME_INFO.out.genome_info,
+        RUN_GTDBTK.out.status,
+        channel.value("${params.outdir}/gtdbtk/gtdbtk.bac120.summary.tsv"),
+        channel.value("${params.outdir}/gtdbtk/gtdbtk.ar53.summary.tsv"),
+    )
+}
 
     if (run_eggnog) {
         SETUP_EGGNOG()
@@ -2238,7 +2240,9 @@ process WRITE_DREP_QUALITY_GTDBTK_SUMMARY {
     input:
     path derep_mags_dir
     path drep_genome_info
-    path gtdbtk_outputs
+    path gtdbtk_status
+    val gtdbtk_bac120_summary
+    val gtdbtk_ar53_summary
 
     output:
     path "dereplicated_genomes_quality_taxonomy_summary.tsv", emit: summary
@@ -2250,17 +2254,58 @@ process WRITE_DREP_QUALITY_GTDBTK_SUMMARY {
 
     LOG="write_drep_quality_gtdbtk_summary.log"
 
+    BAC120="${gtdbtk_bac120_summary}"
+    AR53="${gtdbtk_ar53_summary}"
+
     echo "Writing dRep + CheckM2 quality + GTDB-Tk taxonomy summary: \$(date)" > "\$LOG"
     echo "Dereplicated MAG directory: ${derep_mags_dir}" >> "\$LOG"
     echo "dRep genomeInfo CSV: ${drep_genome_info}" >> "\$LOG"
-    echo "GTDB-Tk outputs staged from RUN_GTDBTK." >> "\$LOG"
+    echo "GTDB-Tk status file dependency: ${gtdbtk_status}" >> "\$LOG"
+    echo "GTDB-Tk bac120 summary, exact path: \$BAC120" >> "\$LOG"
+    echo "GTDB-Tk ar53 summary, exact path: \$AR53" >> "\$LOG"
     echo "Output summary: dereplicated_genomes_quality_taxonomy_summary.tsv" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
+
+    echo "Waiting for exact GTDB-Tk summary files if needed." >> "\$LOG"
+
+    for i in \$(seq 1 180); do
+        if [[ -s "\$BAC120" && -s "\$AR53" ]]; then
+            echo "Found both exact GTDB-Tk summary files after \$i checks." >> "\$LOG"
+            break
+        fi
+
+        if [[ "\$i" -eq 180 ]]; then
+            echo "ERROR: Timed out waiting for exact GTDB-Tk summary files." >> "\$LOG"
+            echo "Expected bac120: \$BAC120" >> "\$LOG"
+            ls -lh "\$BAC120" >> "\$LOG" 2>&1 || true
+            echo "Expected ar53: \$AR53" >> "\$LOG"
+            ls -lh "\$AR53" >> "\$LOG" 2>&1 || true
+            exit 1
+        fi
+
+        sleep 10
+    done
+
+    if [[ ! -s "\$BAC120" ]]; then
+        echo "ERROR: Missing or empty exact GTDB-Tk bac120 summary: \$BAC120" >> "\$LOG"
+        exit 1
+    fi
+
+    if [[ ! -s "\$AR53" ]]; then
+        echo "ERROR: Missing or empty exact GTDB-Tk ar53 summary: \$AR53" >> "\$LOG"
+        exit 1
+    fi
+
+    echo "Using only these two GTDB-Tk files:" >> "\$LOG"
+    ls -lh "\$BAC120" "\$AR53" >> "\$LOG" 2>&1
     echo "----------------------------------------" >> "\$LOG"
 
     python3 - \\
         "${derep_mags_dir}" \\
         "${drep_genome_info}" \\
         "${params.drep_extension}" \\
+        "\$BAC120" \\
+        "\$AR53" \\
         "dereplicated_genomes_quality_taxonomy_summary.tsv" \\
         "\$LOG" <<'PY'
 
@@ -2271,8 +2316,10 @@ from pathlib import Path
 derep_mags_dir = Path(sys.argv[1])
 drep_genome_info = Path(sys.argv[2])
 extension = sys.argv[3].lstrip(".")
-out_tsv = Path(sys.argv[4])
-log_file = Path(sys.argv[5])
+gtdbtk_bac120_summary = Path(sys.argv[4])
+gtdbtk_ar53_summary = Path(sys.argv[5])
+out_tsv = Path(sys.argv[6])
+log_file = Path(sys.argv[7])
 
 def log(message):
     with log_file.open("a") as handle:
@@ -2306,6 +2353,10 @@ if not derep_mags_dir.exists() or not derep_mags_dir.is_dir():
 if not drep_genome_info.exists() or drep_genome_info.stat().st_size == 0:
     raise SystemExit(f"ERROR: dRep genomeInfo CSV missing or empty: {drep_genome_info}")
 
+for required_gtdbtk_file in [gtdbtk_bac120_summary, gtdbtk_ar53_summary]:
+    if not required_gtdbtk_file.exists() or required_gtdbtk_file.stat().st_size == 0:
+        raise SystemExit(f"ERROR: Required exact GTDB-Tk summary missing or empty: {required_gtdbtk_file}")
+
 derep_fastas = sorted([
     p for p in derep_mags_dir.iterdir()
     if p.is_file() and p.name.endswith("." + extension)
@@ -2328,6 +2379,7 @@ for name in derep_genomes[:20]:
 # Required headers:
 #   genome,completeness,contamination
 # --------------------------------------------------------------------
+
 quality_by_key = {}
 
 with drep_genome_info.open(newline="") as handle:
@@ -2363,31 +2415,20 @@ with drep_genome_info.open(newline="") as handle:
 log(f"Quality rows loaded: {loaded_quality_rows}")
 
 # --------------------------------------------------------------------
-# Find GTDB-Tk taxonomy summary files.
+# Use ONLY these exact GTDB-Tk taxonomy summary files:
 #
-# Current GTDB-Tk files of interest:
-#   gtdbtk.bac120.summary.tsv
-#   gtdbtk.ar53.summary.tsv
+#   ${params.outdir}/gtdbtk/gtdbtk.bac120.summary.tsv
+#   ${params.outdir}/gtdbtk/gtdbtk.ar53.summary.tsv
 #
-# Both bacteria and archaea are handled when present.
+# No recursive search is performed.
 # --------------------------------------------------------------------
-search_root = Path(".")
-gtdbtk_summary_files = []
 
-for p in sorted(search_root.rglob("gtdbtk.*.summary.tsv")):
-    name = p.name
+gtdbtk_summary_files = [
+    gtdbtk_bac120_summary,
+    gtdbtk_ar53_summary,
+]
 
-    if name == "gtdbtk.bac120.summary.tsv" or name == "gtdbtk.ar53.summary.tsv":
-        gtdbtk_summary_files.append(p)
-
-if not gtdbtk_summary_files:
-    log("Could not find gtdbtk.bac120.summary.tsv or gtdbtk.ar53.summary.tsv in staged GTDB-Tk outputs.")
-    log("Staged files preview:")
-    for p in list(search_root.rglob("*"))[:300]:
-        log(str(p))
-    raise SystemExit("ERROR: No GTDB-Tk taxonomy summary files found.")
-
-log("GTDB-Tk taxonomy summary files found:")
+log("GTDB-Tk taxonomy summary files used:")
 for p in gtdbtk_summary_files:
     log(f"  {p}")
 
@@ -2432,7 +2473,7 @@ for summary_file in gtdbtk_summary_files:
 
             tax_value = {
                 "gtdbtk_marker_set": marker_set,
-                "gtdbtk_summary_file": summary_file.name,
+                "gtdbtk_summary_file": str(summary_file),
             }
 
             for h in reader.fieldnames:
@@ -2443,7 +2484,7 @@ for summary_file in gtdbtk_summary_files:
             add_name_keys(taxonomy_by_key, user_genome, tax_value)
             row_count += 1
 
-        log(f"Loaded {row_count} taxonomy rows from {summary_file.name}")
+        log(f"Loaded {row_count} taxonomy rows from {summary_file}")
 
 log(f"Taxonomy lookup entries loaded: {len(taxonomy_by_key)}")
 log(f"GTDB-Tk taxonomy columns retained: {taxonomy_headers}")
