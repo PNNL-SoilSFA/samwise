@@ -1,12 +1,10 @@
-[<img width="1406" height="240" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/5f56bf43-fa98-4ce3-99b1-ea05313e85c5" />
-](https://github.com/jrr-microbio/samwise/blob/main/images/SAMWISE_title.png)
+images/SAMWISE_title.png
 
 # Welcome to SAMWISE!
 
 SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
-[<img width="1406" height="1577" alt="SAMWISE_FULL-git" src="https://github.com/user-attachments/assets/bf50500b-68ae-47b2-a4f5-8303a037b0a1" />
-](https://github.com/jrr-microbio/samwise/blob/main/images/SAMWISE_FULL-git.png)
+images/SAMWISE_FULL-git.png
 
 ---
 
@@ -106,8 +104,7 @@ nextflow run module_6_magannotate.nf \
 Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer!
 ```
 
-[<img width="1330" height="216" alt="image" src="https://github.com/user-attachments/assets/985ba335-2976-4374-ae8d-136b5c42c6bf" />
-](https://github.com/jrr-microbio/samwise/blob/main/images/step_0.png)
+images/step_0.png](https://github.com/jrr-microbio/samwise/blob/main/images/step_0.png)
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
 
