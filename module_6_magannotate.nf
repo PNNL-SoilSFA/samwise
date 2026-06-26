@@ -2,7 +2,7 @@
 nextflow.enable.dsl = 2
 
 /*
- * Module 6: MAG annotation / quality / taxonomy.
+ * Module 6: MAG annotate / quality / taxonomy.
  */
 
 params.working_dir = null
@@ -56,7 +56,7 @@ params.eggnog_fail_nonfatal = false
 params.publish_mags_mode = "copy"
 params.publish_tool_outputs_mode = "copy"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
-params.outdir = "${params.results_dir}/module_6_magannotation"
+params.outdir = "${params.results_dir}/module_6_magannotate"
 params.module5_final_mag_dir = "${params.results_dir}/module_5_subtractiveassembly/final_mag_database"
 params.module4_refined_mag_dir = "${params.results_dir}/module_4_binrefinement/refined_bins"
 params.checkm2_db_outdir = params.checkm2_db_dir ?: "${params.outdir}/databases/checkm2"
@@ -201,18 +201,24 @@ workflow {
         mags_for_annotation = RUN_DREP.out.derep_mags_dir
     }
 
-    if (run_gtdbtk) {
+        if (run_gtdbtk) {
         SETUP_GTDBTK()
-
         RUN_GTDBTK(
             mags_for_annotation,
             SETUP_GTDBTK.out.status,
         )
     }
 
+    if (run_drep && run_checkm2 && run_gtdbtk) {
+        WRITE_DREP_QUALITY_GTDBTK_SUMMARY(
+            RUN_DREP.out.derep_mags_dir,
+            PREPARE_DREP_GENOME_INFO.out.genome_info,
+            RUN_GTDBTK.out.gtdbtk_out,
+        )
+    }
+
     if (run_eggnog) {
         SETUP_EGGNOG()
-
         RUN_EGGNOG(
             mags_for_annotation,
             SETUP_EGGNOG.out.status,
