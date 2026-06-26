@@ -18,7 +18,7 @@ To start with SAMWISE, you will want to make sure that you have `mamba` (or `con
 
 Then, you need to install NextFlow - this can be done via `mamba` / `conda`: https://anaconda.org/channels/bioconda/packages/nextflow/overview
 
-Then, go ahead and clone this repo or download it / extract. Change directory into the directory of the cloned repo: `cd ./samwise-main`
+Then, go ahead and clone this repo or download it / extract. You can click on `clone repo` in the top right on GitHub or just download the whole thing. Then, change directory into the directory of the cloned repo: `cd ./samwise-main`
 
 Now, you are ready to proceed with SAMWISE!
 
