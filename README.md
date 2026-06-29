@@ -95,6 +95,9 @@ nextflow run module_6_magannotate.nf \
 --run_eggnog true \
 --threads 36
 
+# If you pay for compute time, you might want to pre-download the databases that this tool needs and place them in a directory on your server
+# before you run the code!! For this, see: CheckM2: https://zenodo.org/records/14897628, gtdbtk: https://ecogenomics.github.io/GTDBTk/installing/index.html,
+# eggnog: https://github.com/eggnogdb/eggnog-mapper; command: download_eggnog_data.py --data_dir /path/to/eggnog-data
 # If you already pre-downloaded the gtdb, checkm2, and eggnog databases and have them elsewhere, you can directly pass the paths as arguments:
 # --checkm2_db_path /path/to/uniref100.KO.1.dmnd
 # --gtdbtk_data_path /path/to/gtdbtk/database_directory
