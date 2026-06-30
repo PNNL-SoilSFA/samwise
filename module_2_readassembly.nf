@@ -20,23 +20,8 @@ params.auto_install = true
 params.tool_env_dir = null
 params.threads = null
 params.assembly_threads = 4
-
-/*
-* Global memory in GB.
-*
-* Example:
-*   --memory_gb 512
-*
-* Use 0 to leave memory unset.
-*/
 params.memory_gb = 0
-
-/*
-* Optional MEGAHIT-specific thread override.
-*
-* Example:
-*   --megahit_threads 1
-*/
+params.clean_partial_assembler_outputs = true
 params.megahit_threads = null
 params.megahit_preset = "meta-large"
 params.publish_assemblies_mode = "symlink"
@@ -463,6 +448,11 @@ process ASSEMBLE_SINGLE {
     MANIFEST_RECORD="\${SAFE_ID}_\${ASSEMBLER}_single.assembly_manifest_record.tsv"
     LOG_FILE="\${SAFE_ID}_\${ASSEMBLER}_single.log"
 
+    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" ]]; then
+        rm -f "\$OUT_FASTA" "\$HEADER_MAP" "\$STATS_FILE" "\$MANIFEST_RECORD"
+        rm -f input_R1.fastq.gz input_R2.fastq.gz input_interleaved.fastq.gz
+    fi
+
     if [[ "\$LAYOUT" == "paired" ]]; then
         if [[ ! -s "${read1}" || ! -s "${read2}" ]]; then
             echo "ERROR: Missing paired reads for sample \${SAMPLE_ID}" >&2
@@ -504,6 +494,11 @@ process ASSEMBLE_SINGLE {
         ASSEMBLY_STRATEGY="A"
         RAW_OUT="megahit_out"
         MEGAHIT_MEM_ARG=""
+
+        if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
+            echo "Removing stale MEGAHIT output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
+            rm -rf "\$RAW_OUT"
+        fi
 
         if [[ "${params.memory_gb}" != "0" ]]; then
             MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
@@ -552,6 +547,11 @@ process ASSEMBLE_SINGLE {
         ASSEMBLY_STRATEGY="B"
         RAW_OUT="metaspades_out"
         SPADES_MEM_ARG=""
+
+    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
+        echo "Removing stale metaSPAdes output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
+        rm -rf "\$RAW_OUT"
+    fi
 
         if [[ "${params.memory_gb}" != "0" ]]; then
             SPADES_MEM_ARG="-m ${params.memory_gb}"
@@ -864,6 +864,11 @@ process ASSEMBLE_RAREFIED {
     SUB_R2="subset_\${RAREFACTION_LABEL}_R2.fastq.gz"
     SUB_12="subset_\${RAREFACTION_LABEL}_interleaved.fastq.gz"
 
+    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" ]]; then
+        rm -f "\$OUT_FASTA" "\$HEADER_MAP" "\$STATS_FILE" "\$MANIFEST_RECORD"
+        rm -f "\$SUB_R1" "\$SUB_R2" "\$SUB_12"
+    fi
+    
     echo "Creating rarefied subset \${RAREFACTION_LABEL} of \${RARE_SPLIT_COUNT} for \${SAMPLE_ID}" > "\$LOG_FILE"
 
     python3 - \\
@@ -979,6 +984,11 @@ PY
         RAW_OUT="megahit_rarefied_out"
         MEGAHIT_MEM_ARG=""
 
+        if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
+            echo "Removing stale MEGAHIT output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
+            rm -rf "\$RAW_OUT"
+        fi
+
         if [[ "${params.memory_gb}" != "0" ]]; then
             MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
             MEGAHIT_MEM_ARG="-m \$MEGAHIT_MEM_BYTES"
@@ -1026,6 +1036,11 @@ PY
         ASSEMBLY_STRATEGY="D"
         RAW_OUT="metaspades_rarefied_out"
         SPADES_MEM_ARG=""
+
+    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
+        echo "Removing stale metaSPAdes output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
+        rm -rf "\$RAW_OUT"
+    fi
 
         if [[ "${params.memory_gb}" != "0" ]]; then
             SPADES_MEM_ARG="-m ${params.memory_gb}"
