@@ -77,6 +77,8 @@ nextflow run module_4_binrefinement.nf \
 --working_dir ./samwise-main \
 --threads 36
 
+#Note: you can only run this if you have run more than 1 binner.
+
 # Run a subtractive assembly
 nextflow run module_5_subassembly.nf \
 --working_dir ./samwise-main \
@@ -95,10 +97,13 @@ nextflow run module_6_magannotate.nf \
 --run_eggnog true \
 --threads 36
 
-# If you pay for compute time, you might want to pre-download the databases that this tool needs and place them in a directory on your server
-# before you run module 6!! For this, see: CheckM2: https://zenodo.org/records/14897628, gtdbtk: https://ecogenomics.github.io/GTDBTk/installing/index.html,
+#Note: If running only 1 binner, you need to pass the MAG manifest from Module 3 directly with: --input_mag_manifest
+
+# To save compute time, you can pre-download the databases before you run module 6.
+# For this, see: CheckM2: https://zenodo.org/records/14897628, gtdbtk: https://ecogenomics.github.io/GTDBTk/installing/index.html,
 # eggnog: https://github.com/eggnogdb/eggnog-mapper; command: download_eggnog_data.py --data_dir /path/to/eggnog-data
-# If you already pre-downloaded the gtdb, checkm2, and eggnog databases and have them elsewhere, you can directly pass the paths as arguments:
+# If you already pre-downloaded the gtdb, checkm2, and eggnog databases, 
+# you can directly pass the paths as arguments:
 # --checkm2_db_path /path/to/uniref100.KO.1.dmnd
 # --gtdbtk_data_path /path/to/gtdbtk/database_directory
 # --eggnog_data_path /path/to/eggnog/database_directory
@@ -106,7 +111,8 @@ nextflow run module_6_magannotate.nf \
 ```
 
 ```
-Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer!
+Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer! 
+First, a quick note. If you ever have a module (for example, an assembly module) halt because of time or whatever issue, you can resume the assembly by simply passing "-resume" as an argument for that module.
 ```
 
 ![SAMWISE step0](images/step_0.png)
