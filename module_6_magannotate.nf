@@ -1405,14 +1405,16 @@ process SETUP_GTDBTK {
     set -euo pipefail
 
     STATUS="gtdbtk_setup_status.env"
+
     GTDBTK_ENV="${env_dir}"
     GTDBTK_DATA_PATH="${gtdbtk_data_path}"
     GTDBTK_DB_DIR="${db_dir}"
     GTDBTK_DOWNLOAD_URL="${params.gtdbtk_download_url}"
     DOWNLOAD_THREADS="${download_threads}"
-
     CONDA_PKGS_DIRS="${conda_pkgs_dir}"
+
     export CONDA_PKGS_DIRS
+
     mkdir -p "\$CONDA_PKGS_DIRS"
 
     echo "GTDB-Tk setup started: \$(date)" > "\$STATUS"
@@ -1439,6 +1441,72 @@ process SETUP_GTDBTK {
         [[ -x "\$prefix/bin/gtdbtk" ]]
     }
 
+    resolve_gtdbtk_data_path() {
+        local db_dir="\$1"
+        local marker=""
+
+        # Preferred modern GTDB-Tk layout:
+        #
+        #   db_root/metadata/metadata.txt
+        #
+        # In this case GTDBTK_DATA_PATH must be db_root, NOT db_root/metadata.
+        if [[ -s "\$db_dir/metadata/metadata.txt" ]]; then
+            echo "\$db_dir"
+            return 0
+        fi
+
+        # Some layouts may have metadata.txt or VERSION directly at root.
+        if [[ -s "\$db_dir/metadata.txt" || -s "\$db_dir/VERSION" ]]; then
+            echo "\$db_dir"
+            return 0
+        fi
+
+        # Fallback: find a marker and infer the root.
+        marker="\$(find "\$db_dir" -type f \\( -name 'metadata.txt' -o -name 'VERSION' \\) 2>/dev/null | head -n 1 || true)"
+
+        if [[ -z "\$marker" ]]; then
+            echo ""
+            return 0
+        fi
+
+        # If marker is:
+        #
+        #   db_root/metadata/metadata.txt
+        #
+        # then the root is:
+        #
+        #   db_root
+        if [[ "\$(basename "\$(dirname "\$marker")")" == "metadata" ]]; then
+            dirname "\$(dirname "\$marker")"
+            return 0
+        fi
+
+        # Otherwise assume marker's directory is the database root.
+        dirname "\$marker"
+    }
+
+    validate_gtdbtk_data_path() {
+        local data_path="\$1"
+
+        if [[ ! -d "\$data_path" ]]; then
+            echo "ERROR: GTDBTK_DATA_PATH does not exist: \$data_path" >> "\$STATUS"
+            return 1
+        fi
+
+        if [[ ! -s "\$data_path/metadata/metadata.txt" && ! -s "\$data_path/metadata.txt" && ! -s "\$data_path/VERSION" ]]; then
+            echo "ERROR: GTDBTK_DATA_PATH does not look like a GTDB-Tk database root: \$data_path" >> "\$STATUS"
+            echo "Expected one of:" >> "\$STATUS"
+            echo "  \$data_path/metadata/metadata.txt" >> "\$STATUS"
+            echo "  \$data_path/metadata.txt" >> "\$STATUS"
+            echo "  \$data_path/VERSION" >> "\$STATUS"
+            echo "Directory preview:" >> "\$STATUS"
+            find "\$data_path" -maxdepth 4 \\( -type f -o -type d \\) | head -n 200 >> "\$STATUS" 2>&1 || true
+            return 1
+        fi
+
+        return 0
+    }
+
     if [[ -d "\$GTDBTK_ENV" ]]; then
         if check_env "\$GTDBTK_ENV"; then
             echo "Existing GTDB-Tk environment passed checks." >> "\$STATUS"
@@ -1455,12 +1523,15 @@ process SETUP_GTDBTK {
         fi
 
         INSTALLER="\$(find_installer)"
+
         if [[ -z "\$INSTALLER" ]]; then
             echo "ERROR: Neither mamba nor conda found." >> "\$STATUS"
             exit 1
         fi
 
         mkdir -p "\$(dirname "\$GTDBTK_ENV")"
+
+        echo "Creating GTDB-Tk environment: \$GTDBTK_ENV" >> "\$STATUS"
 
         "\$INSTALLER" create -y \\
             -p "\$GTDBTK_ENV" \\
@@ -1483,22 +1554,32 @@ process SETUP_GTDBTK {
 
     export PATH="\$GTDBTK_ENV/bin:\$PATH"
 
+    echo "GTDB-Tk executable:" >> "\$STATUS"
+    command -v gtdbtk >> "\$STATUS" 2>&1 || true
+    gtdbtk --version >> "\$STATUS" 2>&1 || true
+
+    # ------------------------------------------------------------------
+    # Resolve GTDB-Tk database.
+    # ------------------------------------------------------------------
+
     if [[ -n "\$GTDBTK_DATA_PATH" ]]; then
         echo "Using user-supplied GTDBTK_DATA_PATH: \$GTDBTK_DATA_PATH" >> "\$STATUS"
 
-        if [[ ! -d "\$GTDBTK_DATA_PATH" ]]; then
-            echo "ERROR: User-supplied GTDBTK_DATA_PATH does not exist: \$GTDBTK_DATA_PATH" >> "\$STATUS"
+        if ! validate_gtdbtk_data_path "\$GTDBTK_DATA_PATH"; then
             exit 1
         fi
-
     else
         mkdir -p "\$GTDBTK_DB_DIR"
 
-        EXISTING_DATA="\$(find "\$GTDBTK_DB_DIR" -type f \\( -name 'metadata.txt' -o -name 'VERSION' \\) 2>/dev/null | head -n 1 || true)"
+        EXISTING_DATA="\$(resolve_gtdbtk_data_path "\$GTDBTK_DB_DIR")"
 
         if [[ -n "\$EXISTING_DATA" ]]; then
-            GTDBTK_DATA_PATH="\$(dirname "\$EXISTING_DATA")"
+            GTDBTK_DATA_PATH="\$EXISTING_DATA"
             echo "Existing GTDB-Tk database detected: \$GTDBTK_DATA_PATH" >> "\$STATUS"
+
+            if ! validate_gtdbtk_data_path "\$GTDBTK_DATA_PATH"; then
+                exit 1
+            fi
 
         elif [[ "${params.gtdbtk_auto_download_db}" == "true" ]]; then
             echo "GTDB-Tk database not found. Downloading manually into: \$GTDBTK_DB_DIR" >> "\$STATUS"
@@ -1528,6 +1609,7 @@ process SETUP_GTDBTK {
             if [[ ! -s "\$ARCHIVE" ]]; then
                 if command -v wget >/dev/null 2>&1; then
                     echo "Downloading GTDB-Tk DB with wget." >> "\$STATUS"
+
                     wget \\
                         --tries=3 \\
                         --timeout=120 \\
@@ -1535,8 +1617,10 @@ process SETUP_GTDBTK {
                         -O "\$TMP_ARCHIVE" \\
                         "\$GTDBTK_DOWNLOAD_URL" \\
                         >> "\$STATUS" 2>&1
+
                 elif command -v curl >/dev/null 2>&1; then
                     echo "Downloading GTDB-Tk DB with curl." >> "\$STATUS"
+
                     curl \\
                         -L \\
                         --retry 3 \\
@@ -1571,6 +1655,7 @@ process SETUP_GTDBTK {
                 mv "\$TMP_ARCHIVE" "\$ARCHIVE"
             fi
 
+            # Clean previous partial extraction while preserving the archive.
             find "\$GTDBTK_DB_DIR" \\
                 -mindepth 1 \\
                 -maxdepth 1 \\
@@ -1594,34 +1679,44 @@ process SETUP_GTDBTK {
 
             rm -f "\$ARCHIVE"
 
-            EXISTING_DATA="\$(find "\$GTDBTK_DB_DIR" -type f \\( -name 'metadata.txt' -o -name 'VERSION' \\) 2>/dev/null | head -n 1 || true)"
+            EXISTING_DATA="\$(resolve_gtdbtk_data_path "\$GTDBTK_DB_DIR")"
 
             if [[ -n "\$EXISTING_DATA" ]]; then
-                GTDBTK_DATA_PATH="\$(dirname "\$EXISTING_DATA")"
+                GTDBTK_DATA_PATH="\$EXISTING_DATA"
                 echo "GTDB-Tk database extracted to: \$GTDBTK_DATA_PATH" >> "\$STATUS"
+
+                if ! validate_gtdbtk_data_path "\$GTDBTK_DATA_PATH"; then
+                    exit 1
+                fi
             else
-                echo "ERROR: GTDB-Tk database extracted, but metadata.txt or VERSION was not found." >> "\$STATUS"
-                find "\$GTDBTK_DB_DIR" -maxdepth 4 -type f | head -n 100 >> "\$STATUS" 2>&1 || true
+                echo "ERROR: GTDB-Tk database extracted, but database metadata was not found." >> "\$STATUS"
+                echo "Expected one of:" >> "\$STATUS"
+                echo "  \$GTDBTK_DB_DIR/metadata/metadata.txt" >> "\$STATUS"
+                echo "  \$GTDBTK_DB_DIR/metadata.txt" >> "\$STATUS"
+                echo "  \$GTDBTK_DB_DIR/VERSION" >> "\$STATUS"
+                echo "Directory preview:" >> "\$STATUS"
+                find "\$GTDBTK_DB_DIR" -maxdepth 4 \\( -type f -o -type d \\) | head -n 200 >> "\$STATUS" 2>&1 || true
                 exit 1
             fi
-
         else
             echo "ERROR: --gtdbtk_data_path not supplied and auto-download disabled." >> "\$STATUS"
             exit 1
         fi
     fi
 
-    if [[ ! -d "\$GTDBTK_DATA_PATH" ]]; then
-        echo "ERROR: GTDBTK_DATA_PATH does not exist: \$GTDBTK_DATA_PATH" >> "\$STATUS"
+    if ! validate_gtdbtk_data_path "\$GTDBTK_DATA_PATH"; then
         exit 1
     fi
+
+    echo "Final GTDBTK_DATA_PATH: \$GTDBTK_DATA_PATH" >> "\$STATUS"
+    echo "GTDB-Tk database root preview:" >> "\$STATUS"
+    find "\$GTDBTK_DATA_PATH" -maxdepth 2 \\( -type f -o -type d \\) | head -n 200 >> "\$STATUS" 2>&1 || true
 
     echo "GTDBTK_ENV=\$GTDBTK_ENV" >> "\$STATUS"
     echo "GTDBTK_DATA_PATH=\$GTDBTK_DATA_PATH" >> "\$STATUS"
     echo "GTDB-Tk setup finished: \$(date)" >> "\$STATUS"
     """
 }
-
 
 process RUN_GTDBTK {
     tag "gtdbtk"
