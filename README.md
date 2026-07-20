@@ -17,8 +17,11 @@ SAMWISE is an automated, end-to-end metagenomic read processing program. Here is
 To start with SAMWISE, you will want to make sure that you have `mamba` (or `conda`) installed. We recommend mamba, and you can follow the instructions here: https://conda-forge.org/download/
 
 Then, you need to install NextFlow - this can be done via `mamba` / `conda`: https://anaconda.org/channels/bioconda/packages/nextflow/overview
+We recommend that you install NextFlow into its own, separate environment from your base environment. For example, with `mamba install -n nextflow -c bioconda nextflow` Then, when running SAMWISE, make sure that you activate your NextFlow environment with `mamba activate nextflow`!
 
-Then, go ahead and clone this repo or download it / extract. You can click on `clone repo` in the top right on GitHub or just download the whole thing. Then, change directory into the directory of the cloned repo: `cd ./samwise-main`
+Once NextFlow is isntalled, go ahead and clone this repo or download it / extract. You can click on `clone repo` in the top right on GitHub or just download the whole thing. Then, change directory into the directory of the cloned repo: `cd ./samwise-main`
+
+`samwise-main` is what will hold all of the nextflow .nf files, and is what we recommend get set as the `--working_dir` flag. SAMWISE will auto-generate all module folders as needed.
 
 Now, you are ready to proceed with SAMWISE!
 
