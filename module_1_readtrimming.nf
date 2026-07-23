@@ -15,6 +15,7 @@ params.auto_install = true
 params.tool_env_dir = null
 params.fastp_threads = 4
 params.fastqc_threads = 2
+params.skip_fastqc = false
 params.threads = null
 params.publish_trimmed_mode = "symlink"
 params.compression = 4
@@ -688,6 +689,9 @@ process RUN_FASTQC_TRIMMED {
     output:
     path "*_fastqc.html"
     path "*_fastqc.zip"
+
+    when:
+    !params.skip_fastqc
 
     script:
     """
