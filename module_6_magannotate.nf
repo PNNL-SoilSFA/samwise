@@ -2144,6 +2144,7 @@ process RUN_EGGNOG {
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "eggnog.log"
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "eggnog_status.tsv"
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "eggnog_input_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "eggnog_out/*.emapper.annotations.xlsx", saveAs: { filename -> filename.replaceFirst(/^eggnog_out\//, '') }
 
     cpus {
         params.threads != null ? params.threads as int : 30
