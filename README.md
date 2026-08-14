@@ -628,8 +628,57 @@ nextflow run module_6_magannotate.nf \
 | `eggnog_db_outdir` | `<outdir>/databases/eggnog` | Derived EggNOG-mapper database output directory. Uses `eggnog_data_path` or `eggnog_data_dir` if provided. Usually does not need to be set directly. |
 
 ![SAMWISE step7](images/step_7.png)
+
 This module performs the following steps:
 
+1. **Split unified Module 6 FASTA into per-MAG files: process PREPARE_GAPSEQ_INPUTS()** \
+2. **Setup shared gapseq+memote environment (mamba preferred): process SETUP_GAPSEQ()** \
+3. **Build models per MAG: process RUN_GAPSEQ_DOALL()**
+4. **Optionally adapt per manifest rows: process RUN_GAPSEQ_ADAPT()**
+5. **Optionally run MEMOTE snapshot or run: process RUN_MEMOTE_SNAPSHOT(), process RUN_MEMOTE_RUN()**
+6. **Write scaffold summaries: process WRITE_OUTPUT_MANIFEST()**
+
+Inputs: 
+
+Unified FASTA: resolved by workflow()
+
+Upstream manifest: resolved by workflow()
+
+Optional adapt manifest TSV with mag_id and adapt_compounds: params.adapt_manifest (example: background/test_adapt_manifest.tsv)
+
+Default run:
+```
+nextflow run module_7_gems.nf \
+--working_dir ./samwise-main \
+--memote_mode run
+```
+
+Run with comprehensive media:
+```
+nextflow run module_7_gems.nf \
+--working_dir ./samwise-main \
+--media_csv /absolute/path/to/background/media/gapseq_all_nutrients.csv \
+--memote_mode run
+```
+
+Manifest-driven adapt
+```
+nextflow run module_7_gems.nf \
+--working_dir /path/to/samwise_work \
+--adapt_manifest /path/to/adapt_manifest.tsv \
+--memote_mode run
+```
+
+Expected outputs:
+Inputs: gapseq_input_manifest.tsv, gapseq_inputs_stats.tsv, protein_fastas
+
+Setup: gapseq_setup_status.env
+
+GEMs: mag_id_gapseq_doall, optional mag_id_gapseq_adapt
+
+MEMOTE: snapshot mag_id_memote_snapshot.json; run mag_id_memote_report.html, mag_id_memote_report.json
+
+Summary: module_7_gems_manifest.tsv, module_7_gems_summary.tsv
 
 ![SAMWISE step8](images/step_8.png)
 
