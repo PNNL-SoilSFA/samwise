@@ -626,3 +626,11 @@ nextflow run module_6_magannotate.nf \
 | `checkm2_db_outdir` | `<outdir>/databases/checkm2` | Derived CheckM2 database output directory. Uses `checkm2_db_dir` if provided. Usually does not need to be set directly. |
 | `gtdbtk_db_outdir` | `<outdir>/databases/gtdbtk` | Derived GTDB-Tk database output directory. Uses `gtdbtk_db_dir` if provided. Usually does not need to be set directly. |
 | `eggnog_db_outdir` | `<outdir>/databases/eggnog` | Derived EggNOG-mapper database output directory. Uses `eggnog_data_path` or `eggnog_data_dir` if provided. Usually does not need to be set directly. |
+
+![SAMWISE step7](images/step_7.png)
+This module performs the following steps:
+
+
+![SAMWISE step8](images/step_8.png)
+
+This module performs the following steps:
