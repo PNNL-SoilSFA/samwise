@@ -100,7 +100,14 @@ nextflow run module_6_magannotate.nf \
 --run_eggnog true \
 --threads 36
 
-#Note: If running only 1 binner, you need to pass the MAG manifest from Module 3 directly with: --input_mag_manifest
+#Note: If running only 1 binner and not using MAGScoT, you need to pass the MAG manifest from Module 3 directly to Module 6 with: --input_mag_manifest
+
+#Make genome scale metabolic models of MAGs
+nextflow run module_7_gems.nf \
+--working_dir ./samwise-main \
+--memote_mode run
+
+#Note: This may take a very long time if you have many genomes. Consider subsetting if only interested in a handful of GEMs.
 
 # To save compute time, you can pre-download the databases before you run module 6.
 # For this, see: CheckM2: https://zenodo.org/records/14897628, gtdbtk: https://ecogenomics.github.io/GTDBTk/installing/index.html,
