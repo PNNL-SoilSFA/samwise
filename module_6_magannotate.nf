@@ -30,6 +30,7 @@ params.checkm2_db_dir = null
 params.checkm2_zenodo_record = "14897628"
 params.checkm2_auto_download_db = true
 params.checkm2_extension = "fa"
+params.checkm2_tmp_dir = null
 params.gtdbtk_data_path = null
 params.gtdbtk_db_dir = null
 params.gtdbtk_auto_download_db = true
@@ -62,6 +63,19 @@ params.module4_refined_mag_dir = "${params.results_dir}/module_4_binrefinement/r
 params.checkm2_db_outdir = params.checkm2_db_dir ?: "${params.outdir}/databases/checkm2"
 params.gtdbtk_db_outdir = params.gtdbtk_db_dir ?: "${params.outdir}/databases/gtdbtk"
 params.eggnog_db_outdir = params.eggnog_data_path ?: (params.eggnog_data_dir ?: "${params.outdir}/databases/eggnog")
+params.run_microtrait = false
+params.microtrait_env_dir = null
+params.microtrait_type = "genomic"
+params.microtrait_extension = "fa"
+params.microtrait_output_prefix = "samwise_microtrait"
+params.microtrait_github_repo = "https://github.com/ukaraoz/microtrait"
+params.microtrait_git_ref = null
+params.grodon_github_repo = "jlw-ecoevo/gRodon"
+params.grodon_git_ref = null
+params.microtrait_auto_download_db = true
+params.microtrait_runner_script = "${projectDir}/bin/local_microTrait_runner.R"
+params.microtrait_merger_script = "${projectDir}/bin/microTrait_merger.R"
+params.microtrait_fail_nonfatal = false
 
 def absPath(value) {
     def s = value == null ? "" : value.toString().trim()
@@ -98,14 +112,14 @@ def firstExistingMagDir(candidates) {
     return java.nio.file.Paths.get(selected.toString()).toAbsolutePath().normalize().toString()
 }
 
-
 workflow {
     def run_drep = params.run_drep.toString().toBoolean()
     def run_checkm2 = params.run_checkm2.toString().toBoolean()
     def run_gtdbtk = params.run_gtdbtk.toString().toBoolean()
     def run_eggnog = params.run_eggnog.toString().toBoolean()
+    def run_microtrait = params.run_microtrait.toString().toBoolean()
 
-    if (!run_checkm2 && !run_gtdbtk && !run_eggnog) {
+    if (!run_checkm2 && !run_gtdbtk && !run_eggnog && !run_microtrait) {
         error(
             """
             No Module 6 tools selected.
@@ -113,6 +127,7 @@ workflow {
               --run_checkm2 true
               --run_gtdbtk true
               --run_eggnog true
+              --run_microtrait true
             """.stripIndent()
         )
     }
@@ -157,6 +172,7 @@ workflow {
     log.info("dRep extra args: ${params.drep_extra_args}")
     log.info("Conda package cache root: ${params.conda_pkgs_dir ?: params.outdir + '/conda_pkgs'}")
     log.info("Per-tool conda package caches will be used under the cache root.")
+    log.info("Run microTrait: ${run_microtrait}")
 
     PREPARE_MAG_INPUTS(
         channel.value(selected_mag_dir),
@@ -201,7 +217,7 @@ workflow {
         mags_for_annotation = RUN_DREP.out.derep_mags_dir
     }
 
-        if (run_gtdbtk) {
+    if (run_gtdbtk) {
         SETUP_GTDBTK()
         RUN_GTDBTK(
             mags_for_annotation,
@@ -227,39 +243,45 @@ workflow {
         )
     }
 
-    def status_ch
+    if (run_microtrait) {
+        def microtrait_runner_script = file(
+            params.microtrait_runner_script,
+            checkIfExists: true
+        )
 
-    if (run_checkm2 && run_gtdbtk && run_eggnog) {
-        status_ch = RUN_CHECKM2.out.status.mix(RUN_GTDBTK.out.status).mix(RUN_EGGNOG.out.status)
-    }
-    else if (run_checkm2 && run_gtdbtk && !run_eggnog) {
-        status_ch = RUN_CHECKM2.out.status.mix(RUN_GTDBTK.out.status)
-    }
-    else if (run_checkm2 && !run_gtdbtk && run_eggnog) {
-        status_ch = RUN_CHECKM2.out.status.mix(RUN_EGGNOG.out.status)
-    }
-    else if (!run_checkm2 && run_gtdbtk && run_eggnog) {
-        status_ch = RUN_GTDBTK.out.status.mix(RUN_EGGNOG.out.status)
-    }
-    else if (run_checkm2 && !run_gtdbtk && !run_eggnog) {
-        status_ch = RUN_CHECKM2.out.status
-    }
-    else if (!run_checkm2 && run_gtdbtk && !run_eggnog) {
-        status_ch = RUN_GTDBTK.out.status
-    }
-    else if (!run_checkm2 && !run_gtdbtk && run_eggnog) {
-        status_ch = RUN_EGGNOG.out.status
+        def microtrait_merger_script = file(
+            params.microtrait_merger_script,
+            checkIfExists: true
+        )
+
+        SETUP_MICROTRAIT()
+
+        RUN_MICROTRAIT(
+            mags_for_annotation,
+            SETUP_MICROTRAIT.out.status,
+            channel.value(microtrait_runner_script),
+            channel.value(microtrait_merger_script),
+        )
     }
 
-    if (run_drep) {
-        status_ch = RUN_DREP.out.status.mix(status_ch)
+    def status_channels = []
+
+    if (run_drep)       { status_channels << RUN_DREP.out.status }
+    if (run_checkm2)    { status_channels << RUN_CHECKM2.out.status }
+    if (run_gtdbtk)     { status_channels << RUN_GTDBTK.out.status }
+    if (run_eggnog)     { status_channels << RUN_EGGNOG.out.status }
+    if (run_microtrait) { status_channels << RUN_MICROTRAIT.out.status }
+
+    def status_ch = status_channels.head()
+    status_channels.tail().each { ch ->
+        status_ch = status_ch.mix(ch)
     }
 
-    WRITE_MODULE6_SUMMARY(
-        PREPARE_MAG_INPUTS.out.input_stats,
-        status_ch.collect(),
-    )
-}
+        WRITE_MODULE6_SUMMARY(
+            PREPARE_MAG_INPUTS.out.input_stats,
+            status_ch.collect(),
+        )
+    }
 
 process PREPARE_MAG_INPUTS {
     tag "prepare_final_mags"
@@ -1191,10 +1213,24 @@ PY
 process RUN_CHECKM2 {
     tag "checkm2"
 
-    publishDir "${params.outdir}/checkm2", mode: params.publish_tool_outputs_mode, pattern: "checkm2_out/**", saveAs: { filename -> filename.replaceFirst(/^checkm2_out\//, '') }
-    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "checkm2.log"
-    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "checkm2_status.tsv"
-    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "checkm2_quality_report.tsv"
+    publishDir "${params.outdir}/checkm2",
+        mode: params.publish_tool_outputs_mode,
+        pattern: "checkm2_out/**",
+        saveAs: { filename ->
+            filename.replaceFirst(/^checkm2_out\//, '')
+        }
+
+    publishDir "${params.outdir}/logs",
+        mode: 'copy',
+        pattern: "checkm2.log"
+
+    publishDir "${params.outdir}/summary",
+        mode: 'copy',
+        pattern: "checkm2_status.tsv"
+
+    publishDir "${params.outdir}/summary",
+        mode: 'copy',
+        pattern: "checkm2_quality_report.tsv"
 
     cpus {
         params.threads != null ? params.threads as int : 8
@@ -1211,13 +1247,22 @@ process RUN_CHECKM2 {
     path "checkm2_out/**", emit: checkm2_out
 
     script:
+    def checkm2_tmp_base = params.checkm2_tmp_dir
+        ? absPath(params.checkm2_tmp_dir)
+        : ""
+
     """
     set -euo pipefail
 
     LOG="checkm2.log"
 
-    CHECKM2_ENV="\$(grep '^CHECKM2_ENV=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
-    CHECKM2_DB_PATH="\$(grep '^CHECKM2_DB_PATH=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
+    CHECKM2_ENV="\$(grep '^CHECKM2_ENV=' "${setup_status}" \
+        | tail -n 1 \
+        | cut -d= -f2-)"
+
+    CHECKM2_DB_PATH="\$(grep '^CHECKM2_DB_PATH=' "${setup_status}" \
+        | tail -n 1 \
+        | cut -d= -f2-)"
 
     export PATH="\$CHECKM2_ENV/bin:\$PATH"
 
@@ -1229,56 +1274,183 @@ process RUN_CHECKM2 {
 
     mkdir -p checkm2_out
 
-    MAG_COUNT="\$(find -L "${mags_dir}" -maxdepth 1 -type f -name '*.${params.checkm2_extension}' | wc -l | tr -d ' ')"
+    # Keep Python and DIAMOND temporary files off the compute node's /tmp.
+    if [[ -n "${checkm2_tmp_base}" ]]; then
+        mkdir -p "${checkm2_tmp_base}"
+
+        CHECKM2_TMPDIR="\$(mktemp -d \
+            "${checkm2_tmp_base}/checkm2.XXXXXX")"
+    else
+        mkdir -p checkm2_tmp
+        CHECKM2_TMPDIR="\$(pwd -P)/checkm2_tmp"
+    fi
+
+    export TMPDIR="\$CHECKM2_TMPDIR"
+    export TMP="\$CHECKM2_TMPDIR"
+    export TEMP="\$CHECKM2_TMPDIR"
+
+    # Prevent nested BLAS/OpenMP threading.
+    export OMP_NUM_THREADS=1
+    export OPENBLAS_NUM_THREADS=1
+    export MKL_NUM_THREADS=1
+    export BLAS_NUM_THREADS=1
+    export VECLIB_MAXIMUM_THREADS=1
+    export NUMEXPR_NUM_THREADS=1
+
+    echo "CheckM2 temporary directory: \$CHECKM2_TMPDIR" >> "\$LOG"
+    echo "Temporary-directory filesystem:" >> "\$LOG"
+    df -h "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+    df -i "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+    echo "----------------------------------------" >> "\$LOG"
+
+    if [[ -z "\$CHECKM2_ENV" || ! -d "\$CHECKM2_ENV" ]]; then
+        echo "ERROR: CheckM2 environment path was not resolved." >> "\$LOG"
+
+        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
+            > checkm2_status.tsv
+
+        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 environment missing\\n' \
+            "${params.outdir}/checkm2" \
+            >> checkm2_status.tsv
+
+        exit 1
+    fi
+
+    if [[ ! -x "\$CHECKM2_ENV/bin/checkm2" ]]; then
+        echo "ERROR: CheckM2 executable is missing: \$CHECKM2_ENV/bin/checkm2" >> "\$LOG"
+
+        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
+            > checkm2_status.tsv
+
+        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 executable missing\\n' \
+            "${params.outdir}/checkm2" \
+            >> checkm2_status.tsv
+
+        exit 1
+    fi
+
+    if [[ -z "\$CHECKM2_DB_PATH" || ! -s "\$CHECKM2_DB_PATH" ]]; then
+        echo "ERROR: CheckM2 database path is missing or empty: \$CHECKM2_DB_PATH" >> "\$LOG"
+
+        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
+            > checkm2_status.tsv
+
+        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 database missing\\n' \
+            "${params.outdir}/checkm2" \
+            >> checkm2_status.tsv
+
+        exit 1
+    fi
+
+    MAG_COUNT="\$(find -L "${mags_dir}" \
+        -maxdepth 1 \
+        -type f \
+        -name '*.${params.checkm2_extension}' \
+        | wc -l \
+        | tr -d ' ')"
 
     echo "MAG files matching extension .${params.checkm2_extension}: \$MAG_COUNT" >> "\$LOG"
 
     if [[ "\$MAG_COUNT" -eq 0 ]]; then
         echo "ERROR: No MAG files found for CheckM2." >> "\$LOG"
 
-        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > checkm2_status.tsv
-        printf 'checkm2\\tfailed\\t1\\t%s\\tNo MAG files found\\n' "${params.outdir}/checkm2" >> checkm2_status.tsv
+        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
+            > checkm2_status.tsv
+
+        printf 'checkm2\\tfailed\\t1\\t%s\\tNo MAG files found\\n' \
+            "${params.outdir}/checkm2" \
+            >> checkm2_status.tsv
 
         exit 1
     fi
 
+    echo "Running CheckM2 prediction." >> "\$LOG"
+    echo "Command:" >> "\$LOG"
+    echo "checkm2 predict --threads ${task.cpus} --input ${mags_dir} -x ${params.checkm2_extension} --output-directory checkm2_out --database_path \$CHECKM2_DB_PATH" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
+
     set +e
+
     checkm2 predict \\
         --threads ${task.cpus} \\
         --input "${mags_dir}" \\
-        -x ${params.checkm2_extension} \\
+        -x "${params.checkm2_extension}" \\
         --output-directory checkm2_out \\
         --database_path "\$CHECKM2_DB_PATH" \\
         >> "\$LOG" 2>&1
-    STATUS="\$?"
+
+    CHECKM2_STATUS="\$?"
+
     set -e
 
-    printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > checkm2_status.tsv
+    printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
+        > checkm2_status.tsv
 
-    if [[ "\$STATUS" -ne 0 ]]; then
-        printf 'checkm2\\tfailed\\t%s\\t%s\\tCheckM2 failed\\n' "\$STATUS" "${params.outdir}/checkm2" >> checkm2_status.tsv
-        exit "\$STATUS"
+    if [[ "\$CHECKM2_STATUS" -ne 0 ]]; then
+        echo "ERROR: CheckM2 failed with exit status \$CHECKM2_STATUS." >> "\$LOG"
+        echo "Temporary directory retained after failure: \$CHECKM2_TMPDIR" >> "\$LOG"
+        echo "Temporary-directory usage after failure:" >> "\$LOG"
+
+        du -sh "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+        df -h "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+        df -i "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+
+        echo "CheckM2 output preview after failure:" >> "\$LOG"
+
+        find checkm2_out \
+            -maxdepth 5 \
+            -type f \
+            | head -n 200 \
+            >> "\$LOG" 2>&1 \
+            || true
+
+        printf 'checkm2\\tfailed\\t%s\\t%s\\tCheckM2 failed\\n' \
+            "\$CHECKM2_STATUS" \
+            "${params.outdir}/checkm2" \
+            >> checkm2_status.tsv
+
+        exit "\$CHECKM2_STATUS"
     fi
 
-    QUALITY_REPORT="\$(find checkm2_out -maxdepth 4 -type f -name 'quality_report.tsv' | head -n 1 || true)"
+    QUALITY_REPORT="\$(find checkm2_out \
+        -maxdepth 4 \
+        -type f \
+        -name 'quality_report.tsv' \
+        | head -n 1 \
+        || true)"
 
     if [[ -z "\$QUALITY_REPORT" || ! -s "\$QUALITY_REPORT" ]]; then
         echo "ERROR: CheckM2 completed but quality_report.tsv was not found." >> "\$LOG"
         echo "CheckM2 output preview:" >> "\$LOG"
-        find checkm2_out -maxdepth 5 -type f | head -n 200 >> "\$LOG" 2>&1 || true
 
-        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 quality_report.tsv missing\\n' "${params.outdir}/checkm2" >> checkm2_status.tsv
+        find checkm2_out \
+            -maxdepth 5 \
+            -type f \
+            | head -n 200 \
+            >> "\$LOG" 2>&1 \
+            || true
+
+        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 quality_report.tsv missing\\n' \
+            "${params.outdir}/checkm2" \
+            >> checkm2_status.tsv
 
         exit 1
     fi
 
     cp "\$QUALITY_REPORT" checkm2_quality_report.tsv
 
-    echo "Copied CheckM2 quality report for dRep:" >> "\$LOG"
+    echo "Copied CheckM2 quality report:" >> "\$LOG"
     echo "  source: \$QUALITY_REPORT" >> "\$LOG"
     echo "  staged: checkm2_quality_report.tsv" >> "\$LOG"
 
-    printf 'checkm2\\tcompleted\\t0\\t%s\\tCheckM2 completed\\n' "${params.outdir}/checkm2" >> checkm2_status.tsv
+    printf 'checkm2\\tcompleted\\t0\\t%s\\tCheckM2 completed\\n' \
+        "${params.outdir}/checkm2" \
+        >> checkm2_status.tsv
+
+    echo "CheckM2 temporary-directory final usage:" >> "\$LOG"
+    du -sh "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+
+    rm -rf "\$CHECKM2_TMPDIR"
 
     echo "CheckM2 finished: \$(date)" >> "\$LOG"
     """
@@ -2324,6 +2496,594 @@ PY
 
     echo "EggNOG output files: \$OUTPUT_FILES" >> "\$LOG"
     echo "EggNOG-mapper finished: \$(date)" >> "\$LOG"
+    """
+}
+process SETUP_MICROTRAIT {
+    tag "setup_microtrait"
+
+    publishDir "${params.outdir}/setup", mode: 'copy', pattern: "microtrait_setup_status.env"
+
+    output:
+    path "microtrait_setup_status.env", emit: status
+
+    script:
+    def base_env = params.tool_env_dir ? absPath(params.tool_env_dir) : "${absPath(params.outdir)}/conda_envs"
+    def env_dir = params.microtrait_env_dir ? absPath(params.microtrait_env_dir) : "${base_env}/microtrait"
+    def src_dir = "${base_env}/microtrait_src"
+    def conda_pkgs_dir = params.conda_pkgs_dir ? "${absPath(params.conda_pkgs_dir)}/microtrait" : "${absPath(params.outdir)}/conda_pkgs/microtrait"
+    def microtrait_repo = params.microtrait_github_repo ?: "https://github.com/ukaraoz/microtrait"
+    def microtrait_ref = params.microtrait_git_ref ? params.microtrait_git_ref.toString().trim() : ""
+    def grodon_repo = params.grodon_github_repo ?: "jlw-ecoevo/gRodon"
+    def grodon_ref = params.grodon_git_ref ? params.grodon_git_ref.toString().trim() : ""
+
+    """
+    set -euo pipefail
+
+    STATUS="microtrait_setup_status.env"
+
+    MICROTRAIT_ENV="${env_dir}"
+    MICROTRAIT_SRC_DIR="${src_dir}"
+    MICROTRAIT_REPO="${microtrait_repo}"
+    MICROTRAIT_REF="${microtrait_ref}"
+    GRODON_REPO="${grodon_repo}"
+    GRODON_REF="${grodon_ref}"
+    MICROTRAIT_INSTALL_MARKER="\$MICROTRAIT_ENV/.samwise_microtrait_install_mode"
+    MICROTRAIT_CLONE="\$MICROTRAIT_SRC_DIR/microtrait"
+
+    CONDA_PKGS_DIRS="${conda_pkgs_dir}"
+    export CONDA_PKGS_DIRS
+    mkdir -p "\$CONDA_PKGS_DIRS"
+
+    echo "microTrait setup started: \$(date)" > "\$STATUS"
+    echo "MICROTRAIT_ENV=\$MICROTRAIT_ENV" >> "\$STATUS"
+    echo "MICROTRAIT_SRC_DIR=\$MICROTRAIT_SRC_DIR" >> "\$STATUS"
+    echo "microTrait repo: \$MICROTRAIT_REPO" >> "\$STATUS"
+    echo "microTrait ref: \${MICROTRAIT_REF:-default branch}" >> "\$STATUS"
+    echo "gRodon repo: \$GRODON_REPO" >> "\$STATUS"
+    echo "gRodon ref: \${GRODON_REF:-default branch}" >> "\$STATUS"
+    echo "Auto-download HMM databases: ${params.microtrait_auto_download_db}" >> "\$STATUS"
+    echo "CONDA_PKGS_DIRS=\$CONDA_PKGS_DIRS" >> "\$STATUS"
+    echo "----------------------------------------" >> "\$STATUS"
+
+    find_installer() {
+        if command -v mamba >/dev/null 2>&1; then
+            echo "mamba"
+        elif command -v conda >/dev/null 2>&1; then
+            echo "conda"
+        else
+            echo ""
+        fi
+    }
+
+    # Core binaries/interpreters that must exist in the environment.
+    check_env_core() {
+        local prefix="\$1"
+
+        [[ -x "\$prefix/bin/R" ]] || return 1
+        [[ -x "\$prefix/bin/Rscript" ]] || return 1
+        [[ -x "\$prefix/bin/hmmsearch" ]] || return 1
+        [[ -x "\$prefix/bin/prodigal" ]] || return 1
+        [[ -x "\$prefix/bin/cmscan" ]] || return 1
+        [[ -x "\$prefix/bin/tRNAscan-SE" ]] || return 1
+        [[ -x "\$prefix/bin/bedtools" ]] || return 1
+        [[ -x "\$prefix/bin/python" ]] || return 1
+
+        return 0
+    }
+
+    # Full check: core binaries plus the R packages and install marker.
+    check_env_full() {
+        local prefix="\$1"
+
+        check_env_core "\$prefix" || return 1
+
+        if [[ ! -s "\$prefix/.samwise_microtrait_install_mode" ]]; then
+            echo "microTrait env has no SAMWISE install marker; treating as stale." >> "\$STATUS"
+            return 1
+        fi
+
+        if ! grep -q '^conda_r_github_v1\$' "\$prefix/.samwise_microtrait_install_mode"; then
+            echo "microTrait env marker is not conda_r_github_v1; treating as stale." >> "\$STATUS"
+            return 1
+        fi
+
+        # Confirm the GitHub R packages and the merger's tidy deps import cleanly.
+        "\$prefix/bin/Rscript" -e 'suppressMessages({library(kmed); library(seqinr); library(microtrait); library(gRodon); library(dplyr); library(tidyr); library(purrr)}); cat("ok\\n")' >> "\$STATUS" 2>&1 || return 1
+
+        return 0
+    }
+
+    if [[ -d "\$MICROTRAIT_ENV" ]]; then
+        if check_env_full "\$MICROTRAIT_ENV"; then
+            echo "Existing microTrait environment passed checks." >> "\$STATUS"
+        else
+            echo "Existing microTrait environment failed checks or is stale. Removing." >> "\$STATUS"
+            rm -rf "\$MICROTRAIT_ENV"
+        fi
+    fi
+
+    if [[ ! -d "\$MICROTRAIT_ENV" ]]; then
+        if [[ "${params.auto_install}" != "true" ]]; then
+            echo "ERROR: microTrait environment missing and --auto_install false." >> "\$STATUS"
+            exit 1
+        fi
+
+        INSTALLER="\$(find_installer)"
+
+        if [[ -z "\$INSTALLER" ]]; then
+            echo "ERROR: Neither mamba nor conda found." >> "\$STATUS"
+            exit 1
+        fi
+
+        mkdir -p "\$(dirname "\$MICROTRAIT_ENV")"
+
+        echo "Creating microTrait environment: \$MICROTRAIT_ENV" >> "\$STATUS"
+
+        # ------------------------------------------------------------------
+        # Conda/mamba env:
+        #   * R + all CRAN/Bioconductor package deps from the microTrait README
+        #   * software binaries (HMMER, Prodigal, Infernal 1.1.2,
+        #     tRNAscan-SE 2.0.0, bedtools) required to be on PATH
+        #   * a toolchain (git + compilers) so remotes can build the
+        #     GitHub-only packages (gRodon, microtrait) from source
+        #   * python/pip for the pipeline's helper scripting
+        # ------------------------------------------------------------------
+        "\$INSTALLER" create -y \\
+            -p "\$MICROTRAIT_ENV" \\
+            --override-channels \\
+            -c conda-forge \\
+            -c bioconda \\
+            "r-base>=4.2" \\
+            "r-remotes" \\
+            "r-devtools" \\
+            "r-biocmanager" \\
+            "r-r.utils" \\
+            "r-rcolorbrewer" \\
+            "r-ape" \\
+            "r-assertthat" \\
+            "r-checkmate" \\
+            "r-corrplot" \\
+            "r-doparallel" \\
+            "r-dplyr" \\
+            "r-futile.logger" \\
+            "r-gtools" \\
+            "r-lazyeval" \\
+            "r-magrittr" \\
+            "r-matrixstats" \\
+            "r-purrr" \\
+            "r-pheatmap" \\
+            "r-readr" \\
+            "r-seqinr" \\
+            "r-stringr" \\
+            "r-tibble" \\
+            "r-tictoc" \\
+            "r-tidyr" \\
+            "r-ggplot2" \\
+            "r-vegan" \\
+            "bioconductor-biostrings" \\
+            "bioconductor-cordon" \\
+            "bioconductor-complexheatmap" \\
+            "hmmer>=3.1" \\
+            "prodigal>=2.6.3" \\
+            "infernal=1.1.2" \\
+            "trnascan-se=2.0.0" \\
+            "bedtools>=2.27" \\
+            "git" \\
+            "make" \\
+            "pkg-config" \\
+            "c-compiler" \\
+            "cxx-compiler" \\
+            "fortran-compiler" \\
+            "python>=3.8" \\
+            "pip" \\
+            "numpy" \\
+            "pandas" \\
+            "wget" \\
+            "curl" \\
+            "tar" \\
+            "gzip" \\
+            >> "\$STATUS" 2>&1
+    fi
+
+    if ! check_env_core "\$MICROTRAIT_ENV"; then
+        echo "ERROR: microTrait environment missing required binaries after conda creation." >> "\$STATUS"
+        echo "Environment bin preview:" >> "\$STATUS"
+        ls -lah "\$MICROTRAIT_ENV/bin" | grep -E 'R\$|Rscript|hmmsearch|prodigal|cmscan|tRNAscan|bedtools|python' >> "\$STATUS" 2>&1 || true
+        exit 1
+    fi
+
+    export PATH="\$MICROTRAIT_ENV/bin:\$PATH"
+
+    echo "microTrait core binaries:" >> "\$STATUS"
+    command -v Rscript >> "\$STATUS" 2>&1 || true
+    Rscript --version >> "\$STATUS" 2>&1 || true
+    command -v hmmsearch >> "\$STATUS" 2>&1 || true
+    command -v prodigal >> "\$STATUS" 2>&1 || true
+    prodigal -v >> "\$STATUS" 2>&1 || true
+    command -v cmscan >> "\$STATUS" 2>&1 || true
+    command -v tRNAscan-SE >> "\$STATUS" 2>&1 || true
+    command -v bedtools >> "\$STATUS" 2>&1 || true
+    bedtools --version >> "\$STATUS" 2>&1 || true
+    echo "----------------------------------------" >> "\$STATUS"
+
+    # ------------------------------------------------------------------
+    # Clone the microTrait source. The bundled runner sources raw R files
+    # from the microTrait repo tree, so we install the package *from this
+    # clone* to keep the installed package and the sourced files in sync.
+    # ------------------------------------------------------------------
+    mkdir -p "\$MICROTRAIT_SRC_DIR"
+
+    if [[ ! -d "\$MICROTRAIT_CLONE/.git" ]]; then
+        echo "Cloning microTrait source: \$MICROTRAIT_REPO" >> "\$STATUS"
+        rm -rf "\$MICROTRAIT_CLONE"
+        git clone "\$MICROTRAIT_REPO" "\$MICROTRAIT_CLONE" >> "\$STATUS" 2>&1
+    else
+        echo "Reusing existing microTrait clone: \$MICROTRAIT_CLONE" >> "\$STATUS"
+        git -C "\$MICROTRAIT_CLONE" fetch --all >> "\$STATUS" 2>&1 || true
+    fi
+
+    if [[ -n "\$MICROTRAIT_REF" ]]; then
+        echo "Checking out microTrait ref: \$MICROTRAIT_REF" >> "\$STATUS"
+        git -C "\$MICROTRAIT_CLONE" checkout "\$MICROTRAIT_REF" >> "\$STATUS" 2>&1
+    fi
+
+    # ------------------------------------------------------------------
+    # Install the GitHub-only R packages (gRodon and microTrait). The conda
+    # step above provides all of their CRAN/Bioconductor dependencies, so we
+    # install with upgrade="never" to avoid rebuilding conda-managed packages.
+    # ------------------------------------------------------------------
+    echo "Installing gRodon and microTrait R packages." >> "\$STATUS"
+
+    MICROTRAIT_CLONE="\$MICROTRAIT_CLONE" \\
+    GRODON_REPO="\$GRODON_REPO" \\
+    GRODON_REF="\$GRODON_REF" \\
+    "\$MICROTRAIT_ENV/bin/Rscript" - <<'RSCRIPT' >> "\$STATUS" 2>&1
+
+clone <- Sys.getenv("MICROTRAIT_CLONE")
+grodon_repo <- Sys.getenv("GRODON_REPO")
+grodon_ref <- Sys.getenv("GRODON_REF")
+
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+if (!requireNamespace("kmed", quietly = TRUE)) {
+  cat("Installing kmed from CRAN.\\n")
+  install.packages("kmed", dependencies = TRUE)
+} else {
+  cat("kmed already installed.\\n")
+}
+
+if (!requireNamespace("kmed", quietly = TRUE)) {
+  stop("The kmed R package could not be installed.")
+}
+
+if (!requireNamespace("gRodon", quietly = TRUE)) {
+  cat("Installing gRodon from GitHub:", grodon_repo, "\n")
+  if (nzchar(grodon_ref)) {
+    remotes::install_github(grodon_repo, ref = grodon_ref, upgrade = "never")
+  } else {
+    remotes::install_github(grodon_repo, upgrade = "never")
+  }
+} else {
+  cat("gRodon already installed.\n")
+}
+
+if (!requireNamespace("microtrait", quietly = TRUE)) {
+  cat("Installing microTrait from local clone:", clone, "\n")
+  remotes::install_local(clone, dependencies = TRUE, upgrade = "never")
+} else {
+  cat("microtrait already installed.\n")
+}
+
+suppressMessages({
+  library(kmed)
+  library(seqinr)
+  library(microtrait)
+  library(gRodon)
+  library(dplyr)
+})
+
+cat("microTrait and gRodon load OK\n")
+RSCRIPT
+
+    if ! "\$MICROTRAIT_ENV/bin/Rscript" -e 'suppressMessages({library(kmed); library(seqinr); library(microtrait); library(gRodon); library(dplyr); library(tidyr); library(purrr)}); cat("ok\\n")' >> "\$STATUS" 2>&1; then
+        echo "ERROR: microTrait/gRodon R packages failed to install or load." >> "\$STATUS"
+        exit 1
+    fi
+
+    # ------------------------------------------------------------------
+    # Deploy the microTrait HMM databases (microtrait-hmm + dbCAN). These
+    # are downloaded once via microtrait::prep.hmmmodels() into the package's
+    # extdata under the environment's R library, so they persist with the env.
+    # ------------------------------------------------------------------
+    if [[ "${params.microtrait_auto_download_db}" == "true" ]]; then
+        echo "Checking / deploying microTrait HMM databases." >> "\$STATUS"
+
+        set +e
+        "\$MICROTRAIT_ENV/bin/Rscript" - <<'RSCRIPT' >> "\$STATUS" 2>&1
+suppressMessages(library(microtrait))
+hmm_dir <- system.file("extdata/hmm/hmmpress", package = "microtrait")
+pressed <- if (nzchar(hmm_dir)) list.files(hmm_dir, pattern = "\\\\.h3f\$") else character(0)
+
+if (length(pressed) >= 3) {
+  cat("microTrait HMM databases already deployed:", length(pressed), "pressed models found.\n")
+} else {
+  cat("Deploying microTrait HMM databases via prep.hmmmodels().\n")
+  microtrait::prep.hmmmodels()
+  hmm_dir <- system.file("extdata/hmm/hmmpress", package = "microtrait")
+  pressed <- if (nzchar(hmm_dir)) list.files(hmm_dir, pattern = "\\\\.h3f\$") else character(0)
+  cat("Pressed HMM databases after deployment:", length(pressed), "\n")
+  if (length(pressed) < 3) {
+    stop("microTrait HMM database deployment incomplete.")
+  }
+}
+RSCRIPT
+        HMM_STATUS="\$?"
+        set -e
+
+        if [[ "\$HMM_STATUS" -ne 0 ]]; then
+            echo "ERROR: microTrait HMM database deployment failed (exit \$HMM_STATUS)." >> "\$STATUS"
+            exit "\$HMM_STATUS"
+        fi
+    else
+        echo "microTrait HMM auto-download disabled by --microtrait_auto_download_db false." >> "\$STATUS"
+        echo "Ensure microtrait::prep.hmmmodels() has been run for this R library beforehand." >> "\$STATUS"
+    fi
+
+    echo "conda_r_github_v1" > "\$MICROTRAIT_INSTALL_MARKER"
+
+    if ! check_env_full "\$MICROTRAIT_ENV"; then
+        echo "ERROR: microTrait environment failed final checks." >> "\$STATUS"
+        exit 1
+    fi
+
+    echo "MICROTRAIT_ENV=\$MICROTRAIT_ENV" >> "\$STATUS"
+    echo "MICROTRAIT_SRC_DIR=\$MICROTRAIT_SRC_DIR" >> "\$STATUS"
+    echo "MICROTRAIT_CLONE=\$MICROTRAIT_CLONE" >> "\$STATUS"
+    echo "microTrait setup finished: \$(date)" >> "\$STATUS"
+    """
+}
+
+process RUN_MICROTRAIT {
+    tag "microtrait"
+
+    publishDir "${params.outdir}/microtrait", mode: params.publish_tool_outputs_mode, pattern: "microtrait_out/**", saveAs: { filename -> filename.replaceFirst(/^microtrait_out\//, '') }
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "microtrait.log"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "microtrait_status.tsv"
+
+    cpus {
+        params.threads != null ? params.threads as int : 20
+    }
+
+    input:
+    path mags_dir
+    path setup_status
+    path runner_script
+    path merger_script
+
+    output:
+    path "microtrait_status.tsv", emit: status
+    path "microtrait.log", emit: log_file
+    path "microtrait_out/**", emit: microtrait_out, optional: true
+
+    script:
+    def mt_type = params.microtrait_type ? params.microtrait_type.toString().trim() : "genomic"
+    def out_prefix = params.microtrait_output_prefix ?: "samwise_microtrait"
+
+    """
+    set -euo pipefail
+
+    LOG="microtrait.log"
+
+    MICROTRAIT_ENV="\$(grep '^MICROTRAIT_ENV=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
+    MICROTRAIT_CLONE="\$(grep '^MICROTRAIT_CLONE=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
+
+    export PATH="\$MICROTRAIT_ENV/bin:\$PATH"
+
+    echo "microTrait started: \$(date)" > "\$LOG"
+    echo "MAG directory: ${mags_dir}" >> "\$LOG"
+    echo "microTrait env: \$MICROTRAIT_ENV" >> "\$LOG"
+    echo "microTrait source clone: \$MICROTRAIT_CLONE" >> "\$LOG"
+    echo "Runner script: ${runner_script}" >> "\$LOG"
+    echo "Merger script: ${merger_script}" >> "\$LOG"
+    echo "Analysis type: ${mt_type}" >> "\$LOG"
+    echo "Output prefix: ${out_prefix}" >> "\$LOG"
+    echo "Threads: ${task.cpus}" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
+
+    # ------------------------------------------------------------------
+    # Stage MAG FASTA files into a writable input directory. The runner
+    # writes its .rds/.csv outputs alongside its inputs, so we work on a
+    # copy rather than the read-only staged MAG directory.
+    # ------------------------------------------------------------------
+    mkdir -p microtrait_inputs microtrait_out microtrait_tmp
+
+    # Keep large R/HMMER temporary files off the compute node's /tmp.
+    MICROTRAIT_TMPDIR="\$(pwd -P)/microtrait_tmp"
+
+    export TMPDIR="\$MICROTRAIT_TMPDIR"
+    export TMP="\$MICROTRAIT_TMPDIR"
+    export TEMP="\$MICROTRAIT_TMPDIR"
+
+    # Prevent each forked microTrait worker from starting additional
+    # BLAS/OpenMP worker threads.
+    export OPENBLAS_NUM_THREADS=1
+    export MKL_NUM_THREADS=1
+    export BLAS_NUM_THREADS=1
+    export VECLIB_MAXIMUM_THREADS=1
+    export NUMEXPR_NUM_THREADS=1
+
+    echo "microTrait temporary directory: \$MICROTRAIT_TMPDIR" >> "\$LOG"
+    echo "Temporary-directory disk availability:" >> "\$LOG"
+    df -h "\$MICROTRAIT_TMPDIR" >> "\$LOG" 2>&1 || true
+    df -i "\$MICROTRAIT_TMPDIR" >> "\$LOG" 2>&1 || true
+
+    find -L "${mags_dir}" -maxdepth 1 -type f \\
+        \\( -name '*.fa' -o -name '*.fna' -o -name '*.faa' -o -name '*.fasta' \\) \\
+        -exec cp {} microtrait_inputs/ \\;
+
+    MAG_COUNT="\$(find microtrait_inputs -maxdepth 1 -type f -name '*.${params.microtrait_extension}' | wc -l | tr -d ' ')"
+    echo "Staged MAG files matching extension .${params.microtrait_extension}: \$MAG_COUNT" >> "\$LOG"
+
+    if [[ "\$MAG_COUNT" -eq 0 ]]; then
+        echo "ERROR: No MAG files found for microTrait." >> "\$LOG"
+        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' > microtrait_status.tsv
+        printf 'microtrait\\tfailed\\t1\\t%s\\tNo MAG files found\\n' "${params.outdir}/microtrait" >> microtrait_status.tsv
+        exit 1
+    fi
+
+    echo "Running microTrait runner:" >> "\$LOG"
+    echo "Rscript ${runner_script} microtrait_inputs ${out_prefix} ${mt_type}" >> "\$LOG"
+
+    set +e
+    Rscript "${runner_script}" \\
+        "microtrait_inputs" \\
+        "${out_prefix}" \\
+        "${mt_type}" \\
+        >> "\$LOG" 2>&1
+
+        RUNNER_STATUS="\$?"
+    set -e
+
+    printf 'tool\\tstatus\\texit_status\\toutput_dir\\tinput_mags\\tmessage\\n' \
+        > microtrait_status.tsv
+
+    # Count the per-genome outputs before deciding whether a nonzero runner
+    # exit is fatal. The runner may complete every genome and then fail only
+    # during its internal combined-result synthesis.
+    RDS_COUNT="\$(find microtrait_inputs \
+        -maxdepth 1 \
+        -type f \
+        -name '*.microtrait.rds' \
+        | wc -l \
+        | tr -d ' ')"
+
+    echo "microTrait runner exit status: \$RUNNER_STATUS" >> "\$LOG"
+    echo "Per-genome microTrait RDS files produced: \$RDS_COUNT" >> "\$LOG"
+    echo "Per-genome microTrait RDS files expected: \$MAG_COUNT" >> "\$LOG"
+
+    if [[ "\$RUNNER_STATUS" -ne 0 ]]; then
+        if [[ "\$RDS_COUNT" -eq "\$MAG_COUNT" && "\$RDS_COUNT" -gt 0 ]]; then
+            echo "WARNING: microTrait runner exited with status \$RUNNER_STATUS after producing all \$RDS_COUNT per-genome RDS files." >> "\$LOG"
+            echo "WARNING: The failure occurred during microTrait's internal combined-result synthesis." >> "\$LOG"
+            echo "Continuing to the separate microTrait merger." >> "\$LOG"
+        elif [[ "${params.microtrait_fail_nonfatal}" == "true" ]]; then
+            echo "WARNING: microTrait runner failed and produced incomplete RDS output: \$RDS_COUNT of \$MAG_COUNT." >> "\$LOG"
+
+            printf 'microtrait\\tfailed_nonfatal\\t%s\\t%s\\t%s\\tmicroTrait runner failed; RDS outputs=%s/%s; workflow continued\\n' \
+                "\$RUNNER_STATUS" \
+                "${params.outdir}/microtrait" \
+                "\$MAG_COUNT" \
+                "\$RDS_COUNT" \
+                "\$MAG_COUNT" \
+                >> microtrait_status.tsv
+
+            exit 0
+        else
+            echo "ERROR: microTrait runner failed and produced incomplete RDS output: \$RDS_COUNT of \$MAG_COUNT." >> "\$LOG"
+
+            printf 'microtrait\\tfailed\\t%s\\t%s\\t%s\\tmicroTrait runner failed; RDS outputs=%s/%s\\n' \
+                "\$RUNNER_STATUS" \
+                "${params.outdir}/microtrait" \
+                "\$MAG_COUNT" \
+                "\$RDS_COUNT" \
+                "\$MAG_COUNT" \
+                >> microtrait_status.tsv
+
+            exit "\$RUNNER_STATUS"
+        fi
+    fi
+
+    if [[ "\$RDS_COUNT" -eq 0 ]]; then
+        echo "ERROR: microTrait produced no per-genome RDS files." >> "\$LOG"
+
+        if [[ "${params.microtrait_fail_nonfatal}" == "true" ]]; then
+            printf 'microtrait\\tfailed_nonfatal\\t1\\t%s\\t%s\\tmicroTrait produced no RDS files; workflow continued\\n' \
+                "${params.outdir}/microtrait" \
+                "\$MAG_COUNT" \
+                >> microtrait_status.tsv
+
+            exit 0
+        else
+            printf 'microtrait\\tfailed\\t1\\t%s\\t%s\\tmicroTrait produced no RDS files\\n' \
+                "${params.outdir}/microtrait" \
+                "\$MAG_COUNT" \
+                >> microtrait_status.tsv
+
+            exit 1
+        fi
+    fi
+
+    if [[ "\$RDS_COUNT" -ne "\$MAG_COUNT" ]]; then
+        echo "ERROR: microTrait produced incomplete per-genome RDS output: \$RDS_COUNT of \$MAG_COUNT." >> "\$LOG"
+
+        if [[ "${params.microtrait_fail_nonfatal}" == "true" ]]; then
+            printf 'microtrait\\tfailed_nonfatal\\t1\\t%s\\t%s\\tmicroTrait produced incomplete RDS output (%s/%s); workflow continued\\n' \
+                "${params.outdir}/microtrait" \
+                "\$MAG_COUNT" \
+                "\$RDS_COUNT" \
+                "\$MAG_COUNT" \
+                >> microtrait_status.tsv
+
+            exit 0
+        else
+            printf 'microtrait\\tfailed\\t1\\t%s\\t%s\\tmicroTrait produced incomplete RDS output (%s/%s)\\n' \
+                "${params.outdir}/microtrait" \
+                "\$MAG_COUNT" \
+                "\$RDS_COUNT" \
+                "\$MAG_COUNT" \
+                >> microtrait_status.tsv
+
+            exit 1
+        fi
+    fi
+
+    # ------------------------------------------------------------------
+    # Merge the per-genome .microtrait.rds objects into the summary CSVs
+    # (genome / growth / functional traits). The merger writes the CSVs
+    # directly into microtrait_out.
+    # ------------------------------------------------------------------
+    echo "Running microTrait merger:" >> "\$LOG"
+    echo "Rscript ${merger_script} microtrait_inputs microtrait_out" >> "\$LOG"
+
+    set +e
+    Rscript "${merger_script}" \\
+        "microtrait_inputs" \\
+        "microtrait_out" \\
+        >> "\$LOG" 2>&1
+    MERGE_STATUS="\$?"
+    set -e
+
+    if [[ "\$MERGE_STATUS" -ne 0 ]]; then
+        if [[ "${params.microtrait_fail_nonfatal}" == "true" ]]; then
+            printf 'microtrait\\tfailed_nonfatal\\t%s\\t%s\\t%s\\tmicroTrait merge failed; workflow continued\\n' "\$MERGE_STATUS" "${params.outdir}/microtrait" "\$MAG_COUNT" >> microtrait_status.tsv
+            echo "microTrait merge failed (exit \$MERGE_STATUS); continuing because --microtrait_fail_nonfatal true." >> "\$LOG"
+            exit 0
+        else
+            printf 'microtrait\\tfailed\\t%s\\t%s\\t%s\\tmicroTrait merge failed\\n' "\$MERGE_STATUS" "${params.outdir}/microtrait" "\$MAG_COUNT" >> microtrait_status.tsv
+            exit "\$MERGE_STATUS"
+        fi
+    fi
+
+    # Keep the raw per-genome and combined .rds objects (and any runner CSVs)
+    # alongside the merged CSVs for provenance.
+    find microtrait_inputs -maxdepth 1 -type f \\
+        \\( -name '*.rds' -o -name '*.csv' \\) \\
+        -exec cp {} microtrait_out/ \\; 2>/dev/null || true
+
+    MERGED_CSVS="\$(find microtrait_out -maxdepth 1 -type f -name 'microtrait_*_traits.csv' | wc -l | tr -d ' ')"
+    OUTPUT_FILES="\$(find microtrait_out -maxdepth 1 -type f | wc -l | tr -d ' ')"
+    echo "Merged trait CSVs: \$MERGED_CSVS" >> "\$LOG"
+    echo "microTrait result files collected: \$OUTPUT_FILES" >> "\$LOG"
+
+    if [[ "\$MERGED_CSVS" -eq 0 ]]; then
+        echo "ERROR: microTrait merge reported success but no merged CSVs were found." >> "\$LOG"
+        printf 'microtrait\\tfailed\\t1\\t%s\\t%s\\tmicroTrait merged CSVs missing\\n' "${params.outdir}/microtrait" "\$MAG_COUNT" >> microtrait_status.tsv
+        exit 1
+    fi
+
+    printf 'microtrait\\tcompleted\\t0\\t%s\\t%s\\tmicroTrait completed; merged_csvs=%s result_files=%s\\n' "${params.outdir}/microtrait" "\$MAG_COUNT" "\$MERGED_CSVS" "\$OUTPUT_FILES" >> microtrait_status.tsv
+
+    echo "microTrait finished: \$(date)" >> "\$LOG"
     """
 }
 

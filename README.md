@@ -98,6 +98,7 @@ nextflow run module_6_magannotate.nf \
 --run_checkm2 true \
 --run_gtdbtk true \
 --run_eggnog true \
+--run_microtrait true \
 --threads 36
 
 #Note: If running only 1 binner and not using MAGScoT, you need to pass the MAG manifest from Module 3 directly to Module 6 with: --input_mag_manifest
