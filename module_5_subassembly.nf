@@ -51,7 +51,7 @@ params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module3_outdir = "${params.results_dir}/module_3_binning"
 params.module4_outdir = "${params.results_dir}/module_4_binrefinement"
 params.outdir = "${params.results_dir}/module_5_subtractiveassembly"
-params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass"
+params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass_binning"
 params.final_joint_dir = params.final_joint_working_dir ?: "${params.outdir}/final_joint_refinement"
 
 def absOrEmpty(value) {

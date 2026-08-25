@@ -34,20 +34,20 @@ nextflow.enable.dsl = 2
  * outputs to remain available if a later MVP module fails.
  */
 
-
-/*
- * General inputs and output directories.
- */
 params.working_dir = null
 params.output_dir = null
-
 params.assembly_manifest = null
 params.trimmed_manifest = null
-
-params.include_coassemblies = false
+params.include_individual_assemblies = true
+params.include_coassemblies = true
+params.include_subtractive_assemblies = true
 params.coassembly_manifest = null
 params.coassembly_trimmed_manifest = null
-
+params.subtractive_assembly_manifest = null
+params.subtractive_assembly_dir = null
+params.subtractive_unmapped_reads_dir = null
+params.normalized_reads_dir = null
+params.normalized_reads_compression = 4
 
 /*
  * MVP module selection.
@@ -62,7 +62,6 @@ params.coassembly_trimmed_manifest = null
  * params.outdir from a previous run.
  */
 params.mvp_modules = "0,1,2,3,4,5,100"
-
 
 /*
  * MVP installation.
@@ -119,13 +118,11 @@ params.min_qcov = 0
 params.read_type = "short"
 params.unfiltered_protein_file = false
 
-
 /*
  * MVP Module 04 options.
  */
-params.interleaved = false
+params.interleaved = true
 params.delete_mapping_intermediates = true
-
 
 /*
  * MVP Module 05 options.
@@ -139,25 +136,19 @@ params.filtration = "conservative"
  * MVP Module 06 options.
  */
 params.functional_fasta_files = "representative"
-
 params.phrogs_evalue = 0.01
 params.phrogs_score = 60
-
 params.pfam_evalue = 0.01
 params.pfam_score = 50
-
 params.functional_ads = true
 params.ads_evalue = 0.01
 params.ads_score = 60
 params.ads_seqid = 30
-
 params.functional_rdrp = false
 params.rdrp_evalue = 0.01
 params.rdrp_score = 50
-
 params.functional_dram = true
 params.delete_functional_intermediates = true
-
 
 /*
  * MVP Module 07 options.
@@ -166,7 +157,6 @@ params.binning_sample_group = null
 params.read_mapping_sample_group = null
 params.keep_bam = false
 params.delete_binning_intermediates = false
-
 
 /*
  * MVP Module 99 options.
@@ -179,23 +169,42 @@ params.delete_binning_intermediates = false
  *
  * A template is required for prep_submission.
  */
+
 params.miuvig_identifier = null
 params.miuvig_step = null
 params.miuvig_template = null
+params.force = false
 
 
 /*
- * General behavior.
+ * Convert a path to an absolute normalized path.
  */
-params.force = false
+def absPath(value) {
+    def text = value == null
+        ? ""
+        : value.toString().trim()
 
+    if (!text || text == "null" || text == "NA") {
+        return ""
+    }
+
+    return java.nio.file.Paths
+        .get(text)
+        .toAbsolutePath()
+        .normalize()
+        .toString()
+}
 
 /*
  * Derived directories.
  */
 params.results_dir = params.working_dir
-    ? params.working_dir
-    : (params.output_dir ? params.output_dir : ".")
+    ? absPath(params.working_dir)
+    : (
+        params.output_dir
+            ? absPath(params.output_dir)
+            : absPath(".")
+    )
 
 params.module1_outdir =
     "${params.results_dir}/module_1_readtrimming"
@@ -206,21 +215,16 @@ params.module2_outdir =
 params.module2b_outdir =
     "${params.results_dir}/module_2b_coassembly"
 
+params.module5_outdir =
+    "${params.results_dir}/module_5_subtractiveassembly"
+
 params.outdir =
     "${params.results_dir}/AuxModule_2_mvp"
 
-
-/*
- * Convert a path to an absolute normalized path.
- */
-def absPath(value) {
-    return java.nio.file.Paths
-        .get(value.toString())
-        .toAbsolutePath()
-        .normalize()
-        .toString()
-}
-
+params.mvp_normalized_reads_dir =
+    params.normalized_reads_dir
+        ? absPath(params.normalized_reads_dir)
+        : "${params.outdir}/normalized_reads"
 
 /*
  * Parse a comma-, semicolon-, or whitespace-separated module list.
@@ -417,18 +421,73 @@ workflow {
         }
     }
 
-    def assembly_manifest_file =
-        params.assembly_manifest ?:
-        "${params.module2_outdir}/summary/assembly_manifest.tsv"
-
-    def trimmed_manifest_file =
-        params.trimmed_manifest ?:
-        "${params.module1_outdir}/summary/trimmed_manifest.tsv"
+    def include_individual =
+        params.include_individual_assemblies
+            .toString()
+            .toBoolean()
 
     def include_coassemblies =
         params.include_coassemblies
             .toString()
             .toBoolean()
+
+    def include_subtractive =
+        params.include_subtractive_assemblies
+            .toString()
+            .toBoolean()
+
+    if (
+        !include_individual &&
+        !include_coassemblies &&
+        !include_subtractive
+    ) {
+        error(
+            """
+            No assembly classes were enabled.
+
+            Enable at least one of:
+
+              --include_individual_assemblies true
+              --include_coassemblies true
+              --include_subtractive_assemblies true
+            """.stripIndent()
+        )
+    }
+
+    def assembly_manifest_file =
+        params.assembly_manifest
+            ? absPath(params.assembly_manifest)
+            : "${params.module2_outdir}/summary/assembly_manifest.tsv"
+
+    def trimmed_manifest_file =
+        params.trimmed_manifest
+            ? absPath(params.trimmed_manifest)
+            : "${params.module1_outdir}/summary/trimmed_manifest.tsv"
+
+    def coassembly_manifest_file =
+        params.coassembly_manifest
+            ? absPath(params.coassembly_manifest)
+            : "${params.module2b_outdir}/summary/assembly_manifest.tsv"
+
+    def coassembly_reads_file =
+        params.coassembly_trimmed_manifest
+            ? absPath(params.coassembly_trimmed_manifest)
+            : "${params.module2b_outdir}/summary/coassembly_trimmed_manifest.tsv"
+
+    def subtractive_manifest_file =
+        params.subtractive_assembly_manifest
+            ? absPath(params.subtractive_assembly_manifest)
+            : "${params.module5_outdir}/summary/subtractive_assembly_manifest.tsv"
+
+    def subtractive_assembly_dir =
+        params.subtractive_assembly_dir
+            ? absPath(params.subtractive_assembly_dir)
+            : "${params.module5_outdir}/assemblies"
+
+    def subtractive_unmapped_reads_dir =
+        params.subtractive_unmapped_reads_dir
+            ? absPath(params.subtractive_unmapped_reads_dir)
+            : "${params.module5_outdir}/unmapped_reads"
 
     log.info(
         "Auxiliary Module 2 MVP output directory: " +
@@ -446,28 +505,58 @@ workflow {
     )
 
     log.info(
-        "Assembly manifest: ${assembly_manifest_file}"
+        "Include Module 2 individual/rarefied assemblies: " +
+        "${include_individual}"
     )
 
     log.info(
-        "Trimmed-read manifest: ${trimmed_manifest_file}"
+        "Include Module 2b coassemblies: " +
+        "${include_coassemblies}"
     )
 
     log.info(
-        "Include coassemblies: ${include_coassemblies}"
+        "Include Module 5 subtractive assemblies: " +
+        "${include_subtractive}"
     )
 
     log.info(
-        "MVP version: ${params.mvp_version}"
+        "Module 2 assembly manifest: " +
+        "${assembly_manifest_file}"
     )
 
     log.info(
-        "MVP threads: ${params.threads}"
+        "Module 1 trimmed-read manifest: " +
+        "${trimmed_manifest_file}"
     )
 
     log.info(
-        "MVP read type: ${params.read_type}"
+        "Module 2b assembly manifest: " +
+        "${coassembly_manifest_file}"
     )
+
+    log.info(
+        "Module 2b trimmed-read manifest: " +
+        "${coassembly_reads_file}"
+    )
+
+    log.info(
+        "Module 5 subtractive assembly manifest: " +
+        "${subtractive_manifest_file}"
+    )
+
+    log.info(
+        "Module 5 subtractive assembly directory: " +
+        "${subtractive_assembly_dir}"
+    )
+
+    log.info(
+        "Module 5 unmapped-read directory: " +
+        "${subtractive_unmapped_reads_dir}"
+    )
+
+    log.info("MVP version: ${params.mvp_version}")
+    log.info("MVP threads: ${params.threads}")
+    log.info("MVP read type: ${params.read_type}")
 
     if (!("0" in selected_modules)) {
         log.warn(
@@ -536,75 +625,34 @@ workflow {
         )
     }
 
-    def assembly_manifest_ch = channel.fromPath(
-        assembly_manifest_file,
-        type: "file",
-        checkIfExists: true
+    log.info(
+        "MVP normalized Module 1 read directory: " +
+        "${params.mvp_normalized_reads_dir}"
     )
 
-    def trimmed_manifest_ch = channel.fromPath(
-        trimmed_manifest_file,
-        type: "file",
-        checkIfExists: true
+    log.info(
+        "All MVP read inputs will be treated as interleaved."
     )
 
-    def coassembly_manifest_ch
-    def coassembly_reads_ch
-
-    if (include_coassemblies) {
-
-        def coassembly_manifest_file =
-            params.coassembly_manifest ?:
-            "${params.module2b_outdir}/summary/assembly_manifest.tsv"
-
-        def coassembly_reads_file =
-            params.coassembly_trimmed_manifest ?:
-            "${params.module2b_outdir}/summary/coassembly_trimmed_manifest.tsv"
-
-        log.info(
-            "Coassembly assembly manifest: " +
-            "${coassembly_manifest_file}"
-        )
-
-        log.info(
-            "Coassembly trimmed-read manifest: " +
-            "${coassembly_reads_file}"
-        )
-
-        coassembly_manifest_ch = channel.fromPath(
-            coassembly_manifest_file,
-            type: "file",
-            checkIfExists: true
-        )
-
-        coassembly_reads_ch = channel.fromPath(
-            coassembly_reads_file,
-            type: "file",
-            checkIfExists: true
-        )
-    }
-    else {
-
-        CREATE_EMPTY_COASSEMBLY_MANIFESTS()
-
-        coassembly_manifest_ch =
-            CREATE_EMPTY_COASSEMBLY_MANIFESTS
-                .out
-                .assembly_manifest
-
-        coassembly_reads_ch =
-            CREATE_EMPTY_COASSEMBLY_MANIFESTS
-                .out
-                .trimmed_manifest
-    }
+    NORMALIZE_MVP_READS(
+        channel.value(include_individual),
+        channel.value(trimmed_manifest_file)
+    )
 
     SETUP_AUXMODULE2_MVP()
 
     PREPARE_MVP_METADATA(
-        assembly_manifest_ch,
-        trimmed_manifest_ch,
-        coassembly_manifest_ch,
-        coassembly_reads_ch
+        channel.value(include_individual),
+        channel.value(include_coassemblies),
+        channel.value(include_subtractive),
+        channel.value(assembly_manifest_file),
+        NORMALIZE_MVP_READS.out.normalized_manifest,
+        channel.value(coassembly_manifest_file),
+        channel.value(coassembly_reads_file),
+        channel.value(subtractive_manifest_file),
+        channel.value(subtractive_assembly_dir),
+        channel.value(subtractive_unmapped_reads_dir),
+        NORMALIZE_MVP_READS.out.status
     )
 
     RUN_MVP(
@@ -614,35 +662,664 @@ workflow {
     )
 }
 
+/*
+ * Normalize all Module 1 reads to interleaved FASTQ for MVP.
+ *
+ * Paired R1/R2 files are interleaved record-by-record. Existing
+ * interleaved files are validated and recompressed into the same
+ * persistent normalized-read directory.
+ *
+ * Module 2b coassembly reads and Module 5 subtractive reads are already
+ * interleaved and are handled later by PREPARE_MVP_METADATA.
+ */
+ 
+process NORMALIZE_MVP_READS {
 
-process CREATE_EMPTY_COASSEMBLY_MANIFESTS {
+    tag "normalize_mvp_reads_to_interleaved"
 
-    tag "create_empty_coassembly_manifests"
+    publishDir "${params.outdir}/metadata",
+        mode: "copy",
+        pattern: "mvp_normalized_trimmed_manifest.tsv"
+
+    publishDir "${params.outdir}/summary",
+        mode: "copy",
+        pattern: "mvp_read_normalization_stats.tsv"
+
+    publishDir "${params.outdir}/logs",
+        mode: "copy",
+        pattern: "normalize_mvp_reads.log"
+
+    input:
+    val include_individual
+    val trimmed_manifest
 
     output:
+    path "mvp_normalized_trimmed_manifest.tsv",
+        emit: normalized_manifest
 
-    path "empty_coassembly_assembly_manifest.tsv",
-        emit: assembly_manifest
+    path "mvp_read_normalization_stats.tsv",
+        emit: stats
 
-    path "empty_coassembly_trimmed_manifest.tsv",
-        emit: trimmed_manifest
+    path "mvp_read_normalization_status.env",
+        emit: status
+
+    path "normalize_mvp_reads.log",
+        emit: log_file
 
     script:
-
     """
     set -euo pipefail
 
-    printf '%s\\n' \
-      'sample_id\tsafe_sample_id\tassembly_sample_id\tassembler\tassembly_mode\trarefaction_label\tassembly_strategy\trenamed_fasta' \
-      > empty_coassembly_assembly_manifest.tsv
+    LOG="normalize_mvp_reads.log"
+    NORMALIZED_MANIFEST="mvp_normalized_trimmed_manifest.tsv"
+    STATS="mvp_read_normalization_stats.tsv"
+    STATUS="mvp_read_normalization_status.env"
 
-    printf '%s\\n' \
-      'sample_id\tsafe_sample_id\tlayout\tread1\tread2\tinterleaved\tmerged\tfastp_html\tfastp_json' \
-      > empty_coassembly_trimmed_manifest.tsv
+    NORMALIZED_DIR="${params.mvp_normalized_reads_dir}"
+
+    echo "MVP read normalization started: \$(date)" > "\$LOG"
+    echo "Include Module 2 assemblies: ${include_individual}" >> "\$LOG"
+    echo "Input Module 1 manifest: ${trimmed_manifest}" >> "\$LOG"
+    echo "Persistent normalized-read directory: \$NORMALIZED_DIR" >> "\$LOG"
+    echo "Compression level: ${params.normalized_reads_compression}" >> "\$LOG"
+    echo "Launch directory: ${workflow.launchDir}" >> "\$LOG"
+    echo "Task directory: \$(pwd -P)" >> "\$LOG"
+    echo "----------------------------------------" >> "\$LOG"
+
+    mkdir -p "\$NORMALIZED_DIR"
+
+    python3 - \\
+        "${include_individual}" \\
+        "${trimmed_manifest}" \\
+        "\$NORMALIZED_DIR" \\
+        "${params.normalized_reads_compression}" \\
+        "${workflow.launchDir}" \\
+        "\$NORMALIZED_MANIFEST" \\
+        "\$STATS" \\
+        "\$LOG" <<'PY'
+import csv
+import gzip
+import os
+import re
+import sys
+import tempfile
+from itertools import zip_longest
+from pathlib import Path
+
+
+(
+    include_individual,
+    trimmed_manifest,
+    normalized_dir,
+    compression_level,
+    launch_dir,
+    output_manifest,
+    output_stats,
+    log_file,
+) = sys.argv[1:]
+
+
+include_individual = include_individual.lower() == "true"
+trimmed_manifest = Path(trimmed_manifest)
+normalized_dir = Path(normalized_dir).resolve()
+compression_level = int(compression_level)
+launch_dir = Path(launch_dir).resolve()
+output_manifest = Path(output_manifest)
+output_stats = Path(output_stats)
+log_file = Path(log_file)
+
+
+if not 0 <= compression_level <= 9:
+    raise RuntimeError(
+        "normalized_reads_compression must be between 0 and 9"
+    )
+
+
+normalized_dir.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+
+def log(message):
+    with log_file.open("a") as handle:
+        print(message, file=handle)
+
+
+def safe_name(value):
+    value = str(value or "").strip()
+    value = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "_",
+        value,
+    )
+    value = value.strip("._-")
+
+    return value or "unnamed"
+
+
+def resolve_path(value):
+    value = str(value or "").strip()
+
+    if not value:
+        return None
+
+    path = Path(value)
+
+    if not path.is_absolute():
+        path = launch_dir / path
+
+    return path.resolve()
+
+
+def open_fastq(path):
+    path = Path(path)
+
+    if path.name.endswith(".gz"):
+        return gzip.open(
+            path,
+            "rt",
+            errors="strict",
+        )
+
+    return path.open(
+        "rt",
+        errors="strict",
+    )
+
+
+def read_fastq_records(path):
+    with open_fastq(path) as handle:
+        record_number = 0
+
+        while True:
+            header = handle.readline()
+
+            if not header:
+                break
+
+            sequence = handle.readline()
+            separator = handle.readline()
+            quality = handle.readline()
+
+            record_number += 1
+
+            if not sequence or not separator or not quality:
+                raise RuntimeError(
+                    f"Incomplete FASTQ record {record_number} "
+                    f"in {path}"
+                )
+
+            if not header.startswith("@"):
+                raise RuntimeError(
+                    f"Invalid FASTQ header at record "
+                    f"{record_number} in {path}: "
+                    f"{header.rstrip()}"
+                )
+
+            if not separator.startswith("+"):
+                raise RuntimeError(
+                    f"Invalid FASTQ separator at record "
+                    f"{record_number} in {path}: "
+                    f"{separator.rstrip()}"
+                )
+
+            sequence_length = len(
+                sequence.rstrip("\\r\\n")
+            )
+
+            quality_length = len(
+                quality.rstrip("\\r\\n")
+            )
+
+            if sequence_length != quality_length:
+                raise RuntimeError(
+                    f"Sequence/quality length mismatch at "
+                    f"record {record_number} in {path}"
+                )
+
+            yield (
+                header,
+                sequence,
+                separator,
+                quality,
+            )
+
+
+def temporary_output(destination):
+    descriptor, name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp.fastq.gz",
+        dir=str(destination.parent),
+    )
+
+    os.close(descriptor)
+
+    return Path(name)
+
+
+def validate_interleaved_fastq(path):
+    record_count = 0
+
+    for _ in read_fastq_records(path):
+        record_count += 1
+
+    if record_count % 2 != 0:
+        raise RuntimeError(
+            f"Interleaved FASTQ contains an odd number "
+            f"of records ({record_count}): {path}"
+        )
+
+    return record_count, record_count // 2
+
+
+def interleave_paired_fastq(
+    read1,
+    read2,
+    destination,
+):
+    temporary = temporary_output(destination)
+    pair_count = 0
+
+    try:
+        with gzip.open(
+            temporary,
+            "wt",
+            compresslevel=compression_level,
+        ) as output:
+            iterator1 = read_fastq_records(read1)
+            iterator2 = read_fastq_records(read2)
+
+            for pair_number, pair in enumerate(
+                zip_longest(
+                    iterator1,
+                    iterator2,
+                ),
+                start=1,
+            ):
+                record1, record2 = pair
+
+                if record1 is None or record2 is None:
+                    raise RuntimeError(
+                        f"Paired FASTQ files have unequal "
+                        f"record counts at pair {pair_number}: "
+                        f"{read1}, {read2}"
+                    )
+
+                output.writelines(record1)
+                output.writelines(record2)
+                pair_count += 1
+
+        record_count, validated_pairs = (
+            validate_interleaved_fastq(temporary)
+        )
+
+        if validated_pairs != pair_count:
+            raise RuntimeError(
+                f"Internal pair-count mismatch while "
+                f"interleaving {read1} and {read2}"
+            )
+
+        os.replace(
+            temporary,
+            destination,
+        )
+
+    except Exception:
+        if temporary.exists():
+            temporary.unlink()
+
+        raise
+
+    return record_count, pair_count
+
+
+def normalize_existing_interleaved(
+    source,
+    destination,
+):
+    temporary = temporary_output(destination)
+    record_count = 0
+
+    try:
+        with gzip.open(
+            temporary,
+            "wt",
+            compresslevel=compression_level,
+        ) as output:
+            for record in read_fastq_records(source):
+                output.writelines(record)
+                record_count += 1
+
+        if record_count % 2 != 0:
+            raise RuntimeError(
+                f"Interleaved FASTQ contains an odd "
+                f"number of records ({record_count}): "
+                f"{source}"
+            )
+
+        validated_records, pair_count = (
+            validate_interleaved_fastq(temporary)
+        )
+
+        if validated_records != record_count:
+            raise RuntimeError(
+                f"Internal record-count mismatch while "
+                f"normalizing {source}"
+            )
+
+        os.replace(
+            temporary,
+            destination,
+        )
+
+    except Exception:
+        if temporary.exists():
+            temporary.unlink()
+
+        raise
+
+    return record_count, pair_count
+
+
+manifest_fields = [
+    "sample_id",
+    "safe_sample_id",
+    "layout",
+    "read1",
+    "read2",
+    "interleaved",
+    "merged",
+    "fastp_html",
+    "fastp_json",
+]
+
+stats_fields = [
+    "sample_id",
+    "safe_sample_id",
+    "source_layout",
+    "source_read1",
+    "source_read2",
+    "source_interleaved",
+    "normalized_interleaved",
+    "fastq_records",
+    "pairs_or_fragments",
+    "normalization_action",
+]
+
+normalized_rows = []
+stats_rows = []
+used_output_names = set()
+
+
+if include_individual:
+    if not trimmed_manifest.is_file():
+        raise RuntimeError(
+            f"Required Module 1 trimmed manifest does not exist: "
+            f"{trimmed_manifest}"
+        )
+
+    with trimmed_manifest.open() as handle:
+        reader = csv.DictReader(
+            handle,
+            delimiter="\\t",
+        )
+
+        available_fields = set(
+            reader.fieldnames or []
+        )
+
+        missing = set(manifest_fields) - available_fields
+
+        if missing:
+            raise RuntimeError(
+                f"Module 1 trimmed manifest is missing "
+                f"required columns: {sorted(missing)}"
+            )
+
+        for row in reader:
+            if not any(
+                str(value or "").strip()
+                for value in row.values()
+            ):
+                continue
+
+            sample_id = str(
+                row.get("sample_id", "")
+            ).strip()
+
+            safe_sample_id = safe_name(
+                row.get("safe_sample_id", "")
+                or sample_id
+            )
+
+            source_layout = str(
+                row.get("layout", "")
+            ).strip()
+
+            if not sample_id:
+                raise RuntimeError(
+                    "Module 1 trimmed manifest contains "
+                    "an empty sample_id"
+                )
+
+            output_name = (
+                f"{safe_sample_id}."
+                f"mvp_interleaved.fastq.gz"
+            )
+
+            if output_name in used_output_names:
+                raise RuntimeError(
+                    f"Multiple Module 1 rows would create "
+                    f"the same normalized FASTQ: "
+                    f"{output_name}"
+                )
+
+            used_output_names.add(output_name)
+
+            destination = (
+                normalized_dir / output_name
+            )
+
+            if source_layout == "paired":
+                read1 = resolve_path(
+                    row.get("read1", "")
+                )
+
+                read2 = resolve_path(
+                    row.get("read2", "")
+                )
+
+                if read1 is None or read2 is None:
+                    raise RuntimeError(
+                        f"Paired sample {sample_id} is "
+                        f"missing read1 or read2"
+                    )
+
+                if not read1.is_file():
+                    raise RuntimeError(
+                        f"Read 1 does not exist for "
+                        f"{sample_id}: {read1}"
+                    )
+
+                if not read2.is_file():
+                    raise RuntimeError(
+                        f"Read 2 does not exist for "
+                        f"{sample_id}: {read2}"
+                    )
+
+                records, pairs = (
+                    interleave_paired_fastq(
+                        read1,
+                        read2,
+                        destination,
+                    )
+                )
+
+                action = "paired_to_interleaved"
+                source_read1 = str(read1)
+                source_read2 = str(read2)
+                source_interleaved = ""
+
+            elif source_layout == "interleaved":
+                source_interleaved_path = resolve_path(
+                    row.get("interleaved", "")
+                )
+
+                if source_interleaved_path is None:
+                    raise RuntimeError(
+                        f"Interleaved sample {sample_id} "
+                        f"has no interleaved read path"
+                    )
+
+                if not source_interleaved_path.is_file():
+                    raise RuntimeError(
+                        f"Interleaved reads do not exist "
+                        f"for {sample_id}: "
+                        f"{source_interleaved_path}"
+                    )
+
+                records, pairs = (
+                    normalize_existing_interleaved(
+                        source_interleaved_path,
+                        destination,
+                    )
+                )
+
+                action = (
+                    "normalized_existing_interleaved"
+                )
+
+                source_read1 = ""
+                source_read2 = ""
+                source_interleaved = str(
+                    source_interleaved_path
+                )
+
+            else:
+                raise RuntimeError(
+                    f"Unsupported Module 1 read layout "
+                    f"for {sample_id}: {source_layout}"
+                )
+
+            if records == 0:
+                raise RuntimeError(
+                    f"Normalized FASTQ contains zero "
+                    f"records for {sample_id}: "
+                    f"{destination}"
+                )
+
+            normalized_rows.append(
+                {
+                    "sample_id": sample_id,
+                    "safe_sample_id": safe_sample_id,
+                    "layout": "interleaved",
+                    "read1": "",
+                    "read2": "",
+                    "interleaved": str(
+                        destination.resolve()
+                    ),
+                    "merged": str(
+                        row.get("merged", "")
+                    ).strip(),
+                    "fastp_html": str(
+                        row.get("fastp_html", "")
+                    ).strip(),
+                    "fastp_json": str(
+                        row.get("fastp_json", "")
+                    ).strip(),
+                }
+            )
+
+            stats_rows.append(
+                {
+                    "sample_id": sample_id,
+                    "safe_sample_id": safe_sample_id,
+                    "source_layout": source_layout,
+                    "source_read1": source_read1,
+                    "source_read2": source_read2,
+                    "source_interleaved": (
+                        source_interleaved
+                    ),
+                    "normalized_interleaved": str(
+                        destination.resolve()
+                    ),
+                    "fastq_records": records,
+                    "pairs_or_fragments": pairs,
+                    "normalization_action": action,
+                }
+            )
+
+            log(
+                f"Normalized sample {sample_id}: "
+                f"source_layout={source_layout}, "
+                f"records={records}, "
+                f"pairs_or_fragments={pairs}, "
+                f"output={destination}"
+            )
+
+
+with output_manifest.open("w") as output:
+    writer = csv.DictWriter(
+        output,
+        delimiter="\\t",
+        lineterminator="\\n",
+        fieldnames=manifest_fields,
+    )
+
+    writer.writeheader()
+    writer.writerows(normalized_rows)
+
+
+with output_stats.open("w") as output:
+    writer = csv.DictWriter(
+        output,
+        delimiter="\\t",
+        lineterminator="\\n",
+        fieldnames=stats_fields,
+    )
+
+    writer.writeheader()
+    writer.writerows(stats_rows)
+
+
+log("----------------------------------------")
+log(
+    f"Normalized Module 1 samples: "
+    f"{len(normalized_rows)}"
+)
+log(
+    f"Normalized-read directory: "
+    f"{normalized_dir}"
+)
+PY
+
+    printf 'NORMALIZED_READS_DIR=%s\\n' \
+        "\$NORMALIZED_DIR" \
+        > "\$STATUS"
+
+    printf 'NORMALIZED_MANIFEST=%s\\n' \
+        "\$(pwd -P)/\$NORMALIZED_MANIFEST" \
+        >> "\$STATUS"
+
+    printf 'NORMALIZED_SAMPLE_COUNT=%s\\n' \
+        "\$(tail -n +2 "\$NORMALIZED_MANIFEST" |
+            awk 'NF > 0' |
+            wc -l |
+            tr -d ' ')" \
+        >> "\$STATUS"
+
+    printf 'STATUS=complete\\n' \
+        >> "\$STATUS"
+
+    echo "MVP read normalization finished: \$(date)" \
+        >> "\$LOG"
     """
 }
 
-
+/*
+ * Install and validate MVP.
+ */
 process SETUP_AUXMODULE2_MVP {
 
     tag "setup_auxmodule2_mvp"
@@ -652,15 +1329,15 @@ process SETUP_AUXMODULE2_MVP {
         pattern: "auxmodule2_mvp_tools_status.env"
 
     output:
-
     path "auxmodule2_mvp_tools_status.env",
         emit: status
 
     script:
-
     def env_dir = params.tool_env_dir
         ? absPath(params.tool_env_dir)
-        : absPath("${params.outdir}/conda_envs/mvp")
+        : absPath(
+            "${params.outdir}/conda_envs/mvp"
+        )
 
     """
     set -euo pipefail
@@ -684,12 +1361,14 @@ process SETUP_AUXMODULE2_MVP {
         local prefix="\$1"
 
         if [[ "\$prefix" == "SYSTEM" ]]; then
-
             if ! command -v mvip >/dev/null 2>&1; then
                 return 1
             fi
 
-            mvip -h >> "\$STATUS_FILE" 2>&1 || return 1
+            mvip -h \
+                >> "\$STATUS_FILE" 2>&1 ||
+                return 1
+
             return 0
         fi
 
@@ -698,18 +1377,17 @@ process SETUP_AUXMODULE2_MVP {
         fi
 
         "\$prefix/bin/mvip" -h \
-            >> "\$STATUS_FILE" 2>&1 || return 1
+            >> "\$STATUS_FILE" 2>&1 ||
+            return 1
 
         return 0
     }
 
     if [[ -d "\$TOOL_ENV" ]]; then
-
         echo "Existing MVP environment detected: \$TOOL_ENV" \
             >> "\$STATUS_FILE"
 
         if check_mvp "\$TOOL_ENV"; then
-
             echo "Existing MVP environment passed validation." \
                 >> "\$STATUS_FILE"
 
@@ -735,7 +1413,6 @@ process SETUP_AUXMODULE2_MVP {
         >> "\$STATUS_FILE"
 
     if check_mvp "SYSTEM"; then
-
         echo "MVP is available from the system/runtime PATH." \
             >> "\$STATUS_FILE"
 
@@ -752,7 +1429,6 @@ process SETUP_AUXMODULE2_MVP {
         >> "\$STATUS_FILE"
 
     if [[ "${params.auto_install}" != "true" ]]; then
-
         echo "ERROR: MVP is unavailable and auto_install is false." \
             >> "\$STATUS_FILE"
 
@@ -762,21 +1438,18 @@ process SETUP_AUXMODULE2_MVP {
     INSTALLER=""
 
     if command -v mamba >/dev/null 2>&1; then
-
         INSTALLER="mamba"
 
         echo "Using mamba: \$(command -v mamba)" \
             >> "\$STATUS_FILE"
 
     elif command -v conda >/dev/null 2>&1; then
-
         INSTALLER="conda"
 
         echo "Using conda: \$(command -v conda)" \
             >> "\$STATUS_FILE"
 
     else
-
         echo "ERROR: Neither mamba nor conda was found in PATH." \
             >> "\$STATUS_FILE"
 
@@ -796,7 +1469,6 @@ process SETUP_AUXMODULE2_MVP {
         >> "\$STATUS_FILE" 2>&1
 
     if ! check_mvp "\$TOOL_ENV"; then
-
         echo "ERROR: Newly created MVP environment failed validation." \
             >> "\$STATUS_FILE"
 
@@ -811,10 +1483,9 @@ process SETUP_AUXMODULE2_MVP {
     """
 }
 
-
 process PREPARE_MVP_METADATA {
 
-    tag "prepare_mvp_metadata"
+    tag "prepare_all_mvp_metadata"
 
     publishDir "${params.outdir}/metadata",
         mode: "copy",
@@ -829,14 +1500,23 @@ process PREPARE_MVP_METADATA {
         pattern: "prepare_mvp_metadata.log"
 
     input:
+    val include_individual
+    val include_coassemblies
+    val include_subtractive
 
-    path assembly_manifest
+    val assembly_manifest
     path trimmed_manifest
-    path coassembly_manifest
-    path coassembly_trimmed_manifest
+
+    val coassembly_manifest
+    val coassembly_trimmed_manifest
+
+    val subtractive_manifest
+    val subtractive_assembly_dir
+    val subtractive_unmapped_reads_dir
+
+    path normalization_status
 
     output:
-
     path "mvp_metadata.tsv",
         emit: metadata
 
@@ -847,30 +1527,75 @@ process PREPARE_MVP_METADATA {
         emit: log_file
 
     script:
-
     """
     set -euo pipefail
 
-    python3 - \
-        "${assembly_manifest}" \
-        "${trimmed_manifest}" \
-        "${coassembly_manifest}" \
-        "${coassembly_trimmed_manifest}" \
-        "${workflow.launchDir}" \
-        "mvp_metadata.tsv" \
-        "mvp_input_summary.tsv" \
+    if ! grep -q '^STATUS=complete\$' \
+        "${normalization_status}"; then
+
+        echo "ERROR: MVP read normalization did not complete successfully." \
+            >&2
+
+        cat "${normalization_status}" \
+            >&2 || true
+
+        exit 1
+    fi
+
+    if [[ "${include_individual}" == "true" ]]; then
+        NORMALIZED_COUNT="\$(
+            grep '^NORMALIZED_SAMPLE_COUNT=' \
+                "${normalization_status}" |
+            tail -n 1 |
+            cut -d= -f2- ||
+            true
+        )"
+
+        if [[ -z "\$NORMALIZED_COUNT" ||
+              "\$NORMALIZED_COUNT" -eq 0 ]]; then
+
+            echo "ERROR: Module 2 assemblies are enabled, but no " \
+                 "normalized Module 1 read records were generated." \
+                 >&2
+
+            cat "${normalization_status}" \
+                >&2 || true
+
+            exit 1
+        fi
+    fi
+
+    python3 - \\
+        "${include_individual}" \\
+        "${include_coassemblies}" \\
+        "${include_subtractive}" \\
+        "${assembly_manifest}" \\
+        "${trimmed_manifest}" \\
+        "${coassembly_manifest}" \\
+        "${coassembly_trimmed_manifest}" \\
+        "${subtractive_manifest}" \\
+        "${subtractive_assembly_dir}" \\
+        "${subtractive_unmapped_reads_dir}" \\
+        "${workflow.launchDir}" \\
+        "mvp_metadata.tsv" \\
+        "mvp_input_summary.tsv" \\
         "prepare_mvp_metadata.log" <<'PY'
 import csv
 import re
 import sys
 from pathlib import Path
 
-
 (
+    include_individual,
+    include_coassemblies,
+    include_subtractive,
     assembly_manifest,
     trimmed_manifest,
     coassembly_manifest,
     coassembly_trimmed_manifest,
+    subtractive_manifest,
+    subtractive_assembly_dir,
+    subtractive_unmapped_reads_dir,
     launch_dir,
     output_metadata,
     output_summary,
@@ -878,7 +1603,29 @@ from pathlib import Path
 ) = sys.argv[1:]
 
 
+include_individual = include_individual.lower() == "true"
+include_coassemblies = include_coassemblies.lower() == "true"
+include_subtractive = include_subtractive.lower() == "true"
+
 launch_dir = Path(launch_dir).resolve()
+
+assembly_manifest = Path(assembly_manifest)
+trimmed_manifest = Path(trimmed_manifest)
+
+coassembly_manifest = Path(coassembly_manifest)
+coassembly_trimmed_manifest = Path(
+    coassembly_trimmed_manifest
+)
+
+subtractive_manifest = Path(subtractive_manifest)
+subtractive_assembly_dir = Path(
+    subtractive_assembly_dir
+).resolve()
+
+subtractive_unmapped_reads_dir = Path(
+    subtractive_unmapped_reads_dir
+).resolve()
+
 output_metadata = Path(output_metadata)
 output_summary = Path(output_summary)
 log_file = Path(log_file)
@@ -911,13 +1658,21 @@ def safe_name(value):
     return value or "unnamed"
 
 
-def read_tsv(path, required_columns):
+def read_tsv(path, required_columns, required=True):
     path = Path(path)
 
-    if not path.exists():
-        raise RuntimeError(
-            f"Input manifest does not exist: {path}"
+    if not path.is_file():
+        if required:
+            raise RuntimeError(
+                f"Required manifest does not exist: {path}"
+            )
+
+        log(
+            f"Optional manifest does not exist; skipping: "
+            f"{path}"
         )
+
+        return []
 
     with path.open() as handle:
         reader = csv.DictReader(
@@ -934,16 +1689,28 @@ def read_tsv(path, required_columns):
                 f"{sorted(missing)}"
             )
 
-        return list(reader)
+        return [
+            row
+            for row in reader
+            if any(str(value or "").strip() for value in row.values())
+        ]
 
 
 def build_read_lookup(rows, label):
     lookup = {}
 
     for row in rows:
-        sample_id = row["sample_id"].strip()
-        safe_sample_id = row["safe_sample_id"].strip()
-        layout = row["layout"].strip()
+        sample_id = str(
+            row.get("sample_id", "")
+        ).strip()
+
+        safe_sample_id = str(
+            row.get("safe_sample_id", "")
+        ).strip()
+
+        layout = str(
+            row.get("layout", "")
+        ).strip()
 
         if not sample_id:
             raise RuntimeError(
@@ -951,8 +1718,13 @@ def build_read_lookup(rows, label):
             )
 
         if layout == "paired":
-            read_path = resolve_path(row.get("read1", ""))
-            read2_path = resolve_path(row.get("read2", ""))
+            read_path = resolve_path(
+                row.get("read1", "")
+            )
+
+            read2_path = resolve_path(
+                row.get("read2", "")
+            )
 
             if not read_path or not read2_path:
                 raise RuntimeError(
@@ -1003,7 +1775,6 @@ def build_read_lookup(rows, label):
         }
 
         for key in {sample_id, safe_sample_id}:
-
             if not key:
                 continue
 
@@ -1021,17 +1792,6 @@ def build_read_lookup(rows, label):
     return lookup
 
 
-log("Preparing MVP metadata")
-log(f"Launch directory: {launch_dir}")
-log(f"Assembly manifest: {assembly_manifest}")
-log(f"Trimmed-read manifest: {trimmed_manifest}")
-log(f"Coassembly manifest: {coassembly_manifest}")
-log(
-    "Coassembly trimmed-read manifest: "
-    f"{coassembly_trimmed_manifest}"
-)
-
-
 required_read_columns = [
     "sample_id",
     "safe_sample_id",
@@ -1041,30 +1801,7 @@ required_read_columns = [
     "interleaved",
 ]
 
-
-trimmed_rows = read_tsv(
-    trimmed_manifest,
-    required_read_columns,
-)
-
-coassembly_read_rows = read_tsv(
-    coassembly_trimmed_manifest,
-    required_read_columns,
-)
-
-
-read_lookup = build_read_lookup(
-    trimmed_rows,
-    "trimmed-read manifest",
-)
-
-coassembly_read_lookup = build_read_lookup(
-    coassembly_read_rows,
-    "coassembly trimmed-read manifest",
-)
-
-
-required_assembly_columns = [
+required_standard_assembly_columns = [
     "sample_id",
     "safe_sample_id",
     "assembly_sample_id",
@@ -1075,16 +1812,111 @@ required_assembly_columns = [
     "renamed_fasta",
 ]
 
+required_subtractive_columns = [
+    "sample_id",
+    "safe_sample_id",
+    "assembly_sample_id",
+    "assembler",
+    "assembly_mode",
+    "renamed_fasta",
+]
 
-ordinary_assemblies = read_tsv(
-    assembly_manifest,
-    required_assembly_columns,
+
+log("Preparing MVP metadata from all assembly modules")
+log(f"Launch directory: {launch_dir}")
+log(f"Include individual assemblies: {include_individual}")
+log(f"Include coassemblies: {include_coassemblies}")
+log(f"Include subtractive assemblies: {include_subtractive}")
+log(f"Module 2 assembly manifest: {assembly_manifest}")
+log(f"Module 1 trimmed manifest: {trimmed_manifest}")
+log(f"Module 2b assembly manifest: {coassembly_manifest}")
+log(
+    "Module 2b trimmed manifest: "
+    f"{coassembly_trimmed_manifest}"
+)
+log(
+    "Module 5 subtractive manifest: "
+    f"{subtractive_manifest}"
+)
+log(
+    "Module 5 subtractive assembly directory: "
+    f"{subtractive_assembly_dir}"
+)
+log(
+    "Module 5 unmapped-read directory: "
+    f"{subtractive_unmapped_reads_dir}"
 )
 
-coassemblies = read_tsv(
-    coassembly_manifest,
-    required_assembly_columns,
-)
+
+ordinary_assemblies = []
+ordinary_read_lookup = {}
+
+if include_individual:
+    ordinary_assemblies = read_tsv(
+        assembly_manifest,
+        required_standard_assembly_columns,
+        required=True,
+    )
+
+    ordinary_read_rows = read_tsv(
+        trimmed_manifest,
+        required_read_columns,
+        required=True,
+    )
+
+    ordinary_read_lookup = build_read_lookup(
+        ordinary_read_rows,
+        "Module 1 trimmed-read manifest",
+    )
+
+
+coassemblies = []
+coassembly_read_lookup = {}
+
+if include_coassemblies:
+    coassembly_available = (
+        coassembly_manifest.is_file() and
+        coassembly_trimmed_manifest.is_file()
+    )
+
+    if coassembly_available:
+        coassemblies = read_tsv(
+            coassembly_manifest,
+            required_standard_assembly_columns,
+            required=True,
+        )
+
+        coassembly_read_rows = read_tsv(
+            coassembly_trimmed_manifest,
+            required_read_columns,
+            required=True,
+        )
+
+        coassembly_read_lookup = build_read_lookup(
+            coassembly_read_rows,
+            "Module 2b coassembly read manifest",
+        )
+    else:
+        log(
+            "Module 2b outputs were not found. "
+            "No coassemblies will be included."
+        )
+
+
+subtractive_assemblies = []
+
+if include_subtractive:
+    if subtractive_manifest.is_file():
+        subtractive_assemblies = read_tsv(
+            subtractive_manifest,
+            required_subtractive_columns,
+            required=True,
+        )
+    else:
+        log(
+            "Module 5 subtractive manifest was not found. "
+            "No subtractive assemblies will be included."
+        )
 
 
 records = []
@@ -1092,15 +1924,43 @@ used_mvp_names = set()
 skipped_assemblies = []
 
 
-def add_assembly(row, source, lookup):
-    sample_id = row["sample_id"].strip()
-    safe_sample_id = row["safe_sample_id"].strip()
-    assembly_sample_id = row["assembly_sample_id"].strip()
-    assembler = row["assembler"].strip()
-    assembly_mode = row["assembly_mode"].strip()
-    rarefaction_label = row["rarefaction_label"].strip()
-    assembly_strategy = row["assembly_strategy"].strip()
-    assembly_path = resolve_path(row["renamed_fasta"])
+def add_record(
+    row,
+    source,
+    assembly_path,
+    read_path,
+    read_layout,
+):
+    sample_id = str(
+        row.get("sample_id", "")
+    ).strip()
+
+    safe_sample_id = str(
+        row.get("safe_sample_id", "")
+    ).strip()
+
+    assembly_sample_id = str(
+        row.get("assembly_sample_id", "")
+    ).strip()
+
+    assembler = str(
+        row.get("assembler", "")
+    ).strip()
+
+    assembly_mode = str(
+        row.get("assembly_mode", "")
+    ).strip()
+
+    rarefaction_label = str(
+        row.get("rarefaction_label", "")
+    ).strip()
+
+    assembly_strategy = str(
+        row.get("assembly_strategy", "")
+    ).strip()
+
+    assembly_path = resolve_path(assembly_path)
+    read_path = resolve_path(read_path)
 
     if not sample_id:
         raise RuntimeError(
@@ -1124,6 +1984,7 @@ def add_assembly(row, source, lookup):
     if assembly_file.stat().st_size == 0:
         skipped_assemblies.append(
             (
+                source,
                 sample_id,
                 assembler,
                 assembly_mode,
@@ -1139,18 +2000,20 @@ def add_assembly(row, source, lookup):
 
         return
 
-    read_record = (
-        lookup.get(sample_id) or
-        lookup.get(safe_sample_id)
-    )
-
-    if read_record is None:
+    if not read_path:
         raise RuntimeError(
-            f"No trimmed-read record matched {source} "
-            f"assembly {sample_id!r}/{safe_sample_id!r}"
+            f"Missing read path for {source} sample "
+            f"{sample_id}"
+        )
+
+    if not Path(read_path).is_file():
+        raise RuntimeError(
+            f"Read file does not exist for {source} sample "
+            f"{sample_id}: {read_path}"
         )
 
     components = [
+        source,
         safe_sample_id or sample_id,
         assembler or "assembler",
         assembly_mode or "assembly",
@@ -1177,7 +2040,7 @@ def add_assembly(row, source, lookup):
             "Sample_number": len(records) + 1,
             "Sample": mvp_name,
             "Assembly_Path": assembly_path,
-            "Read_Path": read_record["read_path"],
+            "Read_Path": read_path,
             "Variable": source,
             "source_sample_id": sample_id,
             "safe_sample_id": safe_sample_id,
@@ -1186,30 +2049,140 @@ def add_assembly(row, source, lookup):
             "assembly_mode": assembly_mode,
             "rarefaction_label": rarefaction_label,
             "assembly_strategy": assembly_strategy,
-            "read_layout": read_record["layout"],
+            "read_layout": read_layout,
         }
     )
 
 
 for row in ordinary_assemblies:
-    add_assembly(
+    sample_id = str(
+        row.get("sample_id", "")
+    ).strip()
+
+    safe_sample_id = str(
+        row.get("safe_sample_id", "")
+    ).strip()
+
+    read_record = (
+        ordinary_read_lookup.get(sample_id) or
+        ordinary_read_lookup.get(safe_sample_id)
+    )
+
+    if read_record is None:
+        raise RuntimeError(
+            f"No Module 1 trimmed-read record matched "
+            f"Module 2 assembly "
+            f"{sample_id!r}/{safe_sample_id!r}"
+        )
+
+    add_record(
         row=row,
         source="individual",
-        lookup=read_lookup,
+        assembly_path=row.get("renamed_fasta", ""),
+        read_path=read_record["read_path"],
+        read_layout=read_record["layout"],
     )
 
 
 for row in coassemblies:
-    add_assembly(
+    sample_id = str(
+        row.get("sample_id", "")
+    ).strip()
+
+    safe_sample_id = str(
+        row.get("safe_sample_id", "")
+    ).strip()
+
+    read_record = (
+        coassembly_read_lookup.get(sample_id) or
+        coassembly_read_lookup.get(safe_sample_id)
+    )
+
+    if read_record is None:
+        raise RuntimeError(
+            f"No Module 2b coassembly read record matched "
+            f"coassembly {sample_id!r}/{safe_sample_id!r}"
+        )
+
+    add_record(
         row=row,
         source="coassembly",
-        lookup=coassembly_read_lookup,
+        assembly_path=row.get("renamed_fasta", ""),
+        read_path=read_record["read_path"],
+        read_layout=read_record["layout"],
+    )
+
+
+for row in subtractive_assemblies:
+    sample_id = str(
+        row.get("sample_id", "")
+    ).strip()
+
+    safe_sample_id = str(
+        row.get("safe_sample_id", "")
+    ).strip()
+
+    assembler = str(
+        row.get("assembler", "")
+    ).strip() or "megahit"
+
+    expected_assembly = (
+        subtractive_assembly_dir /
+        f"{safe_sample_id}_{assembler}_subtractive.renamed.fa"
+    )
+
+    if not expected_assembly.is_file():
+        candidates = sorted(
+            subtractive_assembly_dir.glob(
+                f"{safe_sample_id}_*_subtractive.renamed.fa"
+            )
+        )
+
+        if len(candidates) == 1:
+            expected_assembly = candidates[0]
+        elif len(candidates) == 0:
+            manifest_path = resolve_path(
+                row.get("renamed_fasta", "")
+            )
+
+            if manifest_path and Path(manifest_path).is_file():
+                expected_assembly = Path(manifest_path)
+            else:
+                raise RuntimeError(
+                    f"Could not find subtractive assembly for "
+                    f"{sample_id}: expected {expected_assembly}"
+                )
+        else:
+            raise RuntimeError(
+                f"Multiple subtractive assemblies matched "
+                f"{safe_sample_id}: "
+                f"{[str(path) for path in candidates]}"
+            )
+
+    unmapped_reads = (
+        subtractive_unmapped_reads_dir /
+        f"{safe_sample_id}.unmapped_interleaved.fastq.gz"
+    )
+
+    if not unmapped_reads.is_file():
+        raise RuntimeError(
+            f"Could not find subtractive unmapped reads for "
+            f"{sample_id}: {unmapped_reads}"
+        )
+
+    add_record(
+        row=row,
+        source="subtractive",
+        assembly_path=str(expected_assembly),
+        read_path=str(unmapped_reads),
+        read_layout="interleaved",
     )
 
 
 if not records:
     raise RuntimeError(
-        "No usable MVP input records were generated"
+        "No usable MVP input records were generated from "
+        "Module 2, Module 2b, or Module 5."
     )
 
 
@@ -1268,18 +2241,42 @@ with output_summary.open("w") as out:
     writer.writerows(records)
 
 
-log(f"MVP input records written: {len(records)}")
+source_counts = {
+    source: sum(
+        record["Variable"] == source
+        for record in records
+    )
+    for source in [
+        "individual",
+        "coassembly",
+        "subtractive",
+    ]
+}
 
-log(
-    "Individual assembly records: "
-    f"{sum(r['Variable'] == 'individual' for r in records)}"
+read_layouts = sorted(
+    {
+        record["read_layout"]
+        for record in records
+    }
 )
 
+log(f"MVP input records written: {len(records)}")
+log(
+    "Individual/rarefied assembly records: "
+    f"{source_counts['individual']}"
+)
 log(
     "Coassembly records: "
-    f"{sum(r['Variable'] == 'coassembly' for r in records)}"
+    f"{source_counts['coassembly']}"
 )
-
+log(
+    "Subtractive assembly records: "
+    f"{source_counts['subtractive']}"
+)
+log(
+    "Read layouts represented: "
+    f"{','.join(read_layouts)}"
+)
 log(
     "Empty assembly records skipped: "
     f"{len(skipped_assemblies)}"
@@ -1293,7 +2290,6 @@ for skipped in skipped_assemblies:
 PY
     """
 }
-
 
 process RUN_MVP {
 
@@ -1489,12 +2485,7 @@ process RUN_MVP {
             ? "--force_genomad --force_checkv"
             : ""
 
-    def interleaved_argument =
-        params.interleaved
-            .toString()
-            .toBoolean()
-            ? "--interleaved"
-            : ""
+    def interleaved_argument = "--interleaved"
 
     def mapping_delete_argument =
         params.delete_mapping_intermediates
@@ -1628,23 +2619,6 @@ process RUN_MVP {
 
     METADATA="\$(readlink -f "${metadata}")"
 
-    /*
-     * Persistent MVP root.
-     *
-     * Every MVP module receives this exact same directory through -i.
-     * MVP therefore creates and reuses its required fixed directories:
-     *
-     *   00_DATABASES
-     *   01_GENOMAD
-     *   02_CHECK_V
-     *   03_CLUSTERING
-     *   04_READ_MAPPING
-     *   05_VOTU_TABLES
-     *   06_FUNCTIONAL_ANNOTATION
-     *   07A_vRHYME_OUTPUT
-     *   ...
-     *   100_SUMMARIZED_OUTPUTS
-     */
     MVP_WORK="${mvp_work}"
 
     GENOMAD_DB="${genomad_database}"

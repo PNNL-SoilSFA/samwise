@@ -66,6 +66,12 @@ params.results_dir = requireWorkingDir(params.working_dir)
 params.module2_assembly_dir =
     "${params.results_dir}/module_2_readassembly/assemblies"
 
+params.module2b_assembly_dir =
+    "${params.results_dir}/module_2b_coassembly/assemblies"
+
+params.module5_assembly_dir =
+    "${params.results_dir}/module_5_subtractiveassembly/assemblies"
+
 params.outdir =
     "${params.results_dir}/AuxModule_1_assemblyAnnotate"
 
@@ -95,14 +101,7 @@ workflow {
     }
 
     def samwise_root = params.results_dir
-    def selected_assembly_dir = params.module2_assembly_dir
-    def selected_output_dir = params.outdir
-
-    def root_path =
-        java.nio.file.Paths.get(samwise_root)
-
-    def assembly_path =
-        java.nio.file.Paths.get(selected_assembly_dir)
+    def root_path = java.nio.file.Paths.get(samwise_root)
 
     if (!java.nio.file.Files.isDirectory(root_path)) {
         error(
@@ -114,45 +113,148 @@ workflow {
         )
     }
 
-    if (!java.nio.file.Files.isDirectory(assembly_path)) {
+    def assembly_sources = [
+        [
+            source_type: "module2",
+            path: params.module2_assembly_dir.toString(),
+        ],
+        [
+            source_type: "coassembly",
+            path: params.module2b_assembly_dir.toString(),
+        ],
+        [
+            source_type: "subtractive",
+            path: params.module5_assembly_dir.toString(),
+        ],
+    ]
+
+    def existing_sources = assembly_sources.findAll { source ->
+        java.nio.file.Files.isDirectory(
+            java.nio.file.Paths.get(source.path)
+        )
+    }
+
+    if (!existing_sources) {
         error(
             """
-            The standardized Module 2 assembly directory was not found.
+            No assembly directories were found.
 
-            SAMWISE root:
-              ${samwise_root}
+            Checked:
 
-            Expected assembly directory:
-              ${selected_assembly_dir}
+              ${params.module2_assembly_dir}
+              ${params.module2b_assembly_dir}
+              ${params.module5_assembly_dir}
+
+            Run at least one assembly-producing module before running
+            AuxModule_1_assemblyAnnotate.
             """.stripIndent()
         )
     }
 
+    /*
+     * A path input cannot be null. If an optional module was not run,
+     * use an existing assembly directory as a staging placeholder and
+     * pass a Boolean flag telling PREPARE_ASSEMBLIES not to read it.
+     */
+    def fallback_assembly_dir =
+        existing_sources[0].path.toString()
+
+    def module2_exists = java.nio.file.Files.isDirectory(
+        java.nio.file.Paths.get(
+            params.module2_assembly_dir.toString()
+        )
+    )
+
+    def module2b_exists = java.nio.file.Files.isDirectory(
+        java.nio.file.Paths.get(
+            params.module2b_assembly_dir.toString()
+        )
+    )
+
+    def module5_exists = java.nio.file.Files.isDirectory(
+        java.nio.file.Paths.get(
+            params.module5_assembly_dir.toString()
+        )
+    )
+
+    def module2_input = module2_exists
+        ? params.module2_assembly_dir.toString()
+        : fallback_assembly_dir
+
+    def module2b_input = module2b_exists
+        ? params.module2b_assembly_dir.toString()
+        : fallback_assembly_dir
+
+    def module5_input = module5_exists
+        ? params.module5_assembly_dir.toString()
+        : fallback_assembly_dir
+
     log.info("Auxiliary Module 1: Assembly annotation")
     log.info("SAMWISE root: ${samwise_root}")
-    log.info("Input assembly directory: ${selected_assembly_dir}")
-    log.info("Output directory: ${selected_output_dir}")
+    log.info("Output directory: ${params.outdir}")
     log.info("Minimum scaffold size: ${minimum_scaffold_bp} bp")
+    log.info("Exact full-length scaffold deduplication: enabled")
+    log.info("Reverse-complement equivalence: enabled")
+
+    log.info(
+        "Module 2 assemblies: " +
+        (
+            module2_exists
+                ? params.module2_assembly_dir.toString()
+                : "not present"
+        )
+    )
+
+    log.info(
+        "Module 2b coassemblies: " +
+        (
+            module2b_exists
+                ? params.module2b_assembly_dir.toString()
+                : "not present"
+        )
+    )
+
+    log.info(
+        "Module 5 subtractive assemblies: " +
+        (
+            module5_exists
+                ? params.module5_assembly_dir.toString()
+                : "not present"
+        )
+    )
+
     log.info("EggNOG method: ${params.eggnog_method}")
     log.info("EggNOG input type: ${params.eggnog_itype}")
     log.info("Threads: ${params.threads ?: 16}")
 
-    /*
-     * Stage the standardized assembly directory for the task.
-     *
-     * selected_assembly_dir is also passed separately as a value so that
-     * manifests contain the original absolute input paths rather than paths
-     * inside the Nextflow work directory.
-     */
-    def assembly_dir_ch = channel.fromPath(
-        selected_assembly_dir,
+    def module2_dir_ch = channel.fromPath(
+        module2_input,
+        type: "dir",
+        checkIfExists: true,
+    )
+
+    def module2b_dir_ch = channel.fromPath(
+        module2b_input,
+        type: "dir",
+        checkIfExists: true,
+    )
+
+    def module5_dir_ch = channel.fromPath(
+        module5_input,
         type: "dir",
         checkIfExists: true,
     )
 
     PREPARE_ASSEMBLIES(
-        assembly_dir_ch,
-        channel.value(selected_assembly_dir),
+        module2_dir_ch,
+        module2b_dir_ch,
+        module5_dir_ch,
+        channel.value(module2_exists),
+        channel.value(module2b_exists),
+        channel.value(module5_exists),
+        channel.value(params.module2_assembly_dir.toString()),
+        channel.value(params.module2b_assembly_dir.toString()),
+        channel.value(params.module5_assembly_dir.toString()),
         channel.value(minimum_scaffold_bp),
     )
 
@@ -173,9 +275,14 @@ workflow {
 }
 
 
+/*
+ * Collect assembly FASTAs from all assembly-producing modules, apply the
+ * minimum scaffold-length filter, collapse exact full-length duplicates,
+ * and create the combined EggNOG input FASTA.
+ */
 process PREPARE_ASSEMBLIES {
 
-    tag "prepare_assembly_scaffolds"
+    tag "prepare_filter_and_deduplicate_assembly_scaffolds"
 
     publishDir(
         "${params.outdir}/filtered_assemblies",
@@ -217,8 +324,23 @@ process PREPARE_ASSEMBLIES {
     )
 
     input:
-    path staged_assembly_dir
-    val original_assembly_dir
+    path staged_module2_dir,
+        stageAs: "module2_assemblies"
+
+    path staged_module2b_dir,
+        stageAs: "module2b_assemblies"
+
+    path staged_module5_dir,
+        stageAs: "module5_assemblies"
+
+    val use_module2
+    val use_module2b
+    val use_module5
+
+    val original_module2_dir
+    val original_module2b_dir
+    val original_module5_dir
+
     val minimum_scaffold_bp
 
     output:
@@ -247,18 +369,31 @@ process PREPARE_ASSEMBLIES {
     LOG="prepare_assemblies.log"
 
     echo "Assembly scaffold preparation started: \$(date)" > "\$LOG"
-    echo "Original input directory: ${original_assembly_dir}" >> "\$LOG"
-    echo "Staged input directory: ${staged_assembly_dir}" >> "\$LOG"
-    echo "Output directory: ${params.outdir}" >> "\$LOG"
+    echo "Module 2 enabled: ${use_module2}" >> "\$LOG"
+    echo "Module 2 directory: ${original_module2_dir}" >> "\$LOG"
+    echo "Module 2b enabled: ${use_module2b}" >> "\$LOG"
+    echo "Module 2b directory: ${original_module2b_dir}" >> "\$LOG"
+    echo "Module 5 enabled: ${use_module5}" >> "\$LOG"
+    echo "Module 5 directory: ${original_module5_dir}" >> "\$LOG"
     echo "Minimum scaffold length: ${minimum_scaffold_bp} bp" >> "\$LOG"
+    echo "Deduplication identity: 100%" >> "\$LOG"
+    echo "Deduplication coverage: 100% of both scaffolds" >> "\$LOG"
+    echo "Reverse-complement equivalence: enabled" >> "\$LOG"
     echo "Task directory: \$(pwd -P)" >> "\$LOG"
     echo "----------------------------------------" >> "\$LOG"
 
     mkdir -p filtered_assemblies
 
     python3 - \\
-        "${staged_assembly_dir}" \\
-        "${original_assembly_dir}" \\
+        "${staged_module2_dir}" \\
+        "${staged_module2b_dir}" \\
+        "${staged_module5_dir}" \\
+        "${use_module2}" \\
+        "${use_module2b}" \\
+        "${use_module5}" \\
+        "${original_module2_dir}" \\
+        "${original_module2b_dir}" \\
+        "${original_module5_dir}" \\
         "${minimum_scaffold_bp}" \\
         "filtered_assemblies" \\
         "eggnog_assembly_scaffolds.fasta" \\
@@ -269,14 +404,22 @@ process PREPARE_ASSEMBLIES {
         "${params.outdir}/filtered_assemblies" \\
         "${params.outdir}/inputs/eggnog_assembly_scaffolds.fasta" <<'PY'
 import gzip
+import hashlib
 import re
 import sys
-from contextlib import ExitStack
+from collections import defaultdict
 from pathlib import Path
 
 (
-    staged_input_dir,
-    original_input_dir,
+    staged_module2_dir,
+    staged_module2b_dir,
+    staged_module5_dir,
+    use_module2,
+    use_module2b,
+    use_module5,
+    original_module2_dir,
+    original_module2b_dir,
+    original_module5_dir,
     minimum_scaffold_bp,
     filtered_dir,
     combined_fasta,
@@ -288,15 +431,15 @@ from pathlib import Path
     published_combined_fasta,
 ) = sys.argv[1:]
 
-staged_input_dir = Path(staged_input_dir)
-original_input_dir = Path(original_input_dir)
 minimum_scaffold_bp = int(minimum_scaffold_bp)
+
 filtered_dir = Path(filtered_dir)
 combined_fasta = Path(combined_fasta)
 assembly_manifest = Path(assembly_manifest)
 scaffold_manifest = Path(scaffold_manifest)
 stats_file = Path(stats_file)
 log_file = Path(log_file)
+
 published_filtered_dir = Path(published_filtered_dir)
 published_combined_fasta = Path(published_combined_fasta)
 
@@ -317,6 +460,27 @@ FASTA_SUFFIXES = (
     ".fa",
 )
 
+SOURCE_DEFINITIONS = [
+    {
+        "source_type": "module2",
+        "enabled": use_module2.lower() == "true",
+        "staged_dir": Path(staged_module2_dir),
+        "original_dir": Path(original_module2_dir),
+    },
+    {
+        "source_type": "coassembly",
+        "enabled": use_module2b.lower() == "true",
+        "staged_dir": Path(staged_module2b_dir),
+        "original_dir": Path(original_module2b_dir),
+    },
+    {
+        "source_type": "subtractive",
+        "enabled": use_module5.lower() == "true",
+        "staged_dir": Path(staged_module5_dir),
+        "original_dir": Path(original_module5_dir),
+    },
+]
+
 
 def log(message):
     with log_file.open("a") as handle:
@@ -325,8 +489,8 @@ def log(message):
 
 def safe_id(value):
     value = str(value or "").strip()
-    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
-    value = value.strip("._-")
+    value = re.sub(r"[^A-Za-z0-9._|-]+", "_", value)
+    value = value.strip("._-|")
     return value or "unnamed"
 
 
@@ -351,9 +515,7 @@ def read_fasta(path):
 
     with open_fasta(path) as handle:
         for line in handle:
-            # rstrip() avoids Groovy/Nextflow escape processing of newline
-            # characters in this embedded Python script.
-            line = line.rstrip()
+            line = line.strip()
 
             if not line:
                 continue
@@ -367,10 +529,11 @@ def read_fasta(path):
             else:
                 if header is None:
                     raise RuntimeError(
-                        f"Sequence data found before a FASTA header: {path}"
+                        f"Sequence data found before a FASTA header: "
+                        f"{path}"
                     )
 
-                sequence_parts.append(line.strip())
+                sequence_parts.append(line)
 
     if header is not None:
         yield header, "".join(sequence_parts)
@@ -381,350 +544,599 @@ def write_wrapped(handle, sequence, width=80):
         print(sequence[start:start + width], file=handle)
 
 
+COMPLEMENT = str.maketrans(
+    {
+        "A": "T",
+        "C": "G",
+        "G": "C",
+        "T": "A",
+        "U": "A",
+        "R": "Y",
+        "Y": "R",
+        "S": "S",
+        "W": "W",
+        "K": "M",
+        "M": "K",
+        "B": "V",
+        "D": "H",
+        "H": "D",
+        "V": "B",
+        "N": "N",
+    }
+)
+
+
+def reverse_complement(sequence):
+    return sequence.translate(COMPLEMENT)[::-1]
+
+
+def canonical_sequence(sequence):
+    sequence = sequence.upper()
+    reverse = reverse_complement(sequence)
+
+    if reverse < sequence:
+        return reverse
+
+    return sequence
+
+
+def sequence_hash(sequence):
+    return hashlib.sha256(
+        sequence.encode("ascii", errors="strict")
+    ).hexdigest()
+
+
 if minimum_scaffold_bp < 1:
     raise SystemExit(
         "ERROR: minimum_scaffold_bp must be at least 1."
     )
 
-if not staged_input_dir.exists():
-    raise SystemExit(
-        f"ERROR: Staged assembly directory does not exist: "
-        f"{staged_input_dir}"
+assemblies = []
+
+for source_definition in SOURCE_DEFINITIONS:
+    source_type = source_definition["source_type"]
+    enabled = source_definition["enabled"]
+    staged_dir = source_definition["staged_dir"]
+    original_dir = source_definition["original_dir"]
+
+    if not enabled:
+        log(
+            f"Assembly source not present; skipping: "
+            f"{source_type} ({original_dir})"
+        )
+        continue
+
+    if not staged_dir.exists():
+        raise SystemExit(
+            f"ERROR: staged directory does not exist for "
+            f"{source_type}: {staged_dir}"
+        )
+
+    if not staged_dir.is_dir():
+        raise SystemExit(
+            f"ERROR: staged input is not a directory for "
+            f"{source_type}: {staged_dir}"
+        )
+
+    source_fastas = sorted(
+        path
+        for path in staged_dir.iterdir()
+        if path.is_file()
+        and path.name.endswith(FASTA_SUFFIXES)
     )
 
-if not staged_input_dir.is_dir():
-    raise SystemExit(
-        f"ERROR: Staged assembly input is not a directory: "
-        f"{staged_input_dir}"
+    log(
+        f"{source_type} assembly FASTAs discovered: "
+        f"{len(source_fastas)}"
     )
 
-if not original_input_dir.is_absolute():
-    raise SystemExit(
-        f"ERROR: Original assembly directory is not absolute: "
-        f"{original_input_dir}"
-    )
-
-assemblies = sorted(
-    path
-    for path in staged_input_dir.iterdir()
-    if path.is_file()
-    and path.name.endswith(FASTA_SUFFIXES)
-)
+    for staged_path in source_fastas:
+        assemblies.append(
+            {
+                "source_type": source_type,
+                "staged_path": staged_path,
+                "original_path": original_dir / staged_path.name,
+            }
+        )
 
 if not assemblies:
     raise SystemExit(
-        f"ERROR: No assembly FASTA files found in "
-        f"{original_input_dir}"
+        "ERROR: No assembly FASTA files were found in any enabled "
+        "assembly directory."
     )
 
-log(f"Assembly FASTA files discovered: {len(assemblies)}")
-
-input_assemblies = 0
-retained_assemblies = 0
-empty_assemblies = 0
-
-input_scaffolds = 0
-retained_scaffolds = 0
-removed_scaffolds = 0
-empty_scaffolds = 0
-
-input_bp = 0
-retained_bp = 0
-removed_bp = 0
-
-used_assembly_names = set()
-used_combined_headers = set()
-
-with ExitStack() as stack:
-    assembly_out = stack.enter_context(
-        assembly_manifest.open("w")
+assemblies.sort(
+    key=lambda item: (
+        item["source_type"],
+        item["staged_path"].name,
     )
-    scaffold_out = stack.enter_context(
-        scaffold_manifest.open("w")
-    )
-    combined_out = stack.enter_context(
-        combined_fasta.open("w")
+)
+
+used_assembly_ids = set()
+assembly_records = []
+
+for item in assemblies:
+    source_type = item["source_type"]
+    staged_path = item["staged_path"]
+
+    base_assembly_id = safe_id(
+        f"{source_type}_{strip_fasta_suffix(staged_path.name)}"
     )
 
+    assembly_id = base_assembly_id
+    duplicate_number = 1
+
+    while assembly_id in used_assembly_ids:
+        duplicate_number += 1
+        assembly_id = (
+            f"{base_assembly_id}_{duplicate_number}"
+        )
+
+    used_assembly_ids.add(assembly_id)
+
+    item["assembly_id"] = assembly_id
+    assembly_records.append(item)
+
+log(f"Total assembly FASTA files discovered: {len(assembly_records)}")
+
+representatives_by_hash = defaultdict(list)
+representatives = []
+representatives_by_assembly = defaultdict(list)
+
+scaffold_rows = []
+assembly_counts = {}
+
+total_input_scaffolds = 0
+total_input_bp = 0
+
+total_passed_length_scaffolds = 0
+total_passed_length_bp = 0
+
+total_unique_scaffolds = 0
+total_unique_bp = 0
+
+total_duplicate_scaffolds = 0
+total_duplicate_bp = 0
+
+total_below_cutoff_scaffolds = 0
+total_below_cutoff_bp = 0
+
+total_empty_scaffolds = 0
+
+for assembly in assembly_records:
+    assembly_id = assembly["assembly_id"]
+    source_type = assembly["source_type"]
+    staged_path = assembly["staged_path"]
+    original_path = assembly["original_path"]
+
+    counts = {
+        "input_scaffolds": 0,
+        "input_bp": 0,
+        "passed_length_scaffolds": 0,
+        "passed_length_bp": 0,
+        "unique_scaffolds": 0,
+        "unique_bp": 0,
+        "duplicate_scaffolds": 0,
+        "duplicate_bp": 0,
+        "below_cutoff_scaffolds": 0,
+        "below_cutoff_bp": 0,
+        "empty_scaffolds": 0,
+    }
+
+    assembly_counts[assembly_id] = counts
+
+    used_scaffold_ids = set()
+
+    for scaffold_index, (header, sequence) in enumerate(
+        read_fasta(staged_path),
+        start=1,
+    ):
+        sequence = "".join(sequence.split()).upper()
+        scaffold_bp = len(sequence)
+
+        counts["input_scaffolds"] += 1
+        counts["input_bp"] += scaffold_bp
+
+        total_input_scaffolds += 1
+        total_input_bp += scaffold_bp
+
+        original_scaffold_id = (
+            header.split()[0]
+            if header.strip()
+            else f"scaffold_{scaffold_index}"
+        )
+
+        original_scaffold_id = safe_id(
+            original_scaffold_id
+        )
+
+        unique_original_scaffold_id = original_scaffold_id
+        duplicate_header_number = 1
+
+        while unique_original_scaffold_id in used_scaffold_ids:
+            duplicate_header_number += 1
+            unique_original_scaffold_id = (
+                f"{original_scaffold_id}_"
+                f"duplicate_{duplicate_header_number}"
+            )
+
+        used_scaffold_ids.add(unique_original_scaffold_id)
+
+        candidate_representative_id = (
+            f"{assembly_id}|{unique_original_scaffold_id}"
+        )
+
+        representative_id = ""
+        sequence_sha256 = ""
+        retained_as_representative = False
+        duplicate_status = "not_evaluated"
+        orientation_to_representative = ""
+        filter_reason = ""
+
+        if scaffold_bp == 0:
+            filter_reason = "empty_sequence"
+
+            counts["empty_scaffolds"] += 1
+            total_empty_scaffolds += 1
+
+        elif scaffold_bp < minimum_scaffold_bp:
+            filter_reason = "below_minimum_length"
+
+            counts["below_cutoff_scaffolds"] += 1
+            counts["below_cutoff_bp"] += scaffold_bp
+
+            total_below_cutoff_scaffolds += 1
+            total_below_cutoff_bp += scaffold_bp
+
+        else:
+            counts["passed_length_scaffolds"] += 1
+            counts["passed_length_bp"] += scaffold_bp
+
+            total_passed_length_scaffolds += 1
+            total_passed_length_bp += scaffold_bp
+
+            canonical = canonical_sequence(sequence)
+            sequence_sha256 = sequence_hash(canonical)
+
+            matched_representative = None
+
+            for candidate in representatives_by_hash[
+                sequence_sha256
+            ]:
+                if candidate["canonical_sequence"] == canonical:
+                    matched_representative = candidate
+                    break
+
+            if matched_representative is None:
+                representative_id = (
+                    candidate_representative_id
+                )
+
+                retained_as_representative = True
+                duplicate_status = "representative"
+                orientation_to_representative = "same"
+                filter_reason = "retained_unique"
+
+                representative = {
+                    "representative_id": representative_id,
+                    "assembly_id": assembly_id,
+                    "source_type": source_type,
+                    "source_fasta": str(original_path),
+                    "source_scaffold_id": (
+                        unique_original_scaffold_id
+                    ),
+                    "sequence": sequence,
+                    "canonical_sequence": canonical,
+                    "sequence_sha256": sequence_sha256,
+                }
+
+                representatives_by_hash[
+                    sequence_sha256
+                ].append(representative)
+
+                representatives.append(representative)
+
+                representatives_by_assembly[
+                    assembly_id
+                ].append(representative)
+
+                counts["unique_scaffolds"] += 1
+                counts["unique_bp"] += scaffold_bp
+
+                total_unique_scaffolds += 1
+                total_unique_bp += scaffold_bp
+
+            else:
+                representative_id = matched_representative[
+                    "representative_id"
+                ]
+
+                duplicate_status = "exact_duplicate"
+                filter_reason = "removed_exact_duplicate"
+
+                representative_sequence = (
+                    matched_representative["sequence"]
+                )
+
+                if sequence == representative_sequence:
+                    orientation_to_representative = "same"
+                elif (
+                    reverse_complement(sequence)
+                    == representative_sequence
+                ):
+                    orientation_to_representative = (
+                        "reverse_complement"
+                    )
+                else:
+                    orientation_to_representative = (
+                        "canonical_match"
+                    )
+
+                counts["duplicate_scaffolds"] += 1
+                counts["duplicate_bp"] += scaffold_bp
+
+                total_duplicate_scaffolds += 1
+                total_duplicate_bp += scaffold_bp
+
+        scaffold_rows.append(
+            {
+                "source_type": source_type,
+                "assembly_id": assembly_id,
+                "source_fasta": str(original_path),
+                "original_scaffold_id": (
+                    unique_original_scaffold_id
+                ),
+                "representative_scaffold_id": (
+                    representative_id
+                ),
+                "sequence_sha256": sequence_sha256,
+                "scaffold_bp": scaffold_bp,
+                "minimum_scaffold_bp": (
+                    minimum_scaffold_bp
+                ),
+                "retained_as_representative": str(
+                    retained_as_representative
+                ).lower(),
+                "duplicate_status": duplicate_status,
+                "orientation_to_representative": (
+                    orientation_to_representative
+                ),
+                "filter_reason": filter_reason,
+            }
+        )
+
+if not representatives:
+    raise SystemExit(
+        "ERROR: No assembly scaffolds passed the minimum length "
+        f"cutoff of {minimum_scaffold_bp} bp."
+    )
+
+with combined_fasta.open("w") as combined_out:
+    for representative in representatives:
+        print(
+            f">{representative['representative_id']}",
+            file=combined_out,
+        )
+
+        write_wrapped(
+            combined_out,
+            representative["sequence"],
+        )
+
+if not combined_fasta.exists():
+    raise SystemExit(
+        "ERROR: The combined EggNOG FASTA was not created."
+    )
+
+if combined_fasta.stat().st_size == 0:
+    raise SystemExit(
+        "ERROR: The combined EggNOG FASTA is empty."
+    )
+
+with assembly_manifest.open("w") as assembly_out:
     print(
+        "source_type",
         "assembly_id",
         "source_fasta",
         "filtered_fasta",
         "combined_eggnog_fasta",
         "minimum_scaffold_bp",
         "input_scaffolds",
-        "retained_scaffolds",
-        "removed_scaffolds",
+        "passed_length_scaffolds",
+        "unique_representative_scaffolds",
+        "exact_duplicate_scaffolds",
+        "below_cutoff_scaffolds",
+        "empty_scaffolds",
         "input_bp",
-        "retained_bp",
-        "removed_bp",
+        "passed_length_bp",
+        "unique_representative_bp",
+        "exact_duplicate_bp",
+        "below_cutoff_bp",
         "status",
-        sep="\\t",
+        sep="\t",
         file=assembly_out,
     )
 
-    print(
-        "assembly_id",
-        "source_fasta",
-        "original_scaffold_id",
-        "eggnog_scaffold_id",
-        "scaffold_bp",
-        "minimum_scaffold_bp",
-        "retained",
-        "filter_reason",
-        sep="\\t",
-        file=scaffold_out,
-    )
+    for assembly in assembly_records:
+        assembly_id = assembly["assembly_id"]
+        source_type = assembly["source_type"]
+        original_path = assembly["original_path"]
 
-    for source in assemblies:
-        input_assemblies += 1
-
-        original_source = original_input_dir / source.name
-
-        base_assembly_id = safe_id(
-            strip_fasta_suffix(source.name)
+        counts = assembly_counts[assembly_id]
+        assembly_representatives = (
+            representatives_by_assembly[assembly_id]
         )
-
-        assembly_id = base_assembly_id
-        duplicate_number = 1
-
-        while assembly_id in used_assembly_names:
-            duplicate_number += 1
-            assembly_id = (
-                f"{base_assembly_id}_{duplicate_number}"
-            )
-
-        used_assembly_names.add(assembly_id)
 
         filtered_name = f"{assembly_id}.fa"
         filtered_path = filtered_dir / filtered_name
 
-        assembly_input_scaffolds = 0
-        assembly_retained_scaffolds = 0
-        assembly_removed_scaffolds = 0
-
-        assembly_input_bp = 0
-        assembly_retained_bp = 0
-        assembly_removed_bp = 0
-
-        used_filtered_headers = set()
-
-        with filtered_path.open("w") as filtered_out:
-            for scaffold_index, (header, sequence) in enumerate(
-                read_fasta(source),
-                start=1,
-            ):
-                scaffold_length = len(sequence)
-
-                assembly_input_scaffolds += 1
-                assembly_input_bp += scaffold_length
-
-                original_scaffold_id = (
-                    header.split()[0]
-                    if header.strip()
-                    else f"scaffold_{scaffold_index}"
-                )
-
-                filtered_scaffold_id = safe_id(
-                    original_scaffold_id
-                )
-
-                if filtered_scaffold_id in used_filtered_headers:
-                    filtered_scaffold_id = (
-                        f"{filtered_scaffold_id}_"
-                        f"duplicate_{scaffold_index}"
-                    )
-
-                used_filtered_headers.add(
-                    filtered_scaffold_id
-                )
-
-                eggnog_scaffold_id = (
-                    f"{assembly_id}|{filtered_scaffold_id}"
-                )
-
-                if eggnog_scaffold_id in used_combined_headers:
-                    eggnog_scaffold_id = (
-                        f"{eggnog_scaffold_id}|"
-                        f"duplicate_{scaffold_index}"
-                    )
-
-                used_combined_headers.add(
-                    eggnog_scaffold_id
-                )
-
-                if scaffold_length == 0:
-                    retain = False
-                    filter_reason = "empty_sequence"
-                    empty_scaffolds += 1
-                elif scaffold_length < minimum_scaffold_bp:
-                    retain = False
-                    filter_reason = "below_minimum_length"
-                else:
-                    retain = True
-                    filter_reason = "retained"
-
-                print(
-                    assembly_id,
-                    str(original_source),
-                    original_scaffold_id,
-                    eggnog_scaffold_id,
-                    scaffold_length,
-                    minimum_scaffold_bp,
-                    str(retain).lower(),
-                    filter_reason,
-                    sep="\\t",
-                    file=scaffold_out,
-                )
-
-                if retain:
+        if assembly_representatives:
+            with filtered_path.open("w") as filtered_out:
+                for representative in assembly_representatives:
                     print(
-                        f">{filtered_scaffold_id}",
+                        f">{representative['representative_id']}",
                         file=filtered_out,
                     )
+
                     write_wrapped(
                         filtered_out,
-                        sequence,
+                        representative["sequence"],
                     )
 
-                    print(
-                        f">{eggnog_scaffold_id}",
-                        file=combined_out,
-                    )
-                    write_wrapped(
-                        combined_out,
-                        sequence,
-                    )
-
-                    assembly_retained_scaffolds += 1
-                    assembly_retained_bp += scaffold_length
-                else:
-                    assembly_removed_scaffolds += 1
-                    assembly_removed_bp += scaffold_length
-
-        if assembly_retained_scaffolds == 0:
-            if filtered_path.exists():
-                filtered_path.unlink()
-
-            empty_assemblies += 1
-            assembly_status = (
-                "skipped_no_scaffolds_above_cutoff"
-            )
-            published_filtered_fasta = ""
-
-            log(
-                f"WARNING: No scaffolds >= "
-                f"{minimum_scaffold_bp} bp were retained "
-                f"for {source.name}"
-            )
-        else:
-            retained_assemblies += 1
-            assembly_status = "retained"
-            published_filtered_fasta = str(
+            filtered_fasta_value = str(
                 published_filtered_dir / filtered_name
             )
 
+            status = "retained_unique_scaffolds"
+
+        elif counts["passed_length_scaffolds"] > 0:
+            filtered_fasta_value = ""
+            status = (
+                "all_passing_scaffolds_were_duplicates"
+            )
+
+        else:
+            filtered_fasta_value = ""
+            status = "no_scaffolds_above_cutoff"
+
         print(
+            source_type,
             assembly_id,
-            str(original_source),
-            published_filtered_fasta,
+            str(original_path),
+            filtered_fasta_value,
             str(published_combined_fasta),
             minimum_scaffold_bp,
-            assembly_input_scaffolds,
-            assembly_retained_scaffolds,
-            assembly_removed_scaffolds,
-            assembly_input_bp,
-            assembly_retained_bp,
-            assembly_removed_bp,
-            assembly_status,
-            sep="\\t",
+            counts["input_scaffolds"],
+            counts["passed_length_scaffolds"],
+            counts["unique_scaffolds"],
+            counts["duplicate_scaffolds"],
+            counts["below_cutoff_scaffolds"],
+            counts["empty_scaffolds"],
+            counts["input_bp"],
+            counts["passed_length_bp"],
+            counts["unique_bp"],
+            counts["duplicate_bp"],
+            counts["below_cutoff_bp"],
+            status,
+            sep="\t",
             file=assembly_out,
         )
 
-        input_scaffolds += assembly_input_scaffolds
-        retained_scaffolds += assembly_retained_scaffolds
-        removed_scaffolds += assembly_removed_scaffolds
+with scaffold_manifest.open("w") as scaffold_out:
+    print(
+        "source_type",
+        "assembly_id",
+        "source_fasta",
+        "original_scaffold_id",
+        "representative_scaffold_id",
+        "sequence_sha256",
+        "scaffold_bp",
+        "minimum_scaffold_bp",
+        "retained_as_representative",
+        "duplicate_status",
+        "orientation_to_representative",
+        "filter_reason",
+        sep="\t",
+        file=scaffold_out,
+    )
 
-        input_bp += assembly_input_bp
-        retained_bp += assembly_retained_bp
-        removed_bp += assembly_removed_bp
-
-        log(
-            f"{source.name}: "
-            f"input_scaffolds={assembly_input_scaffolds}, "
-            f"retained_scaffolds={assembly_retained_scaffolds}, "
-            f"removed_scaffolds={assembly_removed_scaffolds}, "
-            f"input_bp={assembly_input_bp}, "
-            f"retained_bp={assembly_retained_bp}, "
-            f"removed_bp={assembly_removed_bp}"
+    for row in scaffold_rows:
+        print(
+            row["source_type"],
+            row["assembly_id"],
+            row["source_fasta"],
+            row["original_scaffold_id"],
+            row["representative_scaffold_id"],
+            row["sequence_sha256"],
+            row["scaffold_bp"],
+            row["minimum_scaffold_bp"],
+            row["retained_as_representative"],
+            row["duplicate_status"],
+            row["orientation_to_representative"],
+            row["filter_reason"],
+            sep="\t",
+            file=scaffold_out,
         )
 
-if retained_scaffolds == 0:
-    if combined_fasta.exists():
-        combined_fasta.unlink()
-
-    raise SystemExit(
-        "ERROR: No assembly scaffolds passed the minimum "
-        f"length cutoff of {minimum_scaffold_bp} bp."
-    )
-
-if not combined_fasta.exists() or combined_fasta.stat().st_size == 0:
-    raise SystemExit(
-        "ERROR: The combined EggNOG input FASTA is missing "
-        "or empty."
-    )
+enabled_source_count = sum(
+    1
+    for source_definition in SOURCE_DEFINITIONS
+    if source_definition["enabled"]
+)
 
 with stats_file.open("w") as stats:
     print(
-        "input_assembly_dir",
         "minimum_scaffold_bp",
+        "assembly_sources_enabled",
         "input_assemblies",
-        "retained_assemblies",
-        "assemblies_without_retained_scaffolds",
         "input_scaffolds",
-        "retained_scaffolds",
-        "removed_scaffolds",
-        "empty_scaffolds",
         "input_bp",
-        "retained_bp",
-        "removed_bp",
+        "passed_length_scaffolds",
+        "passed_length_bp",
+        "unique_representative_scaffolds",
+        "unique_representative_bp",
+        "exact_duplicate_scaffolds_removed",
+        "exact_duplicate_bp_removed",
+        "below_cutoff_scaffolds",
+        "below_cutoff_bp",
+        "empty_scaffolds",
+        "deduplication_identity",
+        "deduplication_coverage",
+        "reverse_complement_equivalent",
         "combined_eggnog_fasta",
-        sep="\\t",
+        sep="\t",
         file=stats,
     )
 
     print(
-        str(original_input_dir),
         minimum_scaffold_bp,
-        input_assemblies,
-        retained_assemblies,
-        empty_assemblies,
-        input_scaffolds,
-        retained_scaffolds,
-        removed_scaffolds,
-        empty_scaffolds,
-        input_bp,
-        retained_bp,
-        removed_bp,
+        enabled_source_count,
+        len(assembly_records),
+        total_input_scaffolds,
+        total_input_bp,
+        total_passed_length_scaffolds,
+        total_passed_length_bp,
+        total_unique_scaffolds,
+        total_unique_bp,
+        total_duplicate_scaffolds,
+        total_duplicate_bp,
+        total_below_cutoff_scaffolds,
+        total_below_cutoff_bp,
+        total_empty_scaffolds,
+        "100%",
+        "100%_reciprocal",
+        "true",
         str(published_combined_fasta),
-        sep="\\t",
+        sep="\t",
         file=stats,
     )
 
 log("----------------------------------------")
-log(f"Input assembly directory: {original_input_dir}")
-log(f"Published filtered directory: {published_filtered_dir}")
-log(f"Published combined FASTA: {published_combined_fasta}")
-log(f"Input assemblies: {input_assemblies}")
-log(f"Retained assemblies: {retained_assemblies}")
-log(f"Assemblies omitted: {empty_assemblies}")
-log(f"Input scaffolds: {input_scaffolds}")
-log(f"Retained scaffolds: {retained_scaffolds}")
-log(f"Removed scaffolds: {removed_scaffolds}")
-log(f"Empty scaffolds: {empty_scaffolds}")
-log(f"Input bp: {input_bp}")
-log(f"Retained bp: {retained_bp}")
-log(f"Removed bp: {removed_bp}")
+log(f"Enabled assembly sources: {enabled_source_count}")
+log(f"Input assembly FASTAs: {len(assembly_records)}")
+log(f"Input scaffolds: {total_input_scaffolds}")
+log(f"Input bp: {total_input_bp}")
+log(
+    f"Scaffolds passing length filter: "
+    f"{total_passed_length_scaffolds}"
+)
+log(
+    f"Scaffolds retained after exact deduplication: "
+    f"{total_unique_scaffolds}"
+)
+log(
+    f"Exact duplicate scaffolds removed: "
+    f"{total_duplicate_scaffolds}"
+)
+log(
+    f"Scaffolds below cutoff: "
+    f"{total_below_cutoff_scaffolds}"
+)
+log(f"Empty scaffolds: {total_empty_scaffolds}")
+log(
+    f"Deduplicated EggNOG FASTA: "
+    f"{published_combined_fasta}"
+)
 PY
 
     echo "Assembly scaffold preparation finished: \$(date)" >> "\$LOG"

@@ -1209,7 +1209,6 @@ PY
     """
 }
 
-
 process RUN_CHECKM2 {
     tag "checkm2"
 
@@ -1272,44 +1271,13 @@ process RUN_CHECKM2 {
     echo "CheckM2 DB: \$CHECKM2_DB_PATH" >> "\$LOG"
     echo "Threads: ${task.cpus}" >> "\$LOG"
 
-    mkdir -p checkm2_out
-
-    # Keep Python and DIAMOND temporary files off the compute node's /tmp.
-    if [[ -n "${checkm2_tmp_base}" ]]; then
-        mkdir -p "${checkm2_tmp_base}"
-
-        CHECKM2_TMPDIR="\$(mktemp -d \
-            "${checkm2_tmp_base}/checkm2.XXXXXX")"
-    else
-        mkdir -p checkm2_tmp
-        CHECKM2_TMPDIR="\$(pwd -P)/checkm2_tmp"
-    fi
-
-    export TMPDIR="\$CHECKM2_TMPDIR"
-    export TMP="\$CHECKM2_TMPDIR"
-    export TEMP="\$CHECKM2_TMPDIR"
-
-    # Prevent nested BLAS/OpenMP threading.
-    export OMP_NUM_THREADS=1
-    export OPENBLAS_NUM_THREADS=1
-    export MKL_NUM_THREADS=1
-    export BLAS_NUM_THREADS=1
-    export VECLIB_MAXIMUM_THREADS=1
-    export NUMEXPR_NUM_THREADS=1
-
-    echo "CheckM2 temporary directory: \$CHECKM2_TMPDIR" >> "\$LOG"
-    echo "Temporary-directory filesystem:" >> "\$LOG"
-    df -h "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
-    df -i "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
-    echo "----------------------------------------" >> "\$LOG"
+    printf 'tool\tstatus\texit_status\toutput_dir\tmessage\n' \
+        > checkm2_status.tsv
 
     if [[ -z "\$CHECKM2_ENV" || ! -d "\$CHECKM2_ENV" ]]; then
         echo "ERROR: CheckM2 environment path was not resolved." >> "\$LOG"
 
-        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
-            > checkm2_status.tsv
-
-        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 environment missing\\n' \
+        printf 'checkm2\tfailed\t1\t%s\tCheckM2 environment missing\n' \
             "${params.outdir}/checkm2" \
             >> checkm2_status.tsv
 
@@ -1319,10 +1287,7 @@ process RUN_CHECKM2 {
     if [[ ! -x "\$CHECKM2_ENV/bin/checkm2" ]]; then
         echo "ERROR: CheckM2 executable is missing: \$CHECKM2_ENV/bin/checkm2" >> "\$LOG"
 
-        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
-            > checkm2_status.tsv
-
-        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 executable missing\\n' \
+        printf 'checkm2\tfailed\t1\t%s\tCheckM2 executable missing\n' \
             "${params.outdir}/checkm2" \
             >> checkm2_status.tsv
 
@@ -1332,15 +1297,49 @@ process RUN_CHECKM2 {
     if [[ -z "\$CHECKM2_DB_PATH" || ! -s "\$CHECKM2_DB_PATH" ]]; then
         echo "ERROR: CheckM2 database path is missing or empty: \$CHECKM2_DB_PATH" >> "\$LOG"
 
-        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
-            > checkm2_status.tsv
-
-        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 database missing\\n' \
+        printf 'checkm2\tfailed\t1\t%s\tCheckM2 database missing\n' \
             "${params.outdir}/checkm2" \
             >> checkm2_status.tsv
 
         exit 1
     fi
+
+    mkdir -p checkm2_out
+
+    # Put actual temporary data on the requested/shared filesystem.
+    if [[ -n "${checkm2_tmp_base}" ]]; then
+        mkdir -p "${checkm2_tmp_base}"
+        REAL_CHECKM2_TMPDIR="\$(mktemp -d "${checkm2_tmp_base}/checkm2.XXXXXX")"
+    else
+        mkdir -p checkm2_tmp
+        REAL_CHECKM2_TMPDIR="\$(pwd -P)/checkm2_tmp"
+    fi
+
+    # Keep Python multiprocessing AF_UNIX socket paths short.
+    SHORT_CHECKM2_TMPDIR="/tmp/cm2.\$\$.\${RANDOM}"
+
+    cleanup_checkm2_tmp() {
+        rm -f "\$SHORT_CHECKM2_TMPDIR"
+    }
+
+    trap cleanup_checkm2_tmp EXIT
+
+    ln -s "\$REAL_CHECKM2_TMPDIR" "\$SHORT_CHECKM2_TMPDIR"
+
+    export TMPDIR="\$SHORT_CHECKM2_TMPDIR"
+    export TMP="\$SHORT_CHECKM2_TMPDIR"
+    export TEMP="\$SHORT_CHECKM2_TMPDIR"
+
+    echo "CheckM2 real temporary directory: \$REAL_CHECKM2_TMPDIR" >> "\$LOG"
+    echo "CheckM2 short temporary path: \$SHORT_CHECKM2_TMPDIR" >> "\$LOG"
+
+    # Avoid nested OpenMP/BLAS thread pools while CheckM2 uses multiprocessing.
+    export OMP_NUM_THREADS=1
+    export OPENBLAS_NUM_THREADS=1
+    export MKL_NUM_THREADS=1
+    export BLAS_NUM_THREADS=1
+    export VECLIB_MAXIMUM_THREADS=1
+    export NUMEXPR_NUM_THREADS=1
 
     MAG_COUNT="\$(find -L "${mags_dir}" \
         -maxdepth 1 \
@@ -1354,10 +1353,7 @@ process RUN_CHECKM2 {
     if [[ "\$MAG_COUNT" -eq 0 ]]; then
         echo "ERROR: No MAG files found for CheckM2." >> "\$LOG"
 
-        printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
-            > checkm2_status.tsv
-
-        printf 'checkm2\\tfailed\\t1\\t%s\\tNo MAG files found\\n' \
+        printf 'checkm2\tfailed\t1\t%s\tNo MAG files found\n' \
             "${params.outdir}/checkm2" \
             >> checkm2_status.tsv
 
@@ -1371,32 +1367,28 @@ process RUN_CHECKM2 {
 
     set +e
 
-    checkm2 predict \\
-        --threads ${task.cpus} \\
-        --input "${mags_dir}" \\
-        -x "${params.checkm2_extension}" \\
-        --output-directory checkm2_out \\
-        --database_path "\$CHECKM2_DB_PATH" \\
+    checkm2 predict \
+        --threads ${task.cpus} \
+        --input "${mags_dir}" \
+        -x "${params.checkm2_extension}" \
+        --output-directory checkm2_out \
+        --database_path "\$CHECKM2_DB_PATH" \
         >> "\$LOG" 2>&1
 
     CHECKM2_STATUS="\$?"
 
     set -e
 
-    printf 'tool\\tstatus\\texit_status\\toutput_dir\\tmessage\\n' \
-        > checkm2_status.tsv
-
     if [[ "\$CHECKM2_STATUS" -ne 0 ]]; then
         echo "ERROR: CheckM2 failed with exit status \$CHECKM2_STATUS." >> "\$LOG"
-        echo "Temporary directory retained after failure: \$CHECKM2_TMPDIR" >> "\$LOG"
+        echo "Temporary directory retained after failure: \$REAL_CHECKM2_TMPDIR" >> "\$LOG"
         echo "Temporary-directory usage after failure:" >> "\$LOG"
 
-        du -sh "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
-        df -h "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
-        df -i "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+        du -sh "\$REAL_CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+        df -h "\$REAL_CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+        df -i "\$REAL_CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
 
         echo "CheckM2 output preview after failure:" >> "\$LOG"
-
         find checkm2_out \
             -maxdepth 5 \
             -type f \
@@ -1404,7 +1396,7 @@ process RUN_CHECKM2 {
             >> "\$LOG" 2>&1 \
             || true
 
-        printf 'checkm2\\tfailed\\t%s\\t%s\\tCheckM2 failed\\n' \
+        printf 'checkm2\tfailed\t%s\t%s\tCheckM2 failed\n' \
             "\$CHECKM2_STATUS" \
             "${params.outdir}/checkm2" \
             >> checkm2_status.tsv
@@ -1430,7 +1422,7 @@ process RUN_CHECKM2 {
             >> "\$LOG" 2>&1 \
             || true
 
-        printf 'checkm2\\tfailed\\t1\\t%s\\tCheckM2 quality_report.tsv missing\\n' \
+        printf 'checkm2\tfailed\t1\t%s\tCheckM2 quality_report.tsv missing\n' \
             "${params.outdir}/checkm2" \
             >> checkm2_status.tsv
 
@@ -1443,14 +1435,14 @@ process RUN_CHECKM2 {
     echo "  source: \$QUALITY_REPORT" >> "\$LOG"
     echo "  staged: checkm2_quality_report.tsv" >> "\$LOG"
 
-    printf 'checkm2\\tcompleted\\t0\\t%s\\tCheckM2 completed\\n' \
+    printf 'checkm2\tcompleted\t0\t%s\tCheckM2 completed\n' \
         "${params.outdir}/checkm2" \
         >> checkm2_status.tsv
 
     echo "CheckM2 temporary-directory final usage:" >> "\$LOG"
-    du -sh "\$CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
+    du -sh "\$REAL_CHECKM2_TMPDIR" >> "\$LOG" 2>&1 || true
 
-    rm -rf "\$CHECKM2_TMPDIR"
+    rm -rf "\$REAL_CHECKM2_TMPDIR"
 
     echo "CheckM2 finished: \$(date)" >> "\$LOG"
     """
