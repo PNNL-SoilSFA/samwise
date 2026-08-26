@@ -50,7 +50,7 @@ params.results_dir = params.working_dir ? params.working_dir : (params.output_di
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module3_outdir = "${params.results_dir}/module_3_binning"
 params.module4_outdir = "${params.results_dir}/module_4_binrefinement"
-params.outdir = "${params.results_dir}/module_5_subtractiveassembly"
+params.outdir = "${params.results_dir}/module_5_subassembly"
 params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass_binning"
 params.final_joint_dir = params.final_joint_working_dir ?: "${params.outdir}/final_joint_refinement"
 
