@@ -3,7 +3,32 @@
 nextflow.enable.dsl = 2
 
 /*
-* Module 2: Read assembly from Module 1 trimmed reads.
+* Module 2 (parallel variant): Read assembly from Module 1 trimmed reads.
+*
+* Behaviourally identical to module_2_readassembly.nf. Two differences:
+*
+*   1. The Python that was embedded as heredocs now lives in bin/ as three
+*      standalone, independently runnable scripts:
+*
+*        bin/samwise_rarefy_reads.py     rarefied read subsetting
+*        bin/samwise_run_assembler.py    MEGAHIT / metaSPAdes invocation
+*        bin/samwise_rename_contigs.py   contig renaming + stats + manifest row
+*
+*      Nextflow puts bin/ on PATH for every task and ships it to remote
+*      executors automatically, so they need no path plumbing.
+*
+*   2. It is meant to be run with conf/module_2_slurm.config so that each
+*      assembly becomes its own SLURM job:
+*
+*        nextflow run module_2_readassembly_parallel.nf \
+*            -c conf/module_2_slurm.config ...
+*
+*      Without that config it behaves exactly like the original: local
+*      executor, one assembly at a time when --threads equals the core count.
+*
+* Output contract (assembly_manifest.tsv / assembly_stats_summary.tsv columns,
+* contig header format, file naming) is unchanged, so Module 3 consumes the
+* results from either variant identically.
 */
 
 params.working_dir = null
@@ -422,6 +447,10 @@ process ASSEMBLE_SINGLE {
     path "*.log", emit: log_file
 
     script:
+    def clean_stale = params.clean_partial_assembler_outputs.toString().toBoolean()
+    def assembly_strategy = assembler == 'megahit' ? 'A' : 'B'
+    def raw_out = assembler == 'megahit' ? 'megahit_out' : 'metaspades_out'
+
     """
     set -euo pipefail
 
@@ -436,11 +465,6 @@ process ASSEMBLE_SINGLE {
     ASSEMBLY_SAMPLE_ID="${assembly_sample_id}"
     LAYOUT="${layout}"
     ASSEMBLER="${assembler}"
-    MODE="single"
-    RAREFACTION_LABEL=""
-
-    ASSEMBLY_STATUS="ok"
-    ASSEMBLY_WARNING=""
 
     OUT_FASTA="\${SAFE_ID}_\${ASSEMBLER}_single.renamed.fa"
     HEADER_MAP="\${SAFE_ID}_\${ASSEMBLER}_single.header_map.tsv"
@@ -448,7 +472,7 @@ process ASSEMBLE_SINGLE {
     MANIFEST_RECORD="\${SAFE_ID}_\${ASSEMBLER}_single.assembly_manifest_record.tsv"
     LOG_FILE="\${SAFE_ID}_\${ASSEMBLER}_single.log"
 
-    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" ]]; then
+    if [[ "${clean_stale}" == "true" ]]; then
         rm -f "\$OUT_FASTA" "\$HEADER_MAP" "\$STATS_FILE" "\$MANIFEST_RECORD"
         rm -f input_R1.fastq.gz input_R2.fastq.gz input_interleaved.fastq.gz
     fi
@@ -483,311 +507,44 @@ process ASSEMBLE_SINGLE {
         exit 1
     fi
 
-    if [[ "\$ASSEMBLER" == "megahit" ]]; then
+    echo "Running \${ASSEMBLER} single assembly for \${SAMPLE_ID}" >> "\$LOG_FILE"
 
-        if ! command -v megahit >/dev/null 2>&1; then
-            echo "ERROR: megahit is not available after tool setup." >&2
-            cat "${tools_status}" >&2 || true
-            exit 1
-        fi
+    samwise_run_assembler.py \\
+        --assembler "\$ASSEMBLER" \\
+        --layout "\$LAYOUT" \\
+        --read1 "\$READ1_LOCAL" \\
+        --read2 "\$READ2_LOCAL" \\
+        --interleaved "\$INTERLEAVED_LOCAL" \\
+        --threads ${task.cpus} \\
+        --memory-gb ${params.memory_gb} \\
+        --out-dir "${raw_out}" \\
+        --log-file "\$LOG_FILE" \\
+        --result-file assembler_result.env \\
+        --megahit-preset ${params.megahit_preset} \\
+        --clean-stale-output ${clean_stale}
 
-        ASSEMBLY_STRATEGY="A"
-        RAW_OUT="megahit_out"
-        MEGAHIT_MEM_ARG=""
+    # Defines SRC_FASTA, ASSEMBLY_STATUS, ASSEMBLY_WARNING (shell-quoted by the script).
+    source assembler_result.env
 
-        if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
-            echo "Removing stale MEGAHIT output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
-            rm -rf "\$RAW_OUT"
-        fi
-
-        if [[ "${params.memory_gb}" != "0" ]]; then
-            MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
-            MEGAHIT_MEM_ARG="-m \$MEGAHIT_MEM_BYTES"
-        fi
-
-        echo "Running MEGAHIT single assembly for \${SAMPLE_ID}" > "\$LOG_FILE"
-        echo "MEGAHIT threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
-        echo "MEGAHIT memory arg: \$MEGAHIT_MEM_ARG" >> "\$LOG_FILE"
-
-        if [[ "\$LAYOUT" == "paired" ]]; then
-            megahit \\
-                -1 "\$READ1_LOCAL" \\
-                -2 "\$READ2_LOCAL" \\
-                -t ${task.cpus} \\
-                \$MEGAHIT_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                --presets ${params.megahit_preset} \\
-                >> "\$LOG_FILE" 2>&1
-        else
-            megahit \\
-                --12 "\$INTERLEAVED_LOCAL" \\
-                -t ${task.cpus} \\
-                \$MEGAHIT_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                --presets ${params.megahit_preset} \\
-                >> "\$LOG_FILE" 2>&1
-        fi
-
-        SRC_FASTA="\$RAW_OUT/final.contigs.fa"
-
-        if [[ ! -s "\$SRC_FASTA" ]]; then
-            echo "ERROR: MEGAHIT did not produce final.contigs.fa" >> "\$LOG_FILE"
-            exit 1
-        fi
-
-    elif [[ "\$ASSEMBLER" == "metaspades" ]]; then
-
-        if ! command -v metaspades.py >/dev/null 2>&1; then
-            echo "ERROR: metaspades.py is not available after tool setup." >&2
-            cat "${tools_status}" >&2 || true
-            exit 1
-        fi
-
-        ASSEMBLY_STRATEGY="B"
-        RAW_OUT="metaspades_out"
-        SPADES_MEM_ARG=""
-
-    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
-        echo "Removing stale metaSPAdes output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
-        rm -rf "\$RAW_OUT"
-    fi
-
-        if [[ "${params.memory_gb}" != "0" ]]; then
-            SPADES_MEM_ARG="-m ${params.memory_gb}"
-        fi
-
-        echo "Running metaSPAdes single assembly for \${SAMPLE_ID}" > "\$LOG_FILE"
-        echo "metaSPAdes threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
-        echo "metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
-
-        set +e
-
-        if [[ "\$LAYOUT" == "paired" ]]; then
-            metaspades.py \\
-                -1 "\$READ1_LOCAL" \\
-                -2 "\$READ2_LOCAL" \\
-                -t ${task.cpus} \\
-                \$SPADES_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                >> "\$LOG_FILE" 2>&1
-        else
-            metaspades.py \\
-                --12 "\$INTERLEAVED_LOCAL" \\
-                -t ${task.cpus} \\
-                \$SPADES_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                >> "\$LOG_FILE" 2>&1
-        fi
-
-        METASPADES_EXIT_CODE=\$?
-
-        set -e
-
-        echo "metaSPAdes exit code: \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
-
-        if [[ "\$METASPADES_EXIT_CODE" -ne 0 && "\$METASPADES_EXIT_CODE" -ne 12 ]]; then
-            echo "ERROR: metaSPAdes failed with fatal exit code \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
-            exit "\$METASPADES_EXIT_CODE"
-        fi
-
-        if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
-            ASSEMBLY_STATUS="failed_nonfatal"
-            ASSEMBLY_WARNING="assembly failed - not enough memory"
-            echo "WARNING: metaSPAdes exited with code 12. Treating this as non-fatal so summaries can be written." >> "\$LOG_FILE"
-            echo "WARNING: \${ASSEMBLY_WARNING}" >> "\$LOG_FILE"
-        fi
-
-        if [[ -s "\$RAW_OUT/scaffolds.fasta" ]]; then
-            SRC_FASTA="\$RAW_OUT/scaffolds.fasta"
-        elif [[ -s "\$RAW_OUT/contigs.fasta" ]]; then
-            SRC_FASTA="\$RAW_OUT/contigs.fasta"
-        else
-            if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
-                echo "WARNING: metaSPAdes exit code 12 produced no scaffolds.fasta or contigs.fasta. Creating empty placeholder FASTA." >> "\$LOG_FILE"
-                SRC_FASTA="metaspades_exit12_empty_contigs.fasta"
-                : > "\$SRC_FASTA"
-            else
-                echo "ERROR: metaSPAdes did not produce scaffolds.fasta or contigs.fasta" >> "\$LOG_FILE"
-                exit 1
-            fi
-        fi
-
-    else
-        echo "ERROR: Unsupported assembler: \$ASSEMBLER" >&2
-        exit 1
-    fi
-
-    python3 - \\
-        "\$SRC_FASTA" \\
-        "\$OUT_FASTA" \\
-        "\$HEADER_MAP" \\
-        "\$STATS_FILE" \\
-        "\$MANIFEST_RECORD" \\
-        "\$SAMPLE_ID" \\
-        "\$SAFE_ID" \\
-        "\$ASSEMBLY_SAMPLE_ID" \\
-        "\$ASSEMBLER" \\
-        "\$MODE" \\
-        "\$RAREFACTION_LABEL" \\
-        "\$ASSEMBLY_STRATEGY" \\
-        "\$ASSEMBLY_STATUS" \\
-        "\$ASSEMBLY_WARNING" \\
-        "${params.outdir}/assemblies/\$OUT_FASTA" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-(
-    src_fasta,
-    out_fasta,
-    header_map,
-    stats_file,
-    manifest_record,
-    sample_id,
-    safe_id,
-    assembly_sample_id,
-    assembler,
-    mode,
-    rarefaction_label,
-    assembly_strategy,
-    assembly_status,
-    assembly_warning,
-    published_fasta
-) = sys.argv[1:]
-
-src_fasta = Path(src_fasta)
-out_fasta = Path(out_fasta)
-header_map = Path(header_map)
-stats_file = Path(stats_file)
-manifest_record = Path(manifest_record)
-
-lengths = []
-contig_count = 0
-current_len = 0
-
-def n50(vals):
-    if not vals:
-        return 0
-
-    vals = sorted(vals, reverse=True)
-    half = sum(vals) / 2
-    running = 0
-
-    for v in vals:
-        running += v
-        if running >= half:
-            return v
-
-    return 0
-
-with src_fasta.open() as inp, out_fasta.open("w") as out, header_map.open("w") as hmap:
-    print("old_header", "new_header", sep="\\t", file=hmap)
-
-    for line in inp:
-        line = line.rstrip("\\n")
-
-        if line.startswith(">"):
-            if contig_count > 0:
-                lengths.append(current_len)
-
-            current_len = 0
-            contig_count += 1
-
-            old_header = line[1:].strip()
-            first_token = old_header.split()[0] if old_header else f"contig_{contig_count}"
-
-            if assembler == "megahit":
-                m = re.search(r'(k\\d+)_(\\d+)', first_token)
-
-                if m:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_{m.group(1)}_{m.group(2)}"
-                else:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_k000_{contig_count}"
-
-            elif assembler == "metaspades":
-                m = re.search(r'NODE_(\\d+)', first_token)
-
-                if m:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{m.group(1)}"
-                else:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{contig_count}"
-
-            else:
-                raise RuntimeError(f"Unsupported assembler: {assembler}")
-
-            print(f">{new_header}", file=out)
-            print(old_header, new_header, sep="\\t", file=hmap)
-
-        else:
-            seq = line.strip()
-            current_len += len(seq)
-            print(seq, file=out)
-
-if contig_count > 0:
-    lengths.append(current_len)
-
-total_bp = sum(lengths)
-max_contig = max(lengths) if lengths else 0
-n50_value = n50(lengths)
-
-with stats_file.open("w") as stats:
-    print(
-        "sample_id",
-        "safe_sample_id",
-        "assembly_sample_id",
-        "assembler",
-        "assembly_mode",
-        "rarefaction_label",
-        "assembly_strategy",
-        "assembly_status",
-        "assembly_warning",
-        "contigs",
-        "total_bp",
-        "max_contig_bp",
-        "n50_bp",
-        "renamed_fasta",
-        sep="\\t",
-        file=stats
-    )
-
-    print(
-        sample_id,
-        safe_id,
-        assembly_sample_id,
-        assembler,
-        mode,
-        rarefaction_label,
-        assembly_strategy,
-        assembly_status,
-        assembly_warning,
-        contig_count,
-        total_bp,
-        max_contig,
-        n50_value,
-        published_fasta,
-        sep="\\t",
-        file=stats
-    )
-
-with manifest_record.open("w") as manifest:
-    print(
-        sample_id,
-        safe_id,
-        assembly_sample_id,
-        assembler,
-        mode,
-        rarefaction_label,
-        assembly_strategy,
-        published_fasta,
-        sep="\\t",
-        file=manifest
-    )
-PY
+    samwise_rename_contigs.py \\
+        --src-fasta "\$SRC_FASTA" \\
+        --out-fasta "\$OUT_FASTA" \\
+        --header-map "\$HEADER_MAP" \\
+        --stats-file "\$STATS_FILE" \\
+        --manifest-record "\$MANIFEST_RECORD" \\
+        --sample-id "\$SAMPLE_ID" \\
+        --safe-id "\$SAFE_ID" \\
+        --assembly-sample-id "\$ASSEMBLY_SAMPLE_ID" \\
+        --assembler "\$ASSEMBLER" \\
+        --mode single \\
+        --rarefaction-label "" \\
+        --assembly-strategy ${assembly_strategy} \\
+        --assembly-status "\$ASSEMBLY_STATUS" \\
+        --assembly-warning "\$ASSEMBLY_WARNING" \\
+        --published-fasta "${params.outdir}/assemblies/\$OUT_FASTA"
 
     rm -f input_R1.fastq.gz input_R2.fastq.gz input_interleaved.fastq.gz
-    rm -rf "\$RAW_OUT"
+    rm -rf "${raw_out}"
     """
 }
 
@@ -830,6 +587,11 @@ process ASSEMBLE_RAREFIED {
     path "*.log", emit: log_file
 
     script:
+    def clean_stale = params.clean_partial_assembler_outputs.toString().toBoolean()
+    def assembly_strategy = assembler == 'megahit' ? 'C' : 'D'
+    def raw_out = assembler == 'megahit' ? 'megahit_rarefied_out' : 'metaspades_rarefied_out'
+    def rare_zero_index = (rare_index as int) - 1
+
     """
     set -euo pipefail
 
@@ -844,13 +606,7 @@ process ASSEMBLE_RAREFIED {
     ASSEMBLY_SAMPLE_ID="${assembly_sample_id}${rare_letter}"
     LAYOUT="${layout}"
     ASSEMBLER="${assembler}"
-    MODE="rarefied"
 
-    ASSEMBLY_STATUS="ok"
-    ASSEMBLY_WARNING=""
-
-    RARE_INDEX="${rare_index}"
-    RARE_ZERO_INDEX=\$((RARE_INDEX - 1))
     RAREFACTION_LABEL="${rare_letter}"
     RARE_SPLIT_COUNT="${rare_split_count}"
 
@@ -864,419 +620,65 @@ process ASSEMBLE_RAREFIED {
     SUB_R2="subset_\${RAREFACTION_LABEL}_R2.fastq.gz"
     SUB_12="subset_\${RAREFACTION_LABEL}_interleaved.fastq.gz"
 
-    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" ]]; then
+    if [[ "${clean_stale}" == "true" ]]; then
         rm -f "\$OUT_FASTA" "\$HEADER_MAP" "\$STATS_FILE" "\$MANIFEST_RECORD"
         rm -f "\$SUB_R1" "\$SUB_R2" "\$SUB_12"
     fi
-    
-    echo "Creating rarefied subset \${RAREFACTION_LABEL} of \${RARE_SPLIT_COUNT} for \${SAMPLE_ID}" > "\$LOG_FILE"
 
-    python3 - \\
-        "\$LAYOUT" \\
-        "${read1}" \\
-        "${read2}" \\
-        "${interleaved}" \\
-        "\$RARE_ZERO_INDEX" \\
-        "\$RARE_SPLIT_COUNT" \\
-        "\$SUB_R1" \\
-        "\$SUB_R2" \\
-        "\$SUB_12" <<'PY'
-import gzip
-import sys
-from pathlib import Path
+    echo "Creating rarefied subset \${RAREFACTION_LABEL} of \${RARE_SPLIT_COUNT} for \${SAMPLE_ID}" >> "\$LOG_FILE"
 
-layout, read1, read2, interleaved, split_idx, split_count, out_r1, out_r2, out_12 = sys.argv[1:]
-
-split_idx = int(split_idx)
-split_count = int(split_count)
-
-def open_fastq(path):
-    path = str(path)
-
-    if path.endswith(".gz"):
-        return gzip.open(path, "rt")
-
-    return open(path, "rt")
-
-def read_fastq_records(path):
-    with open_fastq(path) as handle:
-        while True:
-            h = handle.readline()
-
-            if not h:
-                break
-
-            s = handle.readline()
-            p = handle.readline()
-            q = handle.readline()
-
-            if not q:
-                raise RuntimeError(f"Incomplete FASTQ record in {path}")
-
-            yield h, s, p, q
-
-records_written = 0
-
-if layout == "paired":
-    if not Path(read1).exists():
-        raise RuntimeError(f"Read 1 file does not exist: {read1}")
-
-    if not Path(read2).exists():
-        raise RuntimeError(f"Read 2 file does not exist: {read2}")
-
-    r1_iter = read_fastq_records(read1)
-    r2_iter = read_fastq_records(read2)
-
-    with gzip.open(out_r1, "wt") as o1, gzip.open(out_r2, "wt") as o2:
-        for idx, (rec1, rec2) in enumerate(zip(r1_iter, r2_iter)):
-            if idx % split_count == split_idx:
-                o1.writelines(rec1)
-                o2.writelines(rec2)
-                records_written += 1
-
-elif layout == "interleaved":
-    if not Path(interleaved).exists():
-        raise RuntimeError(f"Interleaved file does not exist: {interleaved}")
-
-    rec_iter = read_fastq_records(interleaved)
-
-    with gzip.open(out_12, "wt") as out:
-        pair_idx = 0
-
-        while True:
-            try:
-                rec1 = next(rec_iter)
-            except StopIteration:
-                break
-
-            try:
-                rec2 = next(rec_iter)
-            except StopIteration:
-                raise RuntimeError(f"Interleaved FASTQ has odd number of records: {interleaved}")
-
-            if pair_idx % split_count == split_idx:
-                out.writelines(rec1)
-                out.writelines(rec2)
-                records_written += 1
-
-            pair_idx += 1
-
-else:
-    raise RuntimeError(f"Unsupported layout: {layout}")
-
-if records_written == 0:
-    raise RuntimeError(
-        f"Rarefied subset {split_idx + 1} of {split_count} contains zero pairs/fragments."
-    )
-PY
+    samwise_rarefy_reads.py \\
+        --layout "\$LAYOUT" \\
+        --read1 "${read1}" \\
+        --read2 "${read2}" \\
+        --interleaved "${interleaved}" \\
+        --split-index ${rare_zero_index} \\
+        --split-count "\$RARE_SPLIT_COUNT" \\
+        --out-r1 "\$SUB_R1" \\
+        --out-r2 "\$SUB_R2" \\
+        --out-interleaved "\$SUB_12" \\
+        >> "\$LOG_FILE" 2>&1
 
     echo "Rarefied subset created successfully." >> "\$LOG_FILE"
 
-    if [[ "\$ASSEMBLER" == "megahit" ]]; then
+    echo "Running \${ASSEMBLER} rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
 
-        if ! command -v megahit >/dev/null 2>&1; then
-            echo "ERROR: megahit is not available after tool setup." >&2
-            cat "${tools_status}" >&2 || true
-            exit 1
-        fi
+    samwise_run_assembler.py \\
+        --assembler "\$ASSEMBLER" \\
+        --layout "\$LAYOUT" \\
+        --read1 "\$SUB_R1" \\
+        --read2 "\$SUB_R2" \\
+        --interleaved "\$SUB_12" \\
+        --threads ${task.cpus} \\
+        --memory-gb ${params.memory_gb} \\
+        --out-dir "${raw_out}" \\
+        --log-file "\$LOG_FILE" \\
+        --result-file assembler_result.env \\
+        --megahit-preset ${params.megahit_preset} \\
+        --clean-stale-output ${clean_stale}
 
-        ASSEMBLY_STRATEGY="C"
-        RAW_OUT="megahit_rarefied_out"
-        MEGAHIT_MEM_ARG=""
+    # Defines SRC_FASTA, ASSEMBLY_STATUS, ASSEMBLY_WARNING (shell-quoted by the script).
+    source assembler_result.env
 
-        if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
-            echo "Removing stale MEGAHIT output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
-            rm -rf "\$RAW_OUT"
-        fi
-
-        if [[ "${params.memory_gb}" != "0" ]]; then
-            MEGAHIT_MEM_BYTES=\$(( ${params.memory_gb} * 1024 * 1024 * 1024 ))
-            MEGAHIT_MEM_ARG="-m \$MEGAHIT_MEM_BYTES"
-        fi
-
-        echo "Running MEGAHIT rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
-        echo "MEGAHIT threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
-        echo "MEGAHIT memory arg: \$MEGAHIT_MEM_ARG" >> "\$LOG_FILE"
-
-        if [[ "\$LAYOUT" == "paired" ]]; then
-            megahit \\
-                -1 "\$SUB_R1" \\
-                -2 "\$SUB_R2" \\
-                -t ${task.cpus} \\
-                \$MEGAHIT_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                --presets ${params.megahit_preset} \\
-                >> "\$LOG_FILE" 2>&1
-        else
-            megahit \\
-                --12 "\$SUB_12" \\
-                -t ${task.cpus} \\
-                \$MEGAHIT_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                --presets ${params.megahit_preset} \\
-                >> "\$LOG_FILE" 2>&1
-        fi
-
-        SRC_FASTA="\$RAW_OUT/final.contigs.fa"
-
-        if [[ ! -s "\$SRC_FASTA" ]]; then
-            echo "ERROR: MEGAHIT did not produce final.contigs.fa" >> "\$LOG_FILE"
-            exit 1
-        fi
-
-    elif [[ "\$ASSEMBLER" == "metaspades" ]]; then
-
-        if ! command -v metaspades.py >/dev/null 2>&1; then
-            echo "ERROR: metaspades.py is not available after tool setup." >&2
-            cat "${tools_status}" >&2 || true
-            exit 1
-        fi
-
-        ASSEMBLY_STRATEGY="D"
-        RAW_OUT="metaspades_rarefied_out"
-        SPADES_MEM_ARG=""
-
-    if [[ "${params.clean_partial_assembler_outputs.toString().toBoolean()}" == "true" && -e "\$RAW_OUT" ]]; then
-        echo "Removing stale metaSPAdes output from previous failed attempt: \$RAW_OUT" >> "\$LOG_FILE"
-        rm -rf "\$RAW_OUT"
-    fi
-
-        if [[ "${params.memory_gb}" != "0" ]]; then
-            SPADES_MEM_ARG="-m ${params.memory_gb}"
-        fi
-
-        echo "Running metaSPAdes rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
-        echo "metaSPAdes threads: ${task.cpus}" >> "\$LOG_FILE"
-        echo "Global memory GB: ${params.memory_gb}" >> "\$LOG_FILE"
-        echo "metaSPAdes memory arg: \$SPADES_MEM_ARG" >> "\$LOG_FILE"
-
-        set +e
-
-        if [[ "\$LAYOUT" == "paired" ]]; then
-            metaspades.py \\
-                -1 "\$SUB_R1" \\
-                -2 "\$SUB_R2" \\
-                -t ${task.cpus} \\
-                \$SPADES_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                >> "\$LOG_FILE" 2>&1
-        else
-            metaspades.py \\
-                --12 "\$SUB_12" \\
-                -t ${task.cpus} \\
-                \$SPADES_MEM_ARG \\
-                -o "\$RAW_OUT" \\
-                >> "\$LOG_FILE" 2>&1
-        fi
-
-        METASPADES_EXIT_CODE=\$?
-
-        set -e
-
-        echo "metaSPAdes exit code: \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
-
-        if [[ "\$METASPADES_EXIT_CODE" -ne 0 && "\$METASPADES_EXIT_CODE" -ne 12 ]]; then
-            echo "ERROR: metaSPAdes failed with fatal exit code \$METASPADES_EXIT_CODE" >> "\$LOG_FILE"
-            exit "\$METASPADES_EXIT_CODE"
-        fi
-
-        if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
-            ASSEMBLY_STATUS="failed_nonfatal"
-            ASSEMBLY_WARNING="assembly failed - not enough memory"
-            echo "WARNING: metaSPAdes exited with code 12. Treating this as non-fatal so summaries can be written." >> "\$LOG_FILE"
-            echo "WARNING: \${ASSEMBLY_WARNING}" >> "\$LOG_FILE"
-        fi
-
-        if [[ -s "\$RAW_OUT/scaffolds.fasta" ]]; then
-            SRC_FASTA="\$RAW_OUT/scaffolds.fasta"
-        elif [[ -s "\$RAW_OUT/contigs.fasta" ]]; then
-            SRC_FASTA="\$RAW_OUT/contigs.fasta"
-        else
-            if [[ "\$METASPADES_EXIT_CODE" -eq 12 ]]; then
-                echo "WARNING: metaSPAdes exit code 12 produced no scaffolds.fasta or contigs.fasta. Creating empty placeholder FASTA." >> "\$LOG_FILE"
-                SRC_FASTA="metaspades_exit12_empty_contigs.fasta"
-                : > "\$SRC_FASTA"
-            else
-                echo "ERROR: metaSPAdes did not produce scaffolds.fasta or contigs.fasta" >> "\$LOG_FILE"
-                exit 1
-            fi
-        fi
-
-    else
-        echo "ERROR: Unsupported assembler: \$ASSEMBLER" >&2
-        exit 1
-    fi
-
-    python3 - \\
-        "\$SRC_FASTA" \\
-        "\$OUT_FASTA" \\
-        "\$HEADER_MAP" \\
-        "\$STATS_FILE" \\
-        "\$MANIFEST_RECORD" \\
-        "\$SAMPLE_ID" \\
-        "\$SAFE_ID" \\
-        "\$ASSEMBLY_SAMPLE_ID" \\
-        "\$ASSEMBLER" \\
-        "\$MODE" \\
-        "\$RAREFACTION_LABEL" \\
-        "\$ASSEMBLY_STRATEGY" \\
-        "\$ASSEMBLY_STATUS" \\
-        "\$ASSEMBLY_WARNING" \\
-        "${params.outdir}/assemblies/\$OUT_FASTA" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-(
-    src_fasta,
-    out_fasta,
-    header_map,
-    stats_file,
-    manifest_record,
-    sample_id,
-    safe_id,
-    assembly_sample_id,
-    assembler,
-    mode,
-    rarefaction_label,
-    assembly_strategy,
-    assembly_status,
-    assembly_warning,
-    published_fasta
-) = sys.argv[1:]
-
-src_fasta = Path(src_fasta)
-out_fasta = Path(out_fasta)
-header_map = Path(header_map)
-stats_file = Path(stats_file)
-manifest_record = Path(manifest_record)
-
-lengths = []
-contig_count = 0
-current_len = 0
-
-def n50(vals):
-    if not vals:
-        return 0
-
-    vals = sorted(vals, reverse=True)
-    half = sum(vals) / 2
-    running = 0
-
-    for v in vals:
-        running += v
-        if running >= half:
-            return v
-
-    return 0
-
-with src_fasta.open() as inp, out_fasta.open("w") as out, header_map.open("w") as hmap:
-    print("old_header", "new_header", sep="\\t", file=hmap)
-
-    for line in inp:
-        line = line.rstrip("\\n")
-
-        if line.startswith(">"):
-            if contig_count > 0:
-                lengths.append(current_len)
-
-            current_len = 0
-            contig_count += 1
-
-            old_header = line[1:].strip()
-            first_token = old_header.split()[0] if old_header else f"contig_{contig_count}"
-
-            if assembler == "megahit":
-                m = re.search(r'(k\\d+)_(\\d+)', first_token)
-
-                if m:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_{m.group(1)}_{m.group(2)}"
-                else:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_k000_{contig_count}"
-
-            elif assembler == "metaspades":
-                m = re.search(r'NODE_(\\d+)', first_token)
-
-                if m:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{m.group(1)}"
-                else:
-                    new_header = f"{assembly_sample_id}_{assembly_strategy}_NODE_{contig_count}"
-
-            else:
-                raise RuntimeError(f"Unsupported assembler: {assembler}")
-
-            print(f">{new_header}", file=out)
-            print(old_header, new_header, sep="\\t", file=hmap)
-
-        else:
-            seq = line.strip()
-            current_len += len(seq)
-            print(seq, file=out)
-
-if contig_count > 0:
-    lengths.append(current_len)
-
-total_bp = sum(lengths)
-max_contig = max(lengths) if lengths else 0
-n50_value = n50(lengths)
-
-with stats_file.open("w") as stats:
-    print(
-        "sample_id",
-        "safe_sample_id",
-        "assembly_sample_id",
-        "assembler",
-        "assembly_mode",
-        "rarefaction_label",
-        "assembly_strategy",
-        "assembly_status",
-        "assembly_warning",
-        "contigs",
-        "total_bp",
-        "max_contig_bp",
-        "n50_bp",
-        "renamed_fasta",
-        sep="\\t",
-        file=stats
-    )
-
-    print(
-        sample_id,
-        safe_id,
-        assembly_sample_id,
-        assembler,
-        mode,
-        rarefaction_label,
-        assembly_strategy,
-        assembly_status,
-        assembly_warning,
-        contig_count,
-        total_bp,
-        max_contig,
-        n50_value,
-        published_fasta,
-        sep="\\t",
-        file=stats
-    )
-
-with manifest_record.open("w") as manifest:
-    print(
-        sample_id,
-        safe_id,
-        assembly_sample_id,
-        assembler,
-        mode,
-        rarefaction_label,
-        assembly_strategy,
-        published_fasta,
-        sep="\\t",
-        file=manifest
-    )
-PY
+    samwise_rename_contigs.py \\
+        --src-fasta "\$SRC_FASTA" \\
+        --out-fasta "\$OUT_FASTA" \\
+        --header-map "\$HEADER_MAP" \\
+        --stats-file "\$STATS_FILE" \\
+        --manifest-record "\$MANIFEST_RECORD" \\
+        --sample-id "\$SAMPLE_ID" \\
+        --safe-id "\$SAFE_ID" \\
+        --assembly-sample-id "\$ASSEMBLY_SAMPLE_ID" \\
+        --assembler "\$ASSEMBLER" \\
+        --mode rarefied \\
+        --rarefaction-label "\$RAREFACTION_LABEL" \\
+        --assembly-strategy ${assembly_strategy} \\
+        --assembly-status "\$ASSEMBLY_STATUS" \\
+        --assembly-warning "\$ASSEMBLY_WARNING" \\
+        --published-fasta "${params.outdir}/assemblies/\$OUT_FASTA"
 
     rm -f "\$SUB_R1" "\$SUB_R2" "\$SUB_12"
-    rm -rf "\$RAW_OUT"
+    rm -rf "${raw_out}"
     """
 }
 
