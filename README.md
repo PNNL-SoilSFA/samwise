@@ -58,11 +58,12 @@ nextflow run module_2_readassembly.nf \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
 
-#NOTE: If you want to run these assemblies in parallel across multiple nodes, you can modify your code to include the following flags:
+#NOTE: If you want to run these assemblies in parallel across multiple nodes,
+#you can modify your code to include the following flags:
 
--c ./bin/module_2_slurm.config \
---slurm_account ChargeAccountID \
---max_parallel_assemblies 8
+#-c ./bin/module_2_slurm.config \
+#--slurm_account ChargeAccountID \
+#--max_parallel_assemblies 8
 
 nextflow run module_2b_coassembly.nf \
 --working_dir ./samwise-main \
@@ -265,11 +266,12 @@ nextflow run module_2_readassembly.nf \
 #if on a mac, megahit running on more than 1 thread doesnt work, so there is an explicit arg:
 #--megahit_threads that you can set separately from the global --threads (which will set it for both)
 
-#NOTE: If you want to run these assemblies in parallel across multiple nodes, you can modify your code to include the following flags:
+#NOTE: If you want to run these assemblies in parallel across multiple nodes,
+#you can modify your code to include the following flags:
 
--c ./bin/module_2_slurm.config \
---slurm_account ChargeAccountID \
---max_parallel_assemblies 8
+#-c ./bin/module_2_slurm.config \
+#--slurm_account ChargeAccountID \
+#--max_parallel_assemblies 8
 
 # use `--` for any additional flags as well
 ```
