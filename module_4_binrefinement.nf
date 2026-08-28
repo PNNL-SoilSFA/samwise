@@ -65,7 +65,7 @@ workflow {
     )
 
     def magscot_script_file = params.magscot_script ?: firstExistingPath(
-        ["${params.dependencies_dir}/MAGScoT.py", "${projectDir}/dependencies/MAGScoT.py", "${projectDir}/MAGScoT.py"]
+    ["${projectDir}/bin/MAGScoT.py", "${projectDir}/bin/magscot.py"]
     )
 
     def magscot_profiles_dir = params.magscot_profiles_dir ?: firstExistingPath(
