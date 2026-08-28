@@ -701,7 +701,3 @@ GEMs: mag_id_gapseq_doall, optional mag_id_gapseq_adapt
 MEMOTE: snapshot mag_id_memote_snapshot.json; run mag_id_memote_report.html, mag_id_memote_report.json
 
 Summary: module_7_gems_manifest.tsv, module_7_gems_summary.tsv
-
-![SAMWISE step8](images/step_8.png)
-
-This module performs the following steps:
