@@ -54,7 +54,7 @@ params.results_dir = params.working_dir ? params.working_dir : (params.output_di
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.outdir = "${params.results_dir}/module_2_readassembly"
 
-def rareLabelFromIndex(int index) {
+def rareLabelFromIndex(index: int) {
 
     def alphabet = "abcdefghijklmnopqrstuvwxyz"
 
@@ -72,7 +72,7 @@ def rareLabelFromIndex(int index) {
     return rareLabelFromIndex(prefix_index) + alphabet.charAt(suffix_index).toString()
 }
 
-def rareLabels(int count) {
+def rareLabels(count: int) {
     return (0..<count).collect { idx -> rareLabelFromIndex(idx as int) }
 }
 

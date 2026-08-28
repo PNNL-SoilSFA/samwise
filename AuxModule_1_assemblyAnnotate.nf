@@ -27,7 +27,6 @@ params.eggnog_extra_args = ""
 params.eggnog_mmseqs_db = null
 params.eggnog_fail_nonfatal = false
 
-
 def absPath(value) {
     def text = value == null ? "" : value.toString().trim()
 
@@ -35,7 +34,8 @@ def absPath(value) {
         return ""
     }
 
-    return java.nio.file.Paths.get(text)
+    return java.nio.file.Paths
+        .get(text)
         .toAbsolutePath()
         .normalize()
         .toString()
@@ -63,25 +63,19 @@ def requireWorkingDir(value) {
 
 params.results_dir = requireWorkingDir(params.working_dir)
 
-params.module2_assembly_dir =
-    "${params.results_dir}/module_2_readassembly/assemblies"
+params.module2_assembly_dir = "${params.results_dir}/module_2_readassembly/assemblies"
 
-params.module2b_assembly_dir =
-    "${params.results_dir}/module_2b_coassembly/assemblies"
+params.module2b_assembly_dir = "${params.results_dir}/module_2b_coassembly/assemblies"
 
-params.module5_assembly_dir =
-    "${params.results_dir}/module_5_subtractiveassembly/assemblies"
+params.module5_assembly_dir = "${params.results_dir}/module_5_subtractiveassembly/assemblies"
 
-params.outdir =
-    "${params.results_dir}/AuxModule_1_assemblyAnnotate"
+params.outdir = "${params.results_dir}/AuxModule_1_assemblyAnnotate"
 
 params.eggnog_db_outdir = params.eggnog_data_path
     ? absPath(params.eggnog_data_path)
-    : (
-        params.eggnog_data_dir
-            ? absPath(params.eggnog_data_dir)
-            : "${params.outdir}/databases/eggnog"
-    )
+    : (params.eggnog_data_dir
+        ? absPath(params.eggnog_data_dir)
+        : "${params.outdir}/databases/eggnog")
 
 /*
  * Main workflow.
@@ -156,8 +150,7 @@ workflow {
      * use an existing assembly directory as a staging placeholder and
      * pass a Boolean flag telling PREPARE_ASSEMBLIES not to read it.
      */
-    def fallback_assembly_dir =
-        existing_sources[0].path.toString()
+    def fallback_assembly_dir = existing_sources[0].path.toString()
 
     def module2_exists = java.nio.file.Files.isDirectory(
         java.nio.file.Paths.get(
@@ -197,30 +190,21 @@ workflow {
     log.info("Reverse-complement equivalence: enabled")
 
     log.info(
-        "Module 2 assemblies: " +
-        (
-            module2_exists
-                ? params.module2_assembly_dir.toString()
-                : "not present"
-        )
+        "Module 2 assemblies: " + (module2_exists
+            ? params.module2_assembly_dir.toString()
+            : "not present")
     )
 
     log.info(
-        "Module 2b coassemblies: " +
-        (
-            module2b_exists
-                ? params.module2b_assembly_dir.toString()
-                : "not present"
-        )
+        "Module 2b coassemblies: " + (module2b_exists
+            ? params.module2b_assembly_dir.toString()
+            : "not present")
     )
 
     log.info(
-        "Module 5 subtractive assemblies: " +
-        (
-            module5_exists
-                ? params.module5_assembly_dir.toString()
-                : "not present"
-        )
+        "Module 5 subtractive assemblies: " + (module5_exists
+            ? params.module5_assembly_dir.toString()
+            : "not present")
     )
 
     log.info("EggNOG method: ${params.eggnog_method}")
@@ -284,54 +268,26 @@ process PREPARE_ASSEMBLIES {
 
     tag "prepare_filter_and_deduplicate_assembly_scaffolds"
 
-    publishDir(
-        "${params.outdir}/filtered_assemblies",
-        mode: params.publish_filtered_assemblies_mode,
-        pattern: "filtered_assemblies/*.fa",
-        saveAs: { filename ->
-            filename.tokenize('/').last()
-        },
-    )
+    publishDir "${params.outdir}/filtered_assemblies", mode: params.publish_filtered_assemblies_mode, pattern: "filtered_assemblies/*.fa", saveAs: { filename ->
+        filename.tokenize('/').last()
+    }
 
-    publishDir(
-        "${params.outdir}/inputs",
-        mode: "copy",
-        pattern: "eggnog_assembly_scaffolds.fasta",
-    )
+    publishDir "${params.outdir}/inputs", mode: "copy", pattern: "eggnog_assembly_scaffolds.fasta"
 
-    publishDir(
-        "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "assembly_filtering_manifest.tsv",
-    )
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "assembly_filtering_manifest.tsv"
 
-    publishDir(
-        "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "scaffold_filtering_manifest.tsv",
-    )
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "scaffold_filtering_manifest.tsv"
 
-    publishDir(
-        "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "scaffold_filtering_stats.tsv",
-    )
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "scaffold_filtering_stats.tsv"
 
-    publishDir(
-        "${params.outdir}/logs",
-        mode: "copy",
-        pattern: "prepare_assemblies.log",
-    )
+    publishDir "${params.outdir}/logs", mode: "copy", pattern: "prepare_assemblies.log"
 
     input:
-    path staged_module2_dir,
-        stageAs: "module2_assemblies"
+    path staged_module2_dir, stageAs: "module2_assemblies"
 
-    path staged_module2b_dir,
-        stageAs: "module2b_assemblies"
+    path staged_module2b_dir, stageAs: "module2b_assemblies"
 
-    path staged_module5_dir,
-        stageAs: "module5_assemblies"
+    path staged_module5_dir, stageAs: "module5_assemblies"
 
     val use_module2
     val use_module2b
@@ -344,23 +300,17 @@ process PREPARE_ASSEMBLIES {
     val minimum_scaffold_bp
 
     output:
-    path "filtered_assemblies/*.fa",
-        emit: filtered_assemblies
+    path "filtered_assemblies/*.fa", emit: filtered_assemblies
 
-    path "eggnog_assembly_scaffolds.fasta",
-        emit: combined_fasta
+    path "eggnog_assembly_scaffolds.fasta", emit: combined_fasta
 
-    path "assembly_filtering_manifest.tsv",
-        emit: assembly_manifest
+    path "assembly_filtering_manifest.tsv", emit: assembly_manifest
 
-    path "scaffold_filtering_manifest.tsv",
-        emit: scaffold_manifest
+    path "scaffold_filtering_manifest.tsv", emit: scaffold_manifest
 
-    path "scaffold_filtering_stats.tsv",
-        emit: filter_stats
+    path "scaffold_filtering_stats.tsv", emit: filter_stats
 
-    path "prepare_assemblies.log",
-        emit: log_file
+    path "prepare_assemblies.log", emit: log_file
 
     script:
     """
@@ -1150,11 +1100,7 @@ process SETUP_EGGNOG {
 
     tag "setup_eggnog"
 
-    publishDir(
-        "${params.outdir}/setup",
-        mode: "copy",
-        pattern: "eggnog_setup_status.env",
-    )
+    publishDir "${params.outdir}/setup", mode: "copy", pattern: "eggnog_setup_status.env"
 
     output:
     path "eggnog_setup_status.env", emit: status
@@ -1170,28 +1116,21 @@ process SETUP_EGGNOG {
 
     def data_dir = params.eggnog_data_path
         ? absPath(params.eggnog_data_path)
-        : (
-            params.eggnog_data_dir
-                ? absPath(params.eggnog_data_dir)
-                : absPath(params.eggnog_db_outdir)
-        )
+        : (params.eggnog_data_dir
+            ? absPath(params.eggnog_data_dir)
+            : absPath(params.eggnog_db_outdir))
 
     def conda_pkgs_dir = params.conda_pkgs_dir
         ? "${absPath(params.conda_pkgs_dir)}/eggnog_mapper"
         : "${absPath(params.outdir)}/conda_pkgs/eggnog_mapper"
 
-    def eggnog_package =
-        "eggnog-mapper=${params.eggnog_mapper_version}"
+    def eggnog_package = "eggnog-mapper=${params.eggnog_mapper_version}"
 
-    def fixurl_package =
-        params.eggnog_fixurl_package
-            ?: "eggnog-mapper-fixurl"
+    def fixurl_package = params.eggnog_fixurl_package ?: "eggnog-mapper-fixurl"
 
-    def download_args =
-        params.eggnog_download_args != null &&
-        params.eggnog_download_args.toString().trim()
-            ? params.eggnog_download_args.toString().trim()
-            : "-y"
+    def download_args = params.eggnog_download_args != null && params.eggnog_download_args.toString().trim()
+        ? params.eggnog_download_args.toString().trim()
+        : "-y"
 
     def configured_mmseqs_db = params.eggnog_mmseqs_db
         ? absPath(params.eggnog_mmseqs_db)
@@ -1292,20 +1231,21 @@ process SETUP_EGGNOG {
 
     if ! check_environment "\$EGGNOG_ENV"; then
         echo "ERROR: EggNOG environment failed final checks." >> "\$STATUS"
-        echo "Environment bin directory:" >> "\$STATUS"
         ls -lah "\$EGGNOG_ENV/bin" >> "\$STATUS" 2>&1 || true
         exit 1
     fi
 
     export PATH="\$EGGNOG_ENV/bin:\$PATH"
 
-    echo "EggNOG executable information:" >> "\$STATUS"
-    command -v emapper.py >> "\$STATUS" 2>&1
-    emapper.py --version >> "\$STATUS" 2>&1 || true
-    command -v diamond >> "\$STATUS" 2>&1
-    diamond version >> "\$STATUS" 2>&1 || true
-    command -v prodigal >> "\$STATUS" 2>&1
-    prodigal -v >> "\$STATUS" 2>&1 || true
+    {
+        echo "EggNOG executable information:"
+        command -v emapper.py || true
+        emapper.py --version || true
+        command -v diamond || true
+        diamond version || true
+        command -v prodigal || true
+        prodigal -v || true
+    } >> "\$STATUS" 2>&1
 
     if [[ "${params.eggnog_fixurl}" == "true" ]]; then
         echo "Installing EggNOG URL fixer: ${fixurl_package}" >> "\$STATUS"
@@ -1320,12 +1260,14 @@ process SETUP_EGGNOG {
         fi
 
         echo "Running eggnog-mapper-fixurl." >> "\$STATUS"
-        eggnog-mapper-fixurl >> "\$STATUS" 2>&1
+
+        "\$EGGNOG_ENV/bin/eggnog-mapper-fixurl" \
+            >> "\$STATUS" 2>&1
     fi
 
     mkdir -p "\$EGGNOG_DATA_DIR"
 
-    export EGGNOG_DATA_DIR="\$EGGNOG_DATA_DIR"
+    export EGGNOG_DATA_DIR
     export EGGNOG_DATA_PATH="\$EGGNOG_DATA_DIR"
 
     find_database_file() {
@@ -1334,19 +1276,21 @@ process SETUP_EGGNOG {
         find "\$EGGNOG_DATA_DIR" \\
             -type f \\
             -name "\$pattern" \\
+            -print \\
             2>/dev/null \\
+            | sort \\
             | head -n 1 || true
     }
 
-    EGGNOG_SQLITE_DB="\$(find_database_file 'eggnog.db')"
+    EGGNOG_DB_PATH="\$(find_database_file 'eggnog.db')"
     EGGNOG_DIAMOND_DB="\$(find_database_file '*.dmnd')"
 
-    echo "Existing EggNOG SQLite database: \${EGGNOG_SQLITE_DB:-not found}" >> "\$STATUS"
+    echo "Existing EggNOG SQLite database: \${EGGNOG_DB_PATH:-not found}" >> "\$STATUS"
     echo "Existing EggNOG DIAMOND database: \${EGGNOG_DIAMOND_DB:-not found}" >> "\$STATUS"
 
     NEED_DOWNLOAD="false"
 
-    if [[ -z "\$EGGNOG_SQLITE_DB" ]]; then
+    if [[ -z "\$EGGNOG_DB_PATH" ]]; then
         NEED_DOWNLOAD="true"
     fi
 
@@ -1381,17 +1325,19 @@ process SETUP_EGGNOG {
         fi
     fi
 
-    EGGNOG_SQLITE_DB="\$(find_database_file 'eggnog.db')"
+    EGGNOG_DB_PATH="\$(find_database_file 'eggnog.db')"
     EGGNOG_DIAMOND_DB="\$(find_database_file '*.dmnd')"
 
-    if [[ -z "\$EGGNOG_SQLITE_DB" || ! -s "\$EGGNOG_SQLITE_DB" ]]; then
-        echo "ERROR: eggnog.db is missing after setup." >> "\$STATUS"
+    if [[ -z "\$EGGNOG_DB_PATH" || ! -s "\$EGGNOG_DB_PATH" ]]; then
+        echo "ERROR: eggnog.db was not found under: \$EGGNOG_DATA_DIR" >> "\$STATUS"
         exit 1
     fi
 
+    EGGNOG_DB_PATH="\$(readlink -f "\$EGGNOG_DB_PATH")"
+
     if [[ "${params.eggnog_method}" == "diamond" ]]; then
         if [[ -z "\$EGGNOG_DIAMOND_DB" || ! -s "\$EGGNOG_DIAMOND_DB" ]]; then
-            echo "ERROR: A DIAMOND database is required but was not found." >> "\$STATUS"
+            echo "ERROR: A DIAMOND database was not found under: \$EGGNOG_DATA_DIR" >> "\$STATUS"
             exit 1
         fi
     fi
@@ -1406,52 +1352,30 @@ process SETUP_EGGNOG {
         fi
     fi
 
-    echo "Final EggNOG SQLite database: \$EGGNOG_SQLITE_DB" >> "\$STATUS"
+    echo "Final EggNOG SQLite database: \$EGGNOG_DB_PATH" >> "\$STATUS"
     echo "Final EggNOG DIAMOND database: \${EGGNOG_DIAMOND_DB:-not used}" >> "\$STATUS"
     echo "Final EggNOG MMseqs database: \${MMSEQS_DB:-not used}" >> "\$STATUS"
-
-    echo "EGGNOG_ENV=\$EGGNOG_ENV" >> "\$STATUS"
-    echo "EGGNOG_DATA_DIR=\$EGGNOG_DATA_DIR" >> "\$STATUS"
+    echo "EGGNOG_DB_PATH=\$EGGNOG_DB_PATH" >> "\$STATUS"
+    echo "EGGNOG_DIAMOND_DB=\$EGGNOG_DIAMOND_DB" >> "\$STATUS"
     echo "EGGNOG_MMSEQS_DB=\$MMSEQS_DB" >> "\$STATUS"
-
+    
     echo "EggNOG-mapper setup finished: \$(date)" >> "\$STATUS"
     """
 }
 
-
-/*
- * Run EggNOG-mapper on the combined retained assembly scaffolds.
- */
 process RUN_EGGNOG {
 
     tag "eggnog_assembly_scaffolds"
 
-    publishDir(
-        "${params.outdir}/eggnog",
-        mode: params.publish_tool_outputs_mode,
-        pattern: "eggnog_out/*",
-        saveAs: { filename ->
-            filename.tokenize('/').last()
-        },
-    )
+    publishDir "${params.outdir}/eggnog", mode: params.publish_tool_outputs_mode, pattern: "eggnog_out/*", saveAs: { filename ->
+        filename.tokenize('/').last()
+    }
 
-    publishDir(
-        "${params.outdir}/logs",
-        mode: "copy",
-        pattern: "eggnog.log",
-    )
+    publishDir "${params.outdir}/logs", mode: "copy", pattern: "eggnog.log"
 
-    publishDir(
-        "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "eggnog_status.tsv",
-    )
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "eggnog_status.tsv"
 
-    publishDir(
-        "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "eggnog_scaffold_manifest.tsv",
-    )
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "eggnog_scaffold_manifest.tsv"
 
     cpus {
         params.threads != null
@@ -1465,17 +1389,13 @@ process RUN_EGGNOG {
     path setup_status
 
     output:
-    path "eggnog_status.tsv",
-        emit: status
+    path "eggnog_status.tsv", emit: status
 
-    path "eggnog.log",
-        emit: log_file
+    path "eggnog.log", emit: log_file
 
-    path "eggnog_scaffold_manifest.tsv",
-        emit: scaffold_manifest
+    path "eggnog_scaffold_manifest.tsv", emit: scaffold_manifest
 
-    path "eggnog_out/*",
-        emit: eggnog_out
+    path "eggnog_out/*", emit: eggnog_out
 
     script:
     """
@@ -1483,22 +1403,39 @@ process RUN_EGGNOG {
 
     LOG="eggnog.log"
 
-    EGGNOG_ENV="\$(grep '^EGGNOG_ENV=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
-    EGGNOG_DATA_DIR="\$(grep '^EGGNOG_DATA_DIR=' "${setup_status}" | tail -n 1 | cut -d= -f2-)"
-    EGGNOG_MMSEQS_DB="\$(grep '^EGGNOG_MMSEQS_DB=' "${setup_status}" | tail -n 1 | cut -d= -f2- || true)"
+    EGGNOG_ENV="\$(grep '^EGGNOG_ENV=' "${setup_status}" \
+        | tail -n 1 \
+        | cut -d= -f2-)"
+
+    EGGNOG_DATA_DIR="\$(grep '^EGGNOG_DATA_DIR=' "${setup_status}" \
+        | tail -n 1 \
+        | cut -d= -f2-)"
+
+    EGGNOG_DB_PATH="\$(grep '^EGGNOG_DB_PATH=' "${setup_status}" \
+        | tail -n 1 \
+        | cut -d= -f2- || true)"
+
+    EGGNOG_MMSEQS_DB="\$(grep '^EGGNOG_MMSEQS_DB=' "${setup_status}" \
+        | tail -n 1 \
+        | cut -d= -f2- || true)"
 
     if [[ -z "\$EGGNOG_ENV" || ! -d "\$EGGNOG_ENV" ]]; then
-        echo "ERROR: Invalid EggNOG environment from setup status: \$EGGNOG_ENV" >&2
+        echo "ERROR: Invalid EggNOG environment: \$EGGNOG_ENV" >&2
         exit 1
     fi
 
     if [[ -z "\$EGGNOG_DATA_DIR" || ! -d "\$EGGNOG_DATA_DIR" ]]; then
-        echo "ERROR: Invalid EggNOG data directory from setup status: \$EGGNOG_DATA_DIR" >&2
+        echo "ERROR: Invalid EggNOG data directory: \$EGGNOG_DATA_DIR" >&2
+        exit 1
+    fi
+
+    if [[ -z "\$EGGNOG_DB_PATH" || ! -s "\$EGGNOG_DB_PATH" ]]; then
+        echo "ERROR: Invalid EggNOG SQLite database: \$EGGNOG_DB_PATH" >&2
         exit 1
     fi
 
     export PATH="\$EGGNOG_ENV/bin:\$PATH"
-    export EGGNOG_DATA_DIR="\$EGGNOG_DATA_DIR"
+    export EGGNOG_DATA_DIR
     export EGGNOG_DATA_PATH="\$EGGNOG_DATA_DIR"
 
     echo "EggNOG-mapper started: \$(date)" > "\$LOG"
@@ -1506,6 +1443,8 @@ process RUN_EGGNOG {
     echo "Input scaffold manifest: ${input_scaffold_manifest}" >> "\$LOG"
     echo "EggNOG environment: \$EGGNOG_ENV" >> "\$LOG"
     echo "EggNOG data directory: \$EGGNOG_DATA_DIR" >> "\$LOG"
+    echo "EggNOG SQLite database: \$EGGNOG_DB_PATH" >> "\$LOG"
+    echo "EggNOG MMseqs database: \${EGGNOG_MMSEQS_DB:-not used}" >> "\$LOG"
     echo "Method: ${params.eggnog_method}" >> "\$LOG"
     echo "Input type: ${params.eggnog_itype}" >> "\$LOG"
     echo "Gene prediction: ${params.eggnog_genepred}" >> "\$LOG"
@@ -1519,14 +1458,16 @@ process RUN_EGGNOG {
 
     cp "${input_scaffold_manifest}" eggnog_scaffold_manifest.tsv
 
-    printf 'tool\\tstatus\\texit_status\\tminimum_scaffold_bp\\tinput_scaffolds\\tinput_bp\\toutput_dir\\tmessage\\n' > eggnog_status.tsv
+    printf 'tool\\tstatus\\texit_status\\tminimum_scaffold_bp\\tinput_scaffolds\\tinput_bp\\toutput_dir\\tmessage\\n' \
+        > eggnog_status.tsv
 
     if [[ ! -s "${combined_fasta}" ]]; then
-        echo "ERROR: Combined EggNOG input FASTA is missing or empty." >> "\$LOG"
+        echo "ERROR: Combined EggNOG input FASTA is missing or empty." \
+            >> "\$LOG"
 
-        printf 'eggnog\\tfailed\\t1\\t%s\\t0\\t0\\t%s\\tInput FASTA missing or empty\\n' \\
-            "${params.min_scaffold_bp}" \\
-            "${params.outdir}/eggnog" \\
+        printf 'eggnog\\tfailed\\t1\\t%s\\t0\\t0\\t%s\\tInput FASTA missing or empty\\n' \
+            "${params.min_scaffold_bp}" \
+            "${params.outdir}/eggnog" \
             >> eggnog_status.tsv
 
         exit 1
@@ -1556,39 +1497,91 @@ PY
     if [[ "\$INPUT_SCAFFOLDS" -eq 0 ]]; then
         echo "ERROR: EggNOG input contains no FASTA records." >> "\$LOG"
 
-        printf 'eggnog\\tfailed\\t1\\t%s\\t0\\t0\\t%s\\tInput FASTA contains no records\\n' \\
-            "${params.min_scaffold_bp}" \\
-            "${params.outdir}/eggnog" \\
+        printf 'eggnog\\tfailed\\t1\\t%s\\t0\\t0\\t%s\\tInput FASTA contains no records\\n' \
+            "${params.min_scaffold_bp}" \
+            "${params.outdir}/eggnog" \
             >> eggnog_status.tsv
 
         exit 1
     fi
 
-    MMSEQS_ARG=""
+    SEARCH_DB_ARGS=()
 
-    if [[ -n "\${EGGNOG_MMSEQS_DB:-}" && -s "\$EGGNOG_MMSEQS_DB" ]]; then
-        MMSEQS_ARG="--mmseqs_db \$EGGNOG_MMSEQS_DB"
+    if [[ "${params.eggnog_method}" == "mmseqs" ]]; then
+
+        if [[ -z "\$EGGNOG_MMSEQS_DB" ||
+              ! -s "\$EGGNOG_MMSEQS_DB" ]]; then
+
+            echo "ERROR: MMseqs mode was selected, but no valid MMseqs database was found." \
+                >> "\$LOG"
+
+            echo "Expected MMseqs database:" >> "\$LOG"
+            echo "  \$EGGNOG_DATA_DIR/mmseqs/mmseqs.db" >> "\$LOG"
+
+            printf 'eggnog\\tfailed\\t1\\t%s\\t%s\\t%s\\t%s\\tMMseqs database missing\\n' \
+                "${params.min_scaffold_bp}" \
+                "\$INPUT_SCAFFOLDS" \
+                "\$INPUT_BP" \
+                "${params.outdir}/eggnog" \
+                >> eggnog_status.tsv
+
+            exit 1
+        fi
+
+        SEARCH_DB_ARGS=(
+            --mmseqs_db
+            "\$EGGNOG_MMSEQS_DB"
+        )
+
+    elif [[ "${params.eggnog_method}" == "diamond" ]]; then
+
+        # DIAMOND uses the database discovered by EggNOG-mapper under
+        # EGGNOG_DATA_DIR. No --db or --dmnd_db argument is supplied.
+
+        SEARCH_DB_ARGS=()
+
+    else
+
+        echo "ERROR: Unsupported EggNOG method: ${params.eggnog_method}" \
+            >> "\$LOG"
+
+        echo "Supported methods are: diamond, mmseqs" >> "\$LOG"
+
+        printf 'eggnog\\tfailed\\t1\\t%s\\t%s\\t%s\\t%s\\tUnsupported EggNOG method\\n' \
+            "${params.min_scaffold_bp}" \
+            "\$INPUT_SCAFFOLDS" \
+            "\$INPUT_BP" \
+            "${params.outdir}/eggnog" \
+            >> eggnog_status.tsv
+
+        exit 1
     fi
 
     echo "Running EggNOG-mapper." >> "\$LOG"
+
+    echo "Search database arguments: \${SEARCH_DB_ARGS[*]:-none}" \
+        >> "\$LOG"
+
     echo "Command:" >> "\$LOG"
-    echo "emapper.py -m ${params.eggnog_method} --cpu ${task.cpus} -i ${combined_fasta} --itype ${params.eggnog_itype} --genepred ${params.eggnog_genepred} --trans_table ${params.eggnog_trans_table} --data_dir \$EGGNOG_DATA_DIR \$MMSEQS_ARG --output ${params.eggnog_output_prefix} --output_dir eggnog_out --excel ${params.eggnog_extra_args}" >> "\$LOG"
+
+    echo "emapper.py -m ${params.eggnog_method} --cpu ${task.cpus} -i ${combined_fasta} --itype ${params.eggnog_itype} --genepred ${params.eggnog_genepred} --trans_table ${params.eggnog_trans_table} --data_dir \$EGGNOG_DATA_DIR \${SEARCH_DB_ARGS[*]:-} --output ${params.eggnog_output_prefix} --output_dir eggnog_out --excel ${params.eggnog_extra_args}" \
+        >> "\$LOG"
 
     set +e
 
-    emapper.py \\
-        -m "${params.eggnog_method}" \\
-        --cpu "${task.cpus}" \\
-        -i "${combined_fasta}" \\
-        --itype "${params.eggnog_itype}" \\
-        --genepred "${params.eggnog_genepred}" \\
-        --trans_table "${params.eggnog_trans_table}" \\
-        --data_dir "\$EGGNOG_DATA_DIR" \\
-        \$MMSEQS_ARG \\
-        --output "${params.eggnog_output_prefix}" \\
-        --output_dir eggnog_out \\
-        --excel \\
-        ${params.eggnog_extra_args} \\
+    emapper.py \
+        -m "${params.eggnog_method}" \
+        --cpu "${task.cpus}" \
+        -i "${combined_fasta}" \
+        --itype "${params.eggnog_itype}" \
+        --genepred "${params.eggnog_genepred}" \
+        --trans_table "${params.eggnog_trans_table}" \
+        --data_dir "\$EGGNOG_DATA_DIR" \
+        "\${SEARCH_DB_ARGS[@]}" \
+        --output "${params.eggnog_output_prefix}" \
+        --output_dir eggnog_out \
+        --excel \
+        ${params.eggnog_extra_args} \
         >> "\$LOG" 2>&1
 
     EGGNOG_EXIT="\$?"
@@ -1596,26 +1589,27 @@ PY
     set -e
 
     if [[ "\$EGGNOG_EXIT" -ne 0 ]]; then
-        echo "ERROR: EggNOG-mapper failed with exit status \$EGGNOG_EXIT." >> "\$LOG"
+        echo "ERROR: EggNOG-mapper failed with exit status \$EGGNOG_EXIT." \
+            >> "\$LOG"
 
         if [[ "${params.eggnog_fail_nonfatal}" == "true" ]]; then
-            printf 'eggnog\\tfailed_nonfatal\\t%s\\t%s\\t%s\\t%s\\t%s\\tEggNOG failed; workflow continued\\n' \\
-                "\$EGGNOG_EXIT" \\
-                "${params.min_scaffold_bp}" \\
-                "\$INPUT_SCAFFOLDS" \\
-                "\$INPUT_BP" \\
-                "${params.outdir}/eggnog" \\
+            printf 'eggnog\\tfailed_nonfatal\\t%s\\t%s\\t%s\\t%s\\t%s\\tEggNOG failed; workflow continued\\n' \
+                "\$EGGNOG_EXIT" \
+                "${params.min_scaffold_bp}" \
+                "\$INPUT_SCAFFOLDS" \
+                "\$INPUT_BP" \
+                "${params.outdir}/eggnog" \
                 >> eggnog_status.tsv
 
             exit 0
         fi
 
-        printf 'eggnog\\tfailed\\t%s\\t%s\\t%s\\t%s\\t%s\\tEggNOG-mapper failed\\n' \\
-            "\$EGGNOG_EXIT" \\
-            "${params.min_scaffold_bp}" \\
-            "\$INPUT_SCAFFOLDS" \\
-            "\$INPUT_BP" \\
-            "${params.outdir}/eggnog" \\
+        printf 'eggnog\\tfailed\\t%s\\t%s\\t%s\\t%s\\t%s\\tEggNOG-mapper failed\\n' \
+            "\$EGGNOG_EXIT" \
+            "${params.min_scaffold_bp}" \
+            "\$INPUT_SCAFFOLDS" \
+            "\$INPUT_BP" \
+            "${params.outdir}/eggnog" \
             >> eggnog_status.tsv
 
         exit "\$EGGNOG_EXIT"
@@ -1624,34 +1618,40 @@ PY
     OUTPUT_FILES="\$(find eggnog_out -type f | wc -l | tr -d ' ')"
 
     if [[ "\$OUTPUT_FILES" -eq 0 ]]; then
-        echo "ERROR: EggNOG completed but produced no output files." >> "\$LOG"
+        echo "ERROR: EggNOG completed but produced no output files." \
+            >> "\$LOG"
 
-        printf 'eggnog\\tfailed\\t1\\t%s\\t%s\\t%s\\t%s\\tEggNOG produced no output files\\n' \\
-            "${params.min_scaffold_bp}" \\
-            "\$INPUT_SCAFFOLDS" \\
-            "\$INPUT_BP" \\
-            "${params.outdir}/eggnog" \\
+        printf 'eggnog\\tfailed\\t1\\t%s\\t%s\\t%s\\t%s\\tEggNOG produced no output files\\n' \
+            "${params.min_scaffold_bp}" \
+            "\$INPUT_SCAFFOLDS" \
+            "\$INPUT_BP" \
+            "${params.outdir}/eggnog" \
             >> eggnog_status.tsv
 
         exit 1
     fi
 
-    printf 'eggnog\\tcompleted\\t0\\t%s\\t%s\\t%s\\t%s\\tEggNOG completed; output_files=%s\\n' \\
-        "${params.min_scaffold_bp}" \\
-        "\$INPUT_SCAFFOLDS" \\
-        "\$INPUT_BP" \\
-        "${params.outdir}/eggnog" \\
-        "\$OUTPUT_FILES" \\
+    printf 'eggnog\\tcompleted\\t0\\t%s\\t%s\\t%s\\t%s\\tEggNOG completed; output_files=%s\\n' \
+        "${params.min_scaffold_bp}" \
+        "\$INPUT_SCAFFOLDS" \
+        "\$INPUT_BP" \
+        "${params.outdir}/eggnog" \
+        "\$OUTPUT_FILES" \
         >> eggnog_status.tsv
 
     echo "EggNOG output files: \$OUTPUT_FILES" >> "\$LOG"
     echo "EggNOG output listing:" >> "\$LOG"
-    find eggnog_out -maxdepth 2 -type f -printf '%p\\n' | sort >> "\$LOG"
+
+    find eggnog_out \
+        -maxdepth 2 \
+        -type f \
+        -printf '%p\\n' \
+        | sort \
+        >> "\$LOG"
 
     echo "EggNOG-mapper finished: \$(date)" >> "\$LOG"
     """
 }
-
 
 /*
  * Write a combined run summary.
@@ -1660,11 +1660,7 @@ process WRITE_ANNOTATION_SUMMARY {
 
     tag "write_assembly_annotation_summary"
 
-    publishDir(
-        "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "assembly_annotation_run_summary.tsv",
-    )
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "assembly_annotation_run_summary.tsv"
 
     input:
     path filter_stats
@@ -1673,8 +1669,7 @@ process WRITE_ANNOTATION_SUMMARY {
     path eggnog_status
 
     output:
-    path "assembly_annotation_run_summary.tsv",
-        emit: summary
+    path "assembly_annotation_run_summary.tsv", emit: summary
 
     script:
     """

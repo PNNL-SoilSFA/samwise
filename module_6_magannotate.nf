@@ -203,7 +203,7 @@ workflow {
 
     if (run_drep) {
         PREPARE_DREP_GENOME_INFO(
-            RUN_CHECKM2.out.quality_report,
+            RUN_CHECKM2.out.quality_report
         )
 
         SETUP_DREP()
@@ -226,14 +226,14 @@ workflow {
     }
 
     if (run_drep && run_checkm2 && run_gtdbtk) {
-    WRITE_DREP_QUALITY_GTDBTK_SUMMARY(
-        RUN_DREP.out.derep_mags_dir,
-        PREPARE_DREP_GENOME_INFO.out.genome_info,
-        RUN_GTDBTK.out.status,
-        channel.value("${params.outdir}/gtdbtk/gtdbtk.bac120.summary.tsv"),
-        channel.value("${params.outdir}/gtdbtk/gtdbtk.ar53.summary.tsv"),
-    )
-}
+        WRITE_DREP_QUALITY_GTDBTK_SUMMARY(
+            RUN_DREP.out.derep_mags_dir,
+            PREPARE_DREP_GENOME_INFO.out.genome_info,
+            RUN_GTDBTK.out.status,
+            channel.value("${params.outdir}/gtdbtk/gtdbtk.bac120.summary.tsv"),
+            channel.value("${params.outdir}/gtdbtk/gtdbtk.ar53.summary.tsv"),
+        )
+    }
 
     if (run_eggnog) {
         SETUP_EGGNOG()
@@ -266,22 +266,34 @@ workflow {
 
     def status_channels = []
 
-    if (run_drep)       { status_channels << RUN_DREP.out.status }
-    if (run_checkm2)    { status_channels << RUN_CHECKM2.out.status }
-    if (run_gtdbtk)     { status_channels << RUN_GTDBTK.out.status }
-    if (run_eggnog)     { status_channels << RUN_EGGNOG.out.status }
-    if (run_microtrait) { status_channels << RUN_MICROTRAIT.out.status }
+    if (run_drep) {
+        status_channels << RUN_DREP.out.status
+    }
+    if (run_checkm2) {
+        status_channels << RUN_CHECKM2.out.status
+    }
+    if (run_gtdbtk) {
+        status_channels << RUN_GTDBTK.out.status
+    }
+    if (run_eggnog) {
+        status_channels << RUN_EGGNOG.out.status
+    }
+    if (run_microtrait) {
+        status_channels << RUN_MICROTRAIT.out.status
+    }
 
     def status_ch = status_channels.head()
-    status_channels.tail().each { ch ->
-        status_ch = status_ch.mix(ch)
-    }
+    status_channels
+        .tail()
+        .each { ch ->
+            status_ch = status_ch.mix(ch)
+        }
 
-        WRITE_MODULE6_SUMMARY(
-            PREPARE_MAG_INPUTS.out.input_stats,
-            status_ch.collect(),
-        )
-    }
+    WRITE_MODULE6_SUMMARY(
+        PREPARE_MAG_INPUTS.out.input_stats,
+        status_ch.collect(),
+    )
+}
 
 process PREPARE_MAG_INPUTS {
     tag "prepare_final_mags"
@@ -1212,24 +1224,15 @@ PY
 process RUN_CHECKM2 {
     tag "checkm2"
 
-    publishDir "${params.outdir}/checkm2",
-        mode: params.publish_tool_outputs_mode,
-        pattern: "checkm2_out/**",
-        saveAs: { filename ->
-            filename.replaceFirst(/^checkm2_out\//, '')
-        }
+    publishDir "${params.outdir}/checkm2", mode: params.publish_tool_outputs_mode, pattern: "checkm2_out/**", saveAs: { filename ->
+        filename.replaceFirst(/^checkm2_out\//, '')
+    }
 
-    publishDir "${params.outdir}/logs",
-        mode: 'copy',
-        pattern: "checkm2.log"
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: "checkm2.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "checkm2_status.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "checkm2_status.tsv"
 
-    publishDir "${params.outdir}/summary",
-        mode: 'copy',
-        pattern: "checkm2_quality_report.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "checkm2_quality_report.tsv"
 
     cpus {
         params.threads != null ? params.threads as int : 8
