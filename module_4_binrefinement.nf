@@ -159,6 +159,7 @@ workflow {
     BUILD_REFINED_MAGS(
         PREPARE_MAG_COLLECTION.out.concatenated_fasta,
         RUN_MAGSCOT.out.magscot_outputs,
+        SETUP_MODULE4_TOOLS.out.status,
     )
 
     WRITE_MODULE4_SUMMARY(
@@ -375,6 +376,18 @@ process PREPARE_MAG_COLLECTION {
     """
     set -euo pipefail
 
+    TOOL_ENV="\$(grep '^TOOL_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
+
+    if [[ -n "\$TOOL_ENV" && "\$TOOL_ENV" != "SYSTEM" && "\$TOOL_ENV" != "NOT_USED" ]]; then
+        export PATH="\$TOOL_ENV/bin:\$PATH"
+    fi
+
+    if ! command -v python >/dev/null 2>&1; then
+        echo "ERROR: Python is not available after Module 4 tool setup." >&2
+        cat "${tools_status}" >&2 || true
+        exit 1
+    fi
+
     LOG_FILE="prepare_mag_collection.log"
 
     echo "MAG collection preparation started: \$(date)" > "\$LOG_FILE"
@@ -383,7 +396,7 @@ process PREPARE_MAG_COLLECTION {
 
     mkdir -p gathered_bins
 
-    python3 - "${binning_manifest}" <<'PY'
+    python - "${binning_manifest}" <<'PY'
 import csv
 import gzip
 import re
@@ -613,6 +626,7 @@ process RUN_PRODIGAL_ON_MAG_CONTIGS {
 
     input:
     path mag_contigs_fasta
+    path magscot_outputs_dir
     path tools_status
 
     output:
@@ -1347,7 +1361,7 @@ PY
 process WRITE_MODULE4_SUMMARY {
     tag "write_module4_summary"
 
-    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module4_run_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module4_run_summary.txt"
 
     input:
     path collection_stats
@@ -1357,17 +1371,17 @@ process WRITE_MODULE4_SUMMARY {
     path refined_stats
 
     output:
-    path "module4_run_summary.tsv", emit: summary
+    path "module4_run_summary.txt", emit: summary
 
     script:
     """
     set -euo pipefail
 
-    printf 'section\\tsource_file\\n' > module4_run_summary.tsv
-    printf 'mag_collection\\t%s\\n' "${collection_stats}" >> module4_run_summary.tsv
-    printf 'prodigal\\t%s\\n' "${prodigal_status}" >> module4_run_summary.tsv
-    printf 'hmmsearch\\t%s\\n' "${hmm_status}" >> module4_run_summary.tsv
-    printf 'magscot\\t%s\\n' "${magscot_status}" >> module4_run_summary.tsv
+    printf 'section\\tsource_file\\n' > module4_run_summary.txt
+    printf 'mag_collection\\t%s\\n' "${collection_stats}" >> module4_run_summary.txt
+    printf 'prodigal\\t%s\\n' "${prodigal_status}" >> module4_run_summary.txt
+    printf 'hmmsearch\\t%s\\n' "${hmm_status}" >> module4_run_summary.txt
+    printf 'magscot\\t%s\\n' "${magscot_status}" >> module4_run_summary.txt
     printf 'refined_mags\\t%s\\n' "${refined_stats}" >> module4_run_summary.tsv
 
     echo "" >> module4_run_summary.tsv
