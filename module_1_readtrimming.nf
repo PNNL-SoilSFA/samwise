@@ -410,6 +410,10 @@ process FASTP_INTERLEAVED {
 
     FASTP_ARGS=""
 
+    if [[ "${params.enable_correction.toString().toLowerCase()}" == "true" ]]; then
+        FASTP_ARGS="\${FASTP_ARGS} --correction"
+    fi
+    
     if [[ "${params.cut_front.toString().toLowerCase()}" == "true" ]]; then
         FASTP_ARGS="\${FASTP_ARGS} --cut_front"
     fi
@@ -691,7 +695,7 @@ process RUN_FASTQC_TRIMMED {
     path "*_fastqc.zip"
 
     when:
-    !params.skip_fastqc
+    !params.skip_fastqc.toString().toBoolean()
 
     script:
     """
