@@ -122,9 +122,8 @@ params.pfam_score = 50
 params.functional_ads = true
 params.ads_evalue = 0.01
 params.ads_score = 60
-params.ads_seqid = 30
 params.functional_rdrp = false
-params.rdrp_evalue = 0.01
+params.rdrp_evalue = 0.001
 params.rdrp_score = 50
 params.functional_dram = true
 params.delete_functional_intermediates = true
@@ -231,7 +230,7 @@ workflow {
     if (!(params.read_type.toString() in ["short", "long"])) {
         error(
             """
-            Invalid --read_type value: ${params.read_type}
+            Invalid --read-type value: ${params.read_type}
             Supported values:
               short
               long
@@ -261,10 +260,7 @@ workflow {
         )
     }
 
-    if (
-        params.genomad_relaxed.toString().toBoolean() &&
-        params.genomad_conservative.toString().toBoolean()
-    ) {
+    if (params.genomad_relaxed.toString().toBoolean() && params.genomad_conservative.toString().toBoolean()) {
         error(
             """
             --genomad_relaxed and --genomad_conservative cannot both be enabled.
@@ -283,10 +279,7 @@ workflow {
             )
         }
 
-        if (
-            !params.miuvig_step ||
-            !(params.miuvig_step.toString() in ["setup_metadata", "prep_submission"])
-        ) {
+        if (!params.miuvig_step || !(params.miuvig_step.toString() in ["setup_metadata", "prep_submission"])) {
             error(
                 """
                 MVP Module 99 requires either:
@@ -297,10 +290,7 @@ workflow {
             )
         }
 
-        if (
-            params.miuvig_step.toString() == "prep_submission" &&
-            !params.miuvig_template
-        ) {
+        if (params.miuvig_step.toString() == "prep_submission" && !params.miuvig_template) {
             error(
                 """
                 MVP Module 99 prep_submission requires:
@@ -322,11 +312,7 @@ workflow {
         .toString()
         .toBoolean()
 
-    if (
-        !include_individual &&
-        !include_coassemblies &&
-        !include_subtractive
-    ) {
+    if (!include_individual && !include_coassemblies && !include_subtractive) {
         error(
             """
             No assembly classes were enabled.
@@ -381,7 +367,7 @@ workflow {
         channel.value(subtractive_manifest_file),
         channel.value(subtractive_unmapped_reads_dir),
         channel.value(params.results_dir),
-        SETUP_AUXMODULE2_MVP.out.status
+        SETUP_AUXMODULE2_MVP.out.status,
     )
 
     SETUP_BBTOOLS(
@@ -398,7 +384,7 @@ workflow {
         channel.value(subtractive_unmapped_reads_dir),
         channel.value(params.results_dir),
         SETUP_AUXMODULE2_MVP.out.status,
-        SETUP_BBTOOLS.out.status
+        SETUP_BBTOOLS.out.status,
     )
 
     PREPARE_MVP_METADATA(
@@ -411,13 +397,13 @@ workflow {
         channel.value(subtractive_manifest_file),
         channel.value(subtractive_assembly_dir),
         channel.value(params.results_dir),
-        SETUP_AUXMODULE2_MVP.out.status
+        SETUP_AUXMODULE2_MVP.out.status,
     )
 
     RUN_MVP(
         PREPARE_MVP_METADATA.out.metadata,
         PREPARE_MVP_METADATA.out.input_summary,
-        SETUP_AUXMODULE2_MVP.out.status
+        SETUP_AUXMODULE2_MVP.out.status,
     )
 }
 
@@ -1420,8 +1406,11 @@ PY
 * Install and validate MVP.
 */
 process SETUP_AUXMODULE2_MVP {
-    tag "setup_auxmodule2_mvip"
-    publishDir "${params.outdir}/setup", mode: "copy", pattern: "auxmodule2_mvp_tools_status.env"
+    tag "setup_auxmodule2_mvp"
+
+    publishDir "${params.outdir}/setup",
+        mode: "copy",
+        pattern: "auxmodule2_mvp_tools_status.env"
 
     output:
     path "auxmodule2_mvp_tools_status.env", emit: status
@@ -1430,35 +1419,161 @@ process SETUP_AUXMODULE2_MVP {
     def env_dir = params.tool_env_dir
         ? absPath(params.tool_env_dir)
         : absPath("${params.outdir}/conda_envs/mvip")
+
     """
     set -euo pipefail
+
     STATUS_FILE="auxmodule2_mvp_tools_status.env"
     TOOL_ENV="${env_dir}"
     REQUESTED_PACKAGE="mvip=${params.mvp_version}"
-    echo "Auxiliary Module 2 MVP setup started: \$(date)" \
-        > "\$STATUS_FILE"
-    echo "Requested Conda package: \$REQUESTED_PACKAGE" \
-        >> "\$STATUS_FILE"
-    echo "Requested Conda environment: \$TOOL_ENV" \
-        >> "\$STATUS_FILE"
-    echo "----------------------------------------" \
-        >> "\$STATUS_FILE"
+
+    echo "Auxiliary Module 2 MVP setup started: \$(date)" > "\$STATUS_FILE"
+    echo "Requested Conda package: \$REQUESTED_PACKAGE" >> "\$STATUS_FILE"
+    echo "Requested Conda environment: \$TOOL_ENV" >> "\$STATUS_FILE"
+    echo "----------------------------------------" >> "\$STATUS_FILE"
+
     validate_mvip() {
         local executable="\$1"
         local python_executable="\$2"
+
         if [[ ! -x "\$executable" || ! -x "\$python_executable" ]]; then
             return 1
         fi
+
         "\$python_executable" --version >> "\$STATUS_FILE" 2>&1
-        "\$executable" --help >> "\$STATUS_FILE" 2>&1 || "\$executable" -h >> "\$STATUS_FILE" 2>&1 || true
+        "\$executable" --help >> "\$STATUS_FILE" 2>&1 \
+            || "\$executable" -h >> "\$STATUS_FILE" 2>&1 \
+            || true
     }
+
+    get_module06_source_path() {
+        find "\$TOOL_ENV/lib" \
+            -type f \
+            -path '*/site-packages/mvip/modules/MVP_06_do_functional_annotation.py' \
+            -print \
+            -quit
+    }
+
+    patch_mvip_module06_evalues() {
+        local python_executable="\$1"
+        local module06_file="\$2"
+
+        if [[ ! -x "\$python_executable" ]]; then
+            echo "ERROR: MVP Python executable was not found: \$python_executable" \
+                >> "\$STATUS_FILE"
+            return 1
+        fi
+
+        if [[ ! -f "\$module06_file" ]]; then
+            echo "ERROR: MVP Module 06 source file was not found: \$module06_file" \
+                >> "\$STATUS_FILE"
+            return 1
+        fi
+
+        echo "Patching MVP Module 06 E-value argument types." \
+            >> "\$STATUS_FILE"
+        echo "Module 06 source: \$module06_file" \
+            >> "\$STATUS_FILE"
+
+        "\$python_executable" - "\$module06_file" \
+            >> "\$STATUS_FILE" 2>&1 <<'PYTHON_SCRIPT'
+import sys
+from pathlib import Path
+
+module_file = Path(sys.argv[1]).resolve()
+
+if not module_file.is_file():
+    raise RuntimeError(
+        "MVP Module 06 source file does not exist: {}".format(module_file)
+    )
+
+targets = {
+    "--PHROGS_evalue",
+    "--PFAM_evalue",
+    "--ADS_evalue",
+    "--RdRP_evalue",
+}
+
+lines = module_file.read_text().splitlines(keepends=True)
+
+patched = []
+already_float = []
+found = set()
+current_argument = None
+
+for index, line in enumerate(lines):
+    stripped = line.strip()
+
+    for argument in targets:
+        if argument in stripped:
+            current_argument = argument
+            found.add(argument)
+            break
+
+    if current_argument is None:
+        continue
+
+    if "type=float" in stripped:
+        already_float.append(current_argument)
+        current_argument = None
+        continue
+
+    if "type=int" in stripped:
+        lines[index] = line.replace("type=int", "type=float")
+        patched.append(current_argument)
+        current_argument = None
+
+missing = targets - found
+if missing:
+    raise RuntimeError(
+        "Could not find expected Module 06 arguments: {}".format(
+            ", ".join(sorted(missing))
+        )
+    )
+
+module_file.write_text("".join(lines))
+
+print("Patched MVP Module 06 source: {}".format(module_file))
+
+if patched:
+    print(
+        "Changed type=int to type=float for: {}".format(
+            ", ".join(patched)
+        )
+    )
+
+if already_float:
+    print(
+        "Already type=float for: {}".format(
+            ", ".join(already_float)
+        )
+    )
+PYTHON_SCRIPT
+
+        echo "MVP Module 06 E-value patch completed successfully." \
+            >> "\$STATUS_FILE"
+    }
+
     MVP_EXECUTABLE="\$TOOL_ENV/bin/mvip"
     MVP_PYTHON="\$TOOL_ENV/bin/python"
+
     if [[ -d "\$TOOL_ENV" ]]; then
-        echo "Existing mvip Conda environment detected: \$TOOL_ENV" \
+        echo "Existing MVP Conda environment detected: \$TOOL_ENV" \
             >> "\$STATUS_FILE"
+
         if validate_mvip "\$MVP_EXECUTABLE" "\$MVP_PYTHON"; then
-            echo "Existing mvip environment passed validation." \
+            echo "Existing MVP environment passed validation." \
+                >> "\$STATUS_FILE"
+
+            MVP_MODULE06_SOURCE="\$(get_module06_source_path)"
+
+            patch_mvip_module06_evalues \
+                "\$MVP_PYTHON" \
+                "\$MVP_MODULE06_SOURCE"
+
+            echo "MVP_MODULE06_EVALUES=type_float_patch_applied" \
+                >> "\$STATUS_FILE"
+            echo "MVP_MODULE06_SOURCE=\$MVP_MODULE06_SOURCE" \
                 >> "\$STATUS_FILE"
             echo "TOOL_ENV=\$TOOL_ENV" \
                 >> "\$STATUS_FILE"
@@ -1468,22 +1583,28 @@ process SETUP_AUXMODULE2_MVP {
                 >> "\$STATUS_FILE"
             echo "Auxiliary Module 2 MVP setup finished: \$(date)" \
                 >> "\$STATUS_FILE"
+
             exit 0
         fi
-        echo "Existing mvip environment is incomplete or failed validation." \
+
+        echo "Existing MVP environment is incomplete or failed validation." \
             >> "\$STATUS_FILE"
-        echo "Removing invalid mvip environment: \$TOOL_ENV" \
+        echo "Removing invalid MVP environment: \$TOOL_ENV" \
             >> "\$STATUS_FILE"
+
         rm -rf "\$TOOL_ENV"
     fi
+
     if [[ "${params.auto_install}" != "true" ]]; then
-        echo "ERROR: mvip is not installed at the requested environment path and auto-install is disabled." \
+        echo "ERROR: MVP is not installed and auto-install is disabled." \
             >> "\$STATUS_FILE"
         echo "Expected executable: \$MVP_EXECUTABLE" \
             >> "\$STATUS_FILE"
         exit 1
     fi
+
     INSTALLER=""
+
     if command -v mamba >/dev/null 2>&1; then
         INSTALLER="mamba"
         echo "Using mamba: \$(command -v mamba)" \
@@ -1497,22 +1618,37 @@ process SETUP_AUXMODULE2_MVP {
             >> "\$STATUS_FILE"
         exit 1
     fi
+
     mkdir -p "\$(dirname "\$TOOL_ENV")"
-    echo "Creating mvip Conda environment: \$TOOL_ENV" \
+
+    echo "Creating MVP Conda environment: \$TOOL_ENV" \
         >> "\$STATUS_FILE"
+
     "\$INSTALLER" create -y \
         -p "\$TOOL_ENV" \
         -c conda-forge \
         -c bioconda \
         "\$REQUESTED_PACKAGE" \
         >> "\$STATUS_FILE" 2>&1
+
     if ! validate_mvip "\$MVP_EXECUTABLE" "\$MVP_PYTHON"; then
-        echo "ERROR: mvip installation completed but validation failed." \
+        echo "ERROR: MVP installation completed but validation failed." \
             >> "\$STATUS_FILE"
         echo "Expected executable: \$MVP_EXECUTABLE" \
             >> "\$STATUS_FILE"
         exit 1
     fi
+
+    MVP_MODULE06_SOURCE="\$(get_module06_source_path)"
+    
+    patch_mvip_module06_evalues \
+        "\$MVP_PYTHON" \
+        "\$MVP_MODULE06_SOURCE"
+
+    echo "MVP_MODULE06_EVALUES=type_float_patch_applied" \
+        >> "\$STATUS_FILE"
+    echo "MVP_MODULE06_SOURCE=\$MVP_MODULE06_SOURCE" \
+        >> "\$STATUS_FILE"
     echo "TOOL_ENV=\$TOOL_ENV" \
         >> "\$STATUS_FILE"
     echo "MVIP_EXECUTABLE=\$MVP_EXECUTABLE" \
@@ -2369,21 +2505,13 @@ process RUN_MVP {
 
     stageInMode "symlink"
 
-    publishDir "${params.outdir}/logs",
-        mode: "copy",
-        pattern: "mvp_commands.log"
+    publishDir "${params.outdir}/logs", mode: "copy", pattern: "mvp_commands.log"
 
-    publishDir "${params.outdir}/logs",
-        mode: "copy",
-        pattern: "mvp_run.log"
+    publishDir "${params.outdir}/logs", mode: "copy", pattern: "mvp_run.log"
 
-    publishDir "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "mvp_input_summary.tsv"
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "mvp_input_summary.tsv"
 
-    publishDir "${params.outdir}/summary",
-        mode: "copy",
-        pattern: "mvp_complete.txt"
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "mvp_complete.txt"
 
     cpus {
         params.threads as int
@@ -2460,15 +2588,13 @@ process RUN_MVP {
         ? ""
         : "--skip_install_databases"
 
-    def skip_check_errors_argument =
-        params.skip_check_errors.toString().toBoolean()
-            ? "--skip_check_errors"
-            : ""
+    def skip_check_errors_argument = params.skip_check_errors.toString().toBoolean()
+        ? "--skip_check_errors"
+        : ""
 
-    def min_seq_argument =
-        (params.min_seq_size as int) > 0
-            ? "--min_seq_size ${params.min_seq_size}"
-            : ""
+    def min_seq_argument = (params.min_seq_size as int) > 0
+        ? "--min_seq_size ${params.min_seq_size}"
+        : ""
 
     def genomad_filter_argument = ""
 
@@ -2479,62 +2605,51 @@ process RUN_MVP {
         genomad_filter_argument = "--genomad_conservative"
     }
 
-    def skip_modify_headers_argument =
-        params.skip_modify_headers.toString().toBoolean()
-            ? "--skip_modify_headers"
-            : ""
+    def skip_modify_headers_argument = params.skip_modify_headers.toString().toBoolean()
+        ? "--skip_modify_headers"
+        : ""
 
-    def unfiltered_protein_argument =
-        params.unfiltered_protein_file.toString().toBoolean()
-            ? "--Unfiltered_protein_file"
-            : ""
+    def unfiltered_protein_argument = params.unfiltered_protein_file.toString().toBoolean()
+        ? "--Unfiltered_protein_file"
+        : ""
 
-    def force_module01_argument =
-        force
-            ? "--force_genomad --force_checkv"
-            : ""
+    def force_module01_argument = force
+        ? "--force_genomad --force_checkv"
+        : ""
 
     def interleaved_argument = "--interleaved"
 
-    def mapping_delete_argument =
-        params.delete_mapping_intermediates.toString().toBoolean()
-            ? "--delete_files"
-            : ""
+    def mapping_delete_argument = params.delete_mapping_intermediates.toString().toBoolean()
+        ? "--delete_files"
+        : ""
 
-    def force_mapping_argument =
-        force
-            ? "--force_read_mapping"
-            : ""
+    def force_mapping_argument = force
+        ? "--force_read_mapping"
+        : ""
 
-    def covered_fraction_argument =
-        params.covered_fraction != null
-            ? "--covered_fraction ${params.covered_fraction}"
-            : ""
+    def covered_fraction_argument = params.covered_fraction != null
+        ? "--covered_fraction ${params.covered_fraction}"
+        : ""
 
-    def functional_ads_argument =
-        params.functional_ads.toString().toBoolean()
-            ? "--ADS"
-            : ""
+    def functional_ads_argument = params.functional_ads.toString().toBoolean()
+        ? "--ADS"
+        : ""
 
-    def functional_rdrp_argument =
-        params.functional_rdrp.toString().toBoolean()
-            ? "--RdRP"
-            : ""
+    def functional_rdrp_argument = params.functional_rdrp.toString().toBoolean()
+        ? "--RdRP"
+        : ""
 
-    def functional_dram_argument =
-        params.functional_dram.toString().toBoolean()
-            ? "--DRAM"
-            : ""
+    def functional_dram_argument = params.functional_dram.toString().toBoolean()
+        ? "--DRAM"
+        : ""
 
-    def functional_delete_argument =
-        params.delete_functional_intermediates.toString().toBoolean()
-            ? "--delete_files"
-            : ""
+    def functional_delete_argument = params.delete_functional_intermediates.toString().toBoolean()
+        ? "--delete_files"
+        : ""
 
-    def force_functional_argument =
-        force
-            ? "--force_prodigal --force_PHROGS --force_PFAM --force_outputs"
-            : ""
+    def force_functional_argument = force
+        ? "--force_prodigal --force_PHROGS --force_PFAM --force_outputs"
+        : ""
 
     if (force && params.functional_ads.toString().toBoolean()) {
         force_functional_argument += " --force_ADS"
@@ -2544,40 +2659,33 @@ process RUN_MVP {
         force_functional_argument += " --force_RdRP"
     }
 
-    def keep_bam_argument =
-        params.keep_bam.toString().toBoolean()
-            ? "--keep_bam"
-            : ""
+    def keep_bam_argument = params.keep_bam.toString().toBoolean()
+        ? "--keep_bam"
+        : ""
 
-    def binning_delete_argument =
-        params.delete_binning_intermediates.toString().toBoolean()
-            ? "--delete_files"
-            : ""
+    def binning_delete_argument = params.delete_binning_intermediates.toString().toBoolean()
+        ? "--delete_files"
+        : ""
 
-    def binning_sample_group_argument =
-        params.binning_sample_group != null
-            ? "--binning_sample_group ${params.binning_sample_group}"
-            : ""
+    def binning_sample_group_argument = params.binning_sample_group != null
+        ? "--binning_sample_group ${params.binning_sample_group}"
+        : ""
 
-    def read_mapping_sample_group_argument =
-        params.read_mapping_sample_group != null
-            ? "--read_mapping_sample_group ${params.read_mapping_sample_group}"
-            : ""
+    def read_mapping_sample_group_argument = params.read_mapping_sample_group != null
+        ? "--read_mapping_sample_group ${params.read_mapping_sample_group}"
+        : ""
 
-    def force_binning_argument =
-        force
-            ? "--force_vrhyme --force_checkv --force_read_mapping --force_outputs"
-            : ""
+    def force_binning_argument = force
+        ? "--force_vrhyme --force_checkv --force_read_mapping --force_outputs"
+        : ""
 
-    def summary_force_argument =
-        force
-            ? "--force"
-            : ""
+    def summary_force_argument = force
+        ? "--force"
+        : ""
 
-    def miuvig_template_argument =
-        params.miuvig_template
-            ? "-t ${absPath(params.miuvig_template)}"
-            : ""
+    def miuvig_template_argument = params.miuvig_template
+        ? "-t ${absPath(params.miuvig_template)}"
+        : ""
 
     """
     set -euo pipefail
@@ -2771,7 +2879,7 @@ process RUN_MVP {
             --min_ani ${params.min_ani} \
             --min_tcov ${params.min_tcov} \
             --min_qcov ${params.min_qcov} \
-            --read_type ${params.read_type} \
+            --read-type ${params.read_type} \
             ${unfiltered_protein_argument} \
             --threads ${task.cpus}
     fi
@@ -2781,7 +2889,7 @@ process RUN_MVP {
             mvip MVP_04_do_read_mapping \
             -i "\$MVP_WORK" \
             -m "\$METADATA" \
-            --read_type ${params.read_type} \
+            --read-type ${params.read_type} \
             ${interleaved_argument} \
             ${mapping_delete_argument} \
             ${force_mapping_argument} \
@@ -2813,7 +2921,6 @@ process RUN_MVP {
             ${functional_ads_argument} \
             --ADS_evalue ${params.ads_evalue} \
             --ADS_score ${params.ads_score} \
-            --ADS_seqid ${params.ads_seqid} \
             ${functional_rdrp_argument} \
             --RdRP_evalue ${params.rdrp_evalue} \
             --RdRP_score ${params.rdrp_score} \
@@ -2834,7 +2941,7 @@ process RUN_MVP {
             ${binning_delete_argument} \
             ${interleaved_argument} \
             ${force_binning_argument} \
-            --read_type ${params.read_type} \
+            --read-type ${params.read_type} \
             --filtration ${params.filtration} \
             --threads ${task.cpus}
     fi
