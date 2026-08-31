@@ -1408,9 +1408,7 @@ PY
 process SETUP_AUXMODULE2_MVP {
     tag "setup_auxmodule2_mvp"
 
-    publishDir "${params.outdir}/setup",
-        mode: "copy",
-        pattern: "auxmodule2_mvp_tools_status.env"
+    publishDir "${params.outdir}/setup", mode: "copy", pattern: "auxmodule2_mvp_tools_status.env"
 
     output:
     path "auxmodule2_mvp_tools_status.env", emit: status
