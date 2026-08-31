@@ -28,7 +28,7 @@ import argparse
 import gzip
 import sys
 from pathlib import Path
-
+from itertools import zip_longest
 
 def open_fastq(path):
     path = str(path)
@@ -71,7 +71,13 @@ def write_paired_subset(read1, read2, out_r1, out_r2, split_idx, split_count):
     records_written = 0
 
     with gzip.open(out_r1, "wt") as o1, gzip.open(out_r2, "wt") as o2:
-        for idx, (rec1, rec2) in enumerate(zip(r1_iter, r2_iter)):
+        for idx, (rec1, rec2) in enumerate(zip_longest(r1_iter, r2_iter)):
+            if rec1 is None or rec2 is None:
+                raise RuntimeError(
+                    "Paired FASTQ files have unequal record counts: "
+                    f"{read1} and {read2}"
+                )
+
             if idx % split_count == split_idx:
                 o1.writelines(rec1)
                 o2.writelines(rec2)
