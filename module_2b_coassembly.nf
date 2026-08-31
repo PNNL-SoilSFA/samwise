@@ -701,7 +701,7 @@ paired_count = 0
 interleaved_count = 0
 records_written = 0
 
-with group_reads_tsv.open() as inp, gzip.open(out_fastq, "wt") as out:
+with group_reads_tsv.open() as inp, gzip.open(out_fastq, "wt", compressionlevel=4) as out:
     reader = csv.DictReader(inp, delimiter="\\t")
 
     required = {
