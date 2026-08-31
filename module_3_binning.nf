@@ -28,17 +28,15 @@ params.samtools_version = "1.23.1"
 params.metabat2_version = "2.18"
 params.maxbin2_version = "2.2.7"
 params.min_scaffold_length = 2500
-params.bbmap_minid = 0.90
+params.bbmap_minid = 0.95
 params.bbmap_maxindel = 10
 params.bbmap_ambig = "random"
 params.bbmap_mateqtag = true
 params.bbmap_extra_args = ""
 params.bbmap_xmx = "4g"
-params.metabat2_min_contig = 2500
 params.metabat2_extra_args = ""
 params.maxbin2_extra_args = ""
 params.quickbin_mincluster = "50k"
-params.quickbin_mincontig = 2500
 params.quickbin_minseed = 2500
 params.quickbin_stringency = "normal"
 params.quickbin_gzip = false
@@ -1130,7 +1128,7 @@ process RUN_METABAT2 {
             -a "${depth_file}" \\
             -o "\$BIN_DIR/${binning_id}.metabat2_bin" \\
             -t ${task.cpus} \\
-            -m ${params.metabat2_min_contig} \\
+            -m ${params.min_scaffold_length} \\
             ${params.metabat2_extra_args} \\
             >> "\$LOG_FILE" 2>&1
         BINNER_EXIT_STATUS="\$?"
@@ -1372,6 +1370,7 @@ process RUN_MAXBIN2 {
             -abund maxbin2_abundance.tsv \\
             -out "\$BIN_DIR/${binning_id}.maxbin2_bin" \\
             -thread ${task.cpus} \\
+            -min_contig_length ${params.min_scaffold_length} \\
             ${params.maxbin2_extra_args} \\
             >> "\$LOG_FILE" 2>&1
         BINNER_EXIT_STATUS="\$?"
@@ -1612,7 +1611,7 @@ process RUN_QUICKBIN {
     else
         QB_ARGS=()
         QB_ARGS+=( "mincluster=${params.quickbin_mincluster}" )
-        QB_ARGS+=( "mincontig=${params.quickbin_mincontig}" )
+        QB_ARGS+=( "mincontig=${params.min_scaffold_length}" )
         QB_ARGS+=( "minseed=${params.quickbin_minseed}" )
         QB_ARGS+=( "threads=${task.cpus}" )
         QB_ARGS+=( "gzip=${params.quickbin_gzip.toString().toLowerCase()}" )
@@ -1851,9 +1850,10 @@ process WRITE_FILTERED_ASSEMBLY_STATS_SUMMARY {
     set -euo pipefail
 
     if [[ -z "${stats_file_list}" ]]; then
-        echo "WARNING: No binning stats files were received; no assemblies passed the minimum scaffold length filter." >&2
-        printf 'sample_id\tsafe_sample_id\tassembly_sample_id\tassembly_assembler\tassembly_mode\trarefaction_label\tassembly_strategy\tbinning_id\tbinner\tbin_count\ttotal_bin_bp\tlargest_bin_bp\tbins_dir\tlog_file\treport_file\tbinner_exit_status\tbinner_status\tbinner_message\n' > binning_stats_summary.tsv
-        exit 0
+    echo "WARNING: No filtered-assembly statistics files were received." >&2
+    printf 'sample_id\tsafe_sample_id\tassembly_sample_id\tassembly_assembler\tassembly_mode\trarefaction_label\tassembly_strategy\tbinning_id\tmin_scaffold_length\toriginal_contigs\toriginal_bp\tfiltered_contigs\tfiltered_bp\tremoved_contigs\tremoved_bp\tfiltered_fasta\n' \
+        > filtered_assembly_stats_summary.tsv
+    exit 0
     fi
 
     first=1
