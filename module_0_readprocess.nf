@@ -79,6 +79,7 @@ workflow {
 process SETUP_MODULE0_TOOLS {
 
     tag "setup_fastqc"
+    cache false
 
     publishDir "${params.module0_outdir}/setup", mode: 'copy', pattern: "module0_tools_status.env"
 

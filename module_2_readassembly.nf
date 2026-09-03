@@ -3,32 +3,22 @@
 nextflow.enable.dsl = 2
 
 /*
-* Module 2 (parallel variant): Read assembly from Module 1 trimmed reads.
+* Module 2: Read assembly from Module 1 trimmed reads.
 *
-* Behaviourally identical to module_2_readassembly.nf. Two differences:
+* The task helper scripts live in bin/:
 *
-*   1. The Python that was embedded as heredocs now lives in bin/ as three
-*      standalone, independently runnable scripts:
+*   bin/samwise_rarefy_reads.py     rarefied read subsetting
+*   bin/samwise_run_assembler.py    MEGAHIT / metaSPAdes invocation
+*   bin/samwise_rename_contigs.py   contig renaming, statistics, and manifest rows
 *
-*        bin/samwise_rarefy_reads.py     rarefied read subsetting
-*        bin/samwise_run_assembler.py    MEGAHIT / metaSPAdes invocation
-*        bin/samwise_rename_contigs.py   contig renaming + stats + manifest row
-*
-*      Nextflow puts bin/ on PATH for every task and ships it to remote
-*      executors automatically, so they need no path plumbing.
-*
-*   2. It is meant to be run with conf/module_2_slurm.config so that each
-*      assembly becomes its own SLURM job:
-*
-*        nextflow run module_2_readassembly_parallel.nf \
-*            -c conf/module_2_slurm.config ...
-*
-*      Without that config it behaves exactly like the original: local
-*      executor, one assembly at a time when --threads equals the core count.
+* Run this workflow with bin/module_2_slurm.config to submit each single or
+* rarefied assembly as an independent SLURM job. The config caps concurrent
+* submissions with --max_parallel_assemblies; without it, the workflow uses the
+* local executor.
 *
 * Output contract (assembly_manifest.tsv / assembly_stats_summary.tsv columns,
 * contig header format, file naming) is unchanged, so Module 3 consumes the
-* results from either variant identically.
+* results identically in either execution mode.
 */
 
 params.working_dir = null
@@ -54,7 +44,7 @@ params.results_dir = params.working_dir ? params.working_dir : (params.output_di
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.outdir = "${params.results_dir}/module_2_readassembly"
 
-def rareLabelFromIndex(index: int) {
+def rareLabelFromIndex(index) {
 
     def alphabet = "abcdefghijklmnopqrstuvwxyz"
 
@@ -72,7 +62,7 @@ def rareLabelFromIndex(index: int) {
     return rareLabelFromIndex(prefix_index) + alphabet.charAt(suffix_index).toString()
 }
 
-def rareLabels(count: int) {
+def rareLabels(count) {
     return (0..<count).collect { idx -> rareLabelFromIndex(idx as int) }
 }
 
@@ -180,6 +170,14 @@ workflow {
             )
         }
 
+    def helper_scripts_ch = channel.value(
+        tuple(
+            file("${projectDir}/bin/samwise_rarefy_reads.py", checkIfExists: true),
+            file("${projectDir}/bin/samwise_run_assembler.py", checkIfExists: true),
+            file("${projectDir}/bin/samwise_rename_contigs.py", checkIfExists: true),
+        )
+    )
+
     SETUP_MODULE2_TOOLS()
 
     def manifest_records_ch = channel.empty()
@@ -204,7 +202,9 @@ workflow {
         }
 
         ASSEMBLE_SINGLE(
-            single_jobs_ch.combine(SETUP_MODULE2_TOOLS.out.status)
+            single_jobs_ch
+                .combine(SETUP_MODULE2_TOOLS.out.status)
+                .combine(helper_scripts_ch)
         )
 
         manifest_records_ch = manifest_records_ch.mix(ASSEMBLE_SINGLE.out.manifest_record)
@@ -245,7 +245,9 @@ workflow {
         }
 
         ASSEMBLE_RAREFIED(
-            rare_jobs_ch.combine(SETUP_MODULE2_TOOLS.out.status)
+            rare_jobs_ch
+                .combine(SETUP_MODULE2_TOOLS.out.status)
+                .combine(helper_scripts_ch)
         )
 
         manifest_records_ch = manifest_records_ch.mix(ASSEMBLE_RAREFIED.out.manifest_record)
@@ -262,6 +264,7 @@ workflow {
 process SETUP_MODULE2_TOOLS {
 
     tag "setup_assemblers"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module2_tools_status.env"
 
@@ -437,7 +440,7 @@ process ASSEMBLE_SINGLE {
     }
 
     input:
-    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), val(assembler), path(tools_status)
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), val(assembler), path(tools_status), path(rarefy_script), path(assembler_script), path(rename_script)
 
     output:
     path "*.renamed.fa", emit: renamed_contigs
@@ -509,7 +512,7 @@ process ASSEMBLE_SINGLE {
 
     echo "Running \${ASSEMBLER} single assembly for \${SAMPLE_ID}" >> "\$LOG_FILE"
 
-    samwise_run_assembler.py \\
+    python3 "${assembler_script}" \\
         --assembler "\$ASSEMBLER" \\
         --layout "\$LAYOUT" \\
         --read1 "\$READ1_LOCAL" \\
@@ -526,7 +529,7 @@ process ASSEMBLE_SINGLE {
     # Defines SRC_FASTA, ASSEMBLY_STATUS, ASSEMBLY_WARNING (shell-quoted by the script).
     source assembler_result.env
 
-    samwise_rename_contigs.py \\
+    python3 "${rename_script}" \\
         --src-fasta "\$SRC_FASTA" \\
         --out-fasta "\$OUT_FASTA" \\
         --header-map "\$HEADER_MAP" \\
@@ -577,7 +580,7 @@ process ASSEMBLE_RAREFIED {
     }
 
     input:
-    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), val(assembler), val(rare_index), val(rare_letter), val(rare_split_count), path(tools_status)
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), val(assembler), val(rare_index), val(rare_letter), val(rare_split_count), path(tools_status), path(rarefy_script), path(assembler_script), path(rename_script)
 
     output:
     path "*.renamed.fa", emit: renamed_contigs
@@ -627,7 +630,7 @@ process ASSEMBLE_RAREFIED {
 
     echo "Creating rarefied subset \${RAREFACTION_LABEL} of \${RARE_SPLIT_COUNT} for \${SAMPLE_ID}" >> "\$LOG_FILE"
 
-    samwise_rarefy_reads.py \\
+    python3 "${rarefy_script}" \\
         --layout "\$LAYOUT" \\
         --read1 "${read1}" \\
         --read2 "${read2}" \\
@@ -643,7 +646,7 @@ process ASSEMBLE_RAREFIED {
 
     echo "Running \${ASSEMBLER} rarefied assembly for \${SAMPLE_ID}, subset \${RAREFACTION_LABEL}" >> "\$LOG_FILE"
 
-    samwise_run_assembler.py \\
+    python3 "${assembler_script}" \\
         --assembler "\$ASSEMBLER" \\
         --layout "\$LAYOUT" \\
         --read1 "\$SUB_R1" \\
@@ -660,7 +663,7 @@ process ASSEMBLE_RAREFIED {
     # Defines SRC_FASTA, ASSEMBLY_STATUS, ASSEMBLY_WARNING (shell-quoted by the script).
     source assembler_result.env
 
-    samwise_rename_contigs.py \\
+    python3 "${rename_script}" \\
         --src-fasta "\$SRC_FASTA" \\
         --out-fasta "\$OUT_FASTA" \\
         --header-map "\$HEADER_MAP" \\

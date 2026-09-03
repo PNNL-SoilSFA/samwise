@@ -176,7 +176,7 @@ params.results_dir = params.working_dir
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module2_outdir = "${params.results_dir}/module_2_readassembly"
 params.module2b_outdir = "${params.results_dir}/module_2b_coassembly"
-params.module5_outdir = "${params.results_dir}/module_5_subtractiveassembly"
+params.module5_outdir = "${params.results_dir}/module_5_subassembly"
 params.outdir = "${params.results_dir}/AuxModule_2_mvp"
 params.generated_interleaved_reads_dir = "${params.outdir}/interleaved_reads"
 /*
@@ -342,7 +342,7 @@ workflow {
 
     def subtractive_manifest_file = params.subtractive_assembly_manifest
         ? absPath(params.subtractive_assembly_manifest)
-        : "${params.module5_outdir}/summary/subtractive_assembly_manifest.tsv"
+        : "${params.module5_outdir}/summary/subtractive_assembly_summary_manifest.tsv"
 
     def subtractive_assembly_dir = params.subtractive_assembly_dir
         ? absPath(params.subtractive_assembly_dir)
@@ -691,7 +691,10 @@ if include_subtractive:
         subtractive_dir = Path(resolve_path(subtractive_unmapped_reads_dir))
         for row in rows:
             sample_id = str(row.get(sample_column, "")).strip() or "UNKNOWN"
-            fallback_interleaved = str((subtractive_dir / f"{sample_id}.fastq.gz").resolve())
+            safe_sample_id = str(row.get("safe_sample_id", "")).strip() or sample_id
+            fallback_interleaved = str(
+                (subtractive_dir / f"{safe_sample_id}.unmapped_interleaved.fastq.gz").resolve()
+            )
             layout = detect_read_layout(
                 row,
                 "Module 5 subtractive assembly manifest",
@@ -726,6 +729,7 @@ PY
 */
 process SETUP_BBTOOLS {
     tag "setup_bbmap_bbtools"
+    cache false
     publishDir "${params.outdir}/setup", mode: "copy", pattern: "bbtools_status.env"
 
     input:
@@ -767,11 +771,14 @@ process SETUP_BBTOOLS {
     validate_reformat() {
         local executable="\$1"
         local python_executable="\$2"
-        if [[ ! -x "\$executable" || ! -x "\$python_executable" ]]; then
-            return 1
-        fi
-        "\$executable" -h >> "\$STATUS_FILE" 2>&1
-        "\$python_executable" --version >> "\$STATUS_FILE" 2>&1
+
+        [[ -x "\$executable" ]] || return 1
+        [[ -x "\$python_executable" ]] || return 1
+
+        "\$executable" -h >> "\$STATUS_FILE" 2>&1 || return 1
+        "\$python_executable" --version >> "\$STATUS_FILE" 2>&1 || return 1
+
+        return 0
     }
 
     existing_reformat="\$TOOL_ENV/bin/reformat.sh"
@@ -1330,11 +1337,14 @@ if include_subtractive:
                 raise RuntimeError(
                     "Encountered Module 5 subtractive manifest row with an empty sample ID"
                 )
-            fallback_interleaved = str((subtractive_dir / f"{sample_id}.fastq.gz").resolve())
+            safe_sample_id = str(row.get("safe_sample_id", "")).strip() or sample_id
+            fallback_interleaved = str(
+                (subtractive_dir / f"{safe_sample_id}.unmapped_interleaved.fastq.gz").resolve()
+            )
             prepare_record(
                 "subtractive",
                 sample_id,
-                sample_id,
+                safe_sample_id,
                 row,
                 "Module 5 subtractive assembly manifest",
                 fallback_interleaved=fallback_interleaved,
@@ -1407,6 +1417,7 @@ PY
 */
 process SETUP_AUXMODULE2_MVP {
     tag "setup_auxmodule2_mvp"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: "copy", pattern: "auxmodule2_mvp_tools_status.env"
 
@@ -1430,18 +1441,42 @@ process SETUP_AUXMODULE2_MVP {
     echo "Requested Conda environment: \$TOOL_ENV" >> "\$STATUS_FILE"
     echo "----------------------------------------" >> "\$STATUS_FILE"
 
+    configure_mvp_r_home() {
+        local r_executable="\$TOOL_ENV/bin/R"
+
+        if [[ ! -x "\$r_executable" ]]; then
+            echo "ERROR: MVP requires R, but the Conda R executable was not found: \$r_executable" \
+                >> "\$STATUS_FILE"
+            return 1
+        fi
+
+        export PATH="\$TOOL_ENV/bin:\$PATH"
+        export R_HOME="\$("\$r_executable" RHOME)"
+
+        if [[ -z "\$R_HOME" || ! -d "\$R_HOME" ]]; then
+            echo "ERROR: Could not determine a valid R_HOME from: \$r_executable" \
+                >> "\$STATUS_FILE"
+            return 1
+        fi
+
+        echo "R executable: \$r_executable" >> "\$STATUS_FILE"
+        echo "R_HOME=\$R_HOME" >> "\$STATUS_FILE"
+    }
+
     validate_mvip() {
         local executable="\$1"
         local python_executable="\$2"
 
-        if [[ ! -x "\$executable" || ! -x "\$python_executable" ]]; then
-            return 1
-        fi
+        [[ -x "\$executable" ]] || return 1
+        [[ -x "\$python_executable" ]] || return 1
+        configure_mvp_r_home || return 1
 
-        "\$python_executable" --version >> "\$STATUS_FILE" 2>&1
+        "\$python_executable" --version >> "\$STATUS_FILE" 2>&1 || return 1
         "\$executable" --help >> "\$STATUS_FILE" 2>&1 \
             || "\$executable" -h >> "\$STATUS_FILE" 2>&1 \
-            || true
+            || return 1
+
+        return 0
     }
 
     get_module06_source_path() {
@@ -1627,6 +1662,7 @@ PYTHON_SCRIPT
         -c conda-forge \
         -c bioconda \
         "\$REQUESTED_PACKAGE" \
+        "r-base" \
         >> "\$STATUS_FILE" 2>&1
 
     if ! validate_mvip "\$MVP_EXECUTABLE" "\$MVP_PYTHON"; then
@@ -2403,9 +2439,21 @@ if include_subtractive:
                 ],
             )
 
+            try:
+                resolved_assembly = require_nonempty_file(
+                    assembly_path,
+                    f"Subtractive assembly for sample {raw_id}",
+                )
+            except RuntimeError as exc:
+                log(
+                    "Skipping subtractive assembly with no usable "
+                    f"contigs: {sample_name}; {exc}"
+                )
+                continue
+
             add_record(
                 sample_name=sample_name,
-                assembly_path=assembly_path,
+                assembly_path=resolved_assembly,
                 read_path=read_lookup[key]["read_path"],
                 source="subtractive",
                 action=read_lookup[key].get("action", ""),
@@ -2500,14 +2548,13 @@ PYTHON_SCRIPT
 
 process RUN_MVP {
     tag "run_auxmodule2_mvp"
+    cache false
 
     stageInMode "symlink"
 
     publishDir "${params.outdir}/logs", mode: "copy", pattern: "mvp_commands.log"
 
     publishDir "${params.outdir}/logs", mode: "copy", pattern: "mvp_run.log"
-
-    publishDir "${params.outdir}/summary", mode: "copy", pattern: "mvp_input_summary.tsv"
 
     publishDir "${params.outdir}/summary", mode: "copy", pattern: "mvp_complete.txt"
 
@@ -2528,7 +2575,6 @@ process RUN_MVP {
     output:
     path "mvp_commands.log", emit: commands
     path "mvp_run.log", emit: log_file
-    path "mvp_input_summary.tsv", emit: input_summary
     path "mvp_complete.txt", emit: completion_marker
 
     script:
@@ -2809,25 +2855,30 @@ process RUN_MVP {
     }
 
     run_module_00() {
-        if [[ -n "\$CHECKV_DB" ]]; then
-            run_command \
-                mvip MVP_00_set_up_MVP \
-                -i "\$MVP_WORK" \
-                -m "\$METADATA" \
-                ${module00_database_flag} \
-                ${skip_check_errors_argument} \
-                --genomad_db_path "\$GENOMAD_DB" \
-                --checkv_db_path "\$CHECKV_DB"
-        else
+        local -a module00_db_args=()
 
- run_command \
-                mvip MVP_00_set_up_MVP \
-                -i "\$MVP_WORK" \
-                -m "\$METADATA" \
-                ${module00_database_flag} \
-                ${skip_check_errors_argument}
+        if [[ -n "\$GENOMAD_DB" ]]; then
+            module00_db_args+=(--genomad_db_path "\$GENOMAD_DB")
         fi
+
+        if [[ -n "\$CHECKV_DB" ]]; then
+            module00_db_args+=(--checkv_db_path "\$CHECKV_DB")
+        fi
+
+        run_command \
+            mvip MVP_00_set_up_MVP \
+            -i "\$MVP_WORK" \
+            -m "\$METADATA" \
+            ${module00_database_flag} \
+            ${skip_check_errors_argument} \
+            "\${module00_db_args[@]}"
     }
+
+    if [[ "${run_module_0}" == "true" &&
+          "${install_databases}" == "false" &&
+          -z "\$CHECKV_DB" ]]; then
+        resolve_checkv_database
+    fi
 
     if [[ "${run_module_0}" == "true" ]]; then
         run_module_00

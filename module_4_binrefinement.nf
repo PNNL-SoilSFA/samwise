@@ -129,11 +129,14 @@ workflow {
         checkIfExists: true,
     )
 
+    CLEAN_MODULE4_PUBLISHED_OUTPUTS()
+
     SETUP_MODULE4_TOOLS()
 
     PREPARE_MAG_COLLECTION(
         binning_manifest_ch,
         SETUP_MODULE4_TOOLS.out.status,
+        CLEAN_MODULE4_PUBLISHED_OUTPUTS.out.status,
     )
 
     RUN_PRODIGAL_ON_MAG_CONTIGS(
@@ -171,8 +174,36 @@ workflow {
     )
 }
 
+process CLEAN_MODULE4_PUBLISHED_OUTPUTS {
+    tag "clean_module4_published_outputs"
+    cache false
+
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module4_publication_cleanup_status.tsv"
+
+    output:
+    path "module4_publication_cleanup_status.tsv", emit: status
+
+    script:
+    """
+    set -euo pipefail
+
+    printf 'step\tstatus\tmessage\n' > module4_publication_cleanup_status.tsv
+
+    for output_dir in \
+        "${params.outdir}/gathered_bins" \
+        "${params.outdir}/refined_bins"; do
+        if [[ -e "\$output_dir" ]]; then
+            rm -rf "\$output_dir"
+        fi
+    done
+
+    printf 'module4_publication_cleanup\tcompleted\tRemoved prior managed published-bin directories\n' >> module4_publication_cleanup_status.tsv
+    """
+}
+
 process SETUP_MODULE4_TOOLS {
     tag "setup_module4_tools"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module4_tools_status.env"
 
@@ -360,6 +391,7 @@ process PREPARE_MAG_COLLECTION {
     input:
     path binning_manifest
     path tools_status
+    path cleanup_status
 
     output:
     path "gathered_bins/*", optional: true, emit: gathered_bins

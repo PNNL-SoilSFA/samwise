@@ -67,15 +67,45 @@ params.module2_assembly_dir = "${params.results_dir}/module_2_readassembly/assem
 
 params.module2b_assembly_dir = "${params.results_dir}/module_2b_coassembly/assemblies"
 
-params.module5_assembly_dir = "${params.results_dir}/module_5_subtractiveassembly/assemblies"
+params.module5_assembly_dir = "${params.results_dir}/module_5_subassembly/assemblies"
 
 params.outdir = "${params.results_dir}/AuxModule_1_assemblyAnnotate"
+params.module6_eggnog_data_dir = "${params.results_dir}/module_6_magannotate/databases/eggnog"
 
 params.eggnog_db_outdir = params.eggnog_data_path
     ? absPath(params.eggnog_data_path)
     : (params.eggnog_data_dir
         ? absPath(params.eggnog_data_dir)
         : "${params.outdir}/databases/eggnog")
+
+process CLEAN_AUXMODULE1_PUBLISHED_OUTPUTS {
+    tag "clean_auxmodule1_published_outputs"
+    cache false
+
+    publishDir "${params.outdir}/summary", mode: "copy", pattern: "auxmodule1_publication_cleanup_status.tsv"
+
+    output:
+    path "auxmodule1_publication_cleanup_status.tsv", emit: status
+
+    script:
+    """
+    set -euo pipefail
+
+    printf 'step\\tstatus\\tmessage\\n' > auxmodule1_publication_cleanup_status.tsv
+
+    for output_dir in \\
+        "${params.outdir}/filtered_assemblies" \\
+        "${params.outdir}/inputs" \\
+        "${params.outdir}/eggnog"; do
+        if [[ -e "\$output_dir" ]]; then
+            rm -rf "\$output_dir"
+        fi
+    done
+
+    printf 'auxmodule1_publication_cleanup\\tcompleted\\tRemoved prior managed published-output directories\\n' \\
+        >> auxmodule1_publication_cleanup_status.tsv
+    """
+}
 
 /*
  * Main workflow.
@@ -229,6 +259,8 @@ workflow {
         checkIfExists: true,
     )
 
+    CLEAN_AUXMODULE1_PUBLISHED_OUTPUTS()
+
     PREPARE_ASSEMBLIES(
         module2_dir_ch,
         module2b_dir_ch,
@@ -240,6 +272,7 @@ workflow {
         channel.value(params.module2b_assembly_dir.toString()),
         channel.value(params.module5_assembly_dir.toString()),
         channel.value(minimum_scaffold_bp),
+        CLEAN_AUXMODULE1_PUBLISHED_OUTPUTS.out.status,
     )
 
     SETUP_EGGNOG()
@@ -298,6 +331,7 @@ process PREPARE_ASSEMBLIES {
     val original_module5_dir
 
     val minimum_scaffold_bp
+    path publication_cleanup_status
 
     output:
     path "filtered_assemblies/*.fa", emit: filtered_assemblies
@@ -1099,6 +1133,7 @@ PY
 process SETUP_EGGNOG {
 
     tag "setup_eggnog"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: "copy", pattern: "eggnog_setup_status.env"
 
@@ -1114,11 +1149,14 @@ process SETUP_EGGNOG {
         ? absPath(params.eggnog_env_dir)
         : "${base_env}/eggnog_mapper"
 
-    def data_dir = params.eggnog_data_path
+    def configured_data_dir = params.eggnog_data_path
         ? absPath(params.eggnog_data_path)
         : (params.eggnog_data_dir
             ? absPath(params.eggnog_data_dir)
-            : absPath(params.eggnog_db_outdir))
+            : "")
+
+    def default_data_dir = absPath(params.eggnog_db_outdir)
+    def module6_data_dir = absPath(params.module6_eggnog_data_dir)
 
     def conda_pkgs_dir = params.conda_pkgs_dir
         ? "${absPath(params.conda_pkgs_dir)}/eggnog_mapper"
@@ -1142,8 +1180,11 @@ process SETUP_EGGNOG {
     STATUS="eggnog_setup_status.env"
 
     EGGNOG_ENV="${env_dir}"
-    EGGNOG_DATA_DIR="${data_dir}"
+    CONFIGURED_EGGNOG_DATA_DIR="${configured_data_dir}"
+    DEFAULT_EGGNOG_DATA_DIR="${default_data_dir}"
+    MODULE6_EGGNOG_DATA_DIR="${module6_data_dir}"
     USER_EGGNOG_MMSEQS_DB="${configured_mmseqs_db}"
+    EGGNOG_INSTALL_MARKER="\$EGGNOG_ENV/.samwise_eggnog_install_mode"
     CONDA_PKGS_DIRS="${conda_pkgs_dir}"
 
     export CONDA_PKGS_DIRS
@@ -1152,11 +1193,14 @@ process SETUP_EGGNOG {
 
     echo "EggNOG-mapper setup started: \$(date)" > "\$STATUS"
     echo "EGGNOG_ENV=\$EGGNOG_ENV" >> "\$STATUS"
-    echo "EGGNOG_DATA_DIR=\$EGGNOG_DATA_DIR" >> "\$STATUS"
+    echo "Configured EggNOG data directory: \${CONFIGURED_EGGNOG_DATA_DIR:-not supplied}" >> "\$STATUS"
+    echo "Module 6 EggNOG data directory candidate: \$MODULE6_EGGNOG_DATA_DIR" >> "\$STATUS"
+    echo "Default AuxModule 1 EggNOG data directory: \$DEFAULT_EGGNOG_DATA_DIR" >> "\$STATUS"
     echo "CONDA_PKGS_DIRS=\$CONDA_PKGS_DIRS" >> "\$STATUS"
     echo "Requested package: ${eggnog_package}" >> "\$STATUS"
     echo "EggNOG method: ${params.eggnog_method}" >> "\$STATUS"
     echo "EggNOG URL fixer enabled: ${params.eggnog_fixurl}" >> "\$STATUS"
+    echo "EggNOG URL fixer package: ${fixurl_package}" >> "\$STATUS"
     echo "EggNOG download arguments: ${download_args}" >> "\$STATUS"
     echo "----------------------------------------" >> "\$STATUS"
 
@@ -1170,7 +1214,18 @@ process SETUP_EGGNOG {
         fi
     }
 
-    check_environment() {
+    check_python_version() {
+        local prefix="\$1"
+        PY_OK="\$("\$prefix/bin/python" - <<'PY'
+import sys
+major, minor = sys.version_info[:2]
+print("true" if (major == 3 and minor >= 7 and minor <= 12) else "false")
+PY
+)"
+        [[ "\$PY_OK" == "true" ]]
+    }
+
+    check_env_core() {
         local prefix="\$1"
 
         [[ -x "\$prefix/bin/python" ]] || return 1
@@ -1179,15 +1234,37 @@ process SETUP_EGGNOG {
         [[ -x "\$prefix/bin/download_eggnog_data.py" ]] || return 1
         [[ -x "\$prefix/bin/diamond" ]] || return 1
         [[ -x "\$prefix/bin/prodigal" ]] || return 1
+        check_python_version "\$prefix" || return 1
+
+        return 0
+    }
+
+    check_env_full() {
+        local prefix="\$1"
+        check_env_core "\$prefix" || return 1
+
+        if [[ ! -s "\$prefix/.samwise_eggnog_install_mode" ]]; then
+            echo "EggNOG environment has no SAMWISE install marker; treating as stale." >> "\$STATUS"
+            return 1
+        fi
+
+        if ! grep -q '^bioconda_2.1.13_fixurl\$' "\$prefix/.samwise_eggnog_install_mode"; then
+            echo "EggNOG environment marker is not bioconda_2.1.13_fixurl; treating as stale." >> "\$STATUS"
+            return 1
+        fi
+
+        if [[ "${params.eggnog_fixurl}" == "true" ]]; then
+            [[ -x "\$prefix/bin/eggnog-mapper-fixurl" ]] || return 1
+        fi
 
         return 0
     }
 
     if [[ -d "\$EGGNOG_ENV" ]]; then
-        if check_environment "\$EGGNOG_ENV"; then
-            echo "Existing EggNOG environment passed checks." >> "\$STATUS"
+        if check_env_full "\$EGGNOG_ENV"; then
+            echo "Existing Bioconda EggNOG + fixurl environment passed checks." >> "\$STATUS"
         else
-            echo "Existing EggNOG environment failed checks. Removing it." >> "\$STATUS"
+            echo "Existing EggNOG environment failed checks or is stale. Removing it." >> "\$STATUS"
             rm -rf "\$EGGNOG_ENV"
         fi
     fi
@@ -1229,8 +1306,8 @@ process SETUP_EGGNOG {
             >> "\$STATUS" 2>&1
     fi
 
-    if ! check_environment "\$EGGNOG_ENV"; then
-        echo "ERROR: EggNOG environment failed final checks." >> "\$STATUS"
+    if ! check_env_core "\$EGGNOG_ENV"; then
+        echo "ERROR: EggNOG environment failed core checks." >> "\$STATUS"
         ls -lah "\$EGGNOG_ENV/bin" >> "\$STATUS" 2>&1 || true
         exit 1
     fi
@@ -1263,6 +1340,40 @@ process SETUP_EGGNOG {
 
         "\$EGGNOG_ENV/bin/eggnog-mapper-fixurl" \
             >> "\$STATUS" 2>&1
+    else
+        echo "EggNOG-mapper URL fixer disabled by --eggnog_fixurl false" >> "\$STATUS"
+    fi
+
+    echo "bioconda_2.1.13_fixurl" > "\$EGGNOG_INSTALL_MARKER"
+
+    if ! check_env_full "\$EGGNOG_ENV"; then
+        echo "ERROR: EggNOG environment failed final checks after URL fixer setup." >> "\$STATUS"
+        exit 1
+    fi
+
+    has_required_database() {
+        local candidate="\$1"
+        local sqlite_db
+        local diamond_db
+
+        [[ -n "\$candidate" && -d "\$candidate" ]] || return 1
+
+        sqlite_db="\$(find "\$candidate" -type f -name 'eggnog.db' -size +0c -print -quit 2>/dev/null || true)"
+        diamond_db="\$(find "\$candidate" -type f -name '*.dmnd' -size +0c -print -quit 2>/dev/null || true)"
+
+        [[ -n "\$sqlite_db" ]] || return 1
+        [[ "${params.eggnog_method}" != "diamond" || -n "\$diamond_db" ]]
+    }
+
+    if [[ -n "\$CONFIGURED_EGGNOG_DATA_DIR" ]]; then
+        EGGNOG_DATA_DIR="\$CONFIGURED_EGGNOG_DATA_DIR"
+        echo "Using user-supplied EggNOG data directory: \$EGGNOG_DATA_DIR" >> "\$STATUS"
+    elif has_required_database "\$MODULE6_EGGNOG_DATA_DIR"; then
+        EGGNOG_DATA_DIR="\$MODULE6_EGGNOG_DATA_DIR"
+        echo "Reusing valid Module 6 EggNOG database: \$EGGNOG_DATA_DIR" >> "\$STATUS"
+    else
+        EGGNOG_DATA_DIR="\$DEFAULT_EGGNOG_DATA_DIR"
+        echo "No valid Module 6 EggNOG database found; using AuxModule 1 database directory: \$EGGNOG_DATA_DIR" >> "\$STATUS"
     fi
 
     mkdir -p "\$EGGNOG_DATA_DIR"
@@ -1352,9 +1463,11 @@ process SETUP_EGGNOG {
         fi
     fi
 
+    echo "Final EggNOG data directory: \$EGGNOG_DATA_DIR" >> "\$STATUS"
     echo "Final EggNOG SQLite database: \$EGGNOG_DB_PATH" >> "\$STATUS"
     echo "Final EggNOG DIAMOND database: \${EGGNOG_DIAMOND_DB:-not used}" >> "\$STATUS"
     echo "Final EggNOG MMseqs database: \${MMSEQS_DB:-not used}" >> "\$STATUS"
+    echo "EGGNOG_DATA_DIR=\$EGGNOG_DATA_DIR" >> "\$STATUS"
     echo "EGGNOG_DB_PATH=\$EGGNOG_DB_PATH" >> "\$STATUS"
     echo "EGGNOG_DIAMOND_DB=\$EGGNOG_DIAMOND_DB" >> "\$STATUS"
     echo "EGGNOG_MMSEQS_DB=\$MMSEQS_DB" >> "\$STATUS"
@@ -1405,11 +1518,11 @@ process RUN_EGGNOG {
 
     EGGNOG_ENV="\$(grep '^EGGNOG_ENV=' "${setup_status}" \
         | tail -n 1 \
-        | cut -d= -f2-)"
+        | cut -d= -f2- || true)"
 
     EGGNOG_DATA_DIR="\$(grep '^EGGNOG_DATA_DIR=' "${setup_status}" \
         | tail -n 1 \
-        | cut -d= -f2-)"
+        | cut -d= -f2- || true)"
 
     EGGNOG_DB_PATH="\$(grep '^EGGNOG_DB_PATH=' "${setup_status}" \
         | tail -n 1 \
@@ -1419,18 +1532,26 @@ process RUN_EGGNOG {
         | tail -n 1 \
         | cut -d= -f2- || true)"
 
+    LOG="eggnog.log"
+    : > "\$LOG"
+    echo "EggNOG-mapper task initialized: \$(date)" >> "\$LOG"
+    echo "Setup status input: ${setup_status}" >> "\$LOG"
+    echo "Resolved EggNOG environment: \${EGGNOG_ENV:-not found}" >> "\$LOG"
+    echo "Resolved EggNOG data directory: \${EGGNOG_DATA_DIR:-not found}" >> "\$LOG"
+    echo "Resolved EggNOG SQLite database: \${EGGNOG_DB_PATH:-not found}" >> "\$LOG"
+
     if [[ -z "\$EGGNOG_ENV" || ! -d "\$EGGNOG_ENV" ]]; then
-        echo "ERROR: Invalid EggNOG environment: \$EGGNOG_ENV" >&2
+        echo "ERROR: Invalid EggNOG environment: \$EGGNOG_ENV" | tee -a "\$LOG" >&2
         exit 1
     fi
 
     if [[ -z "\$EGGNOG_DATA_DIR" || ! -d "\$EGGNOG_DATA_DIR" ]]; then
-        echo "ERROR: Invalid EggNOG data directory: \$EGGNOG_DATA_DIR" >&2
+        echo "ERROR: Invalid EggNOG data directory: \$EGGNOG_DATA_DIR" | tee -a "\$LOG" >&2
         exit 1
     fi
 
     if [[ -z "\$EGGNOG_DB_PATH" || ! -s "\$EGGNOG_DB_PATH" ]]; then
-        echo "ERROR: Invalid EggNOG SQLite database: \$EGGNOG_DB_PATH" >&2
+        echo "ERROR: Invalid EggNOG SQLite database: \$EGGNOG_DB_PATH" | tee -a "\$LOG" >&2
         exit 1
     fi
 
@@ -1438,7 +1559,7 @@ process RUN_EGGNOG {
     export EGGNOG_DATA_DIR
     export EGGNOG_DATA_PATH="\$EGGNOG_DATA_DIR"
 
-    echo "EggNOG-mapper started: \$(date)" > "\$LOG"
+    echo "EggNOG-mapper started: \$(date)" >> "\$LOG"
     echo "Input FASTA: ${combined_fasta}" >> "\$LOG"
     echo "Input scaffold manifest: ${input_scaffold_manifest}" >> "\$LOG"
     echo "EggNOG environment: \$EGGNOG_ENV" >> "\$LOG"

@@ -136,6 +136,7 @@ workflow {
 process SETUP_MODULE1_TOOLS {
 
     tag "setup_fastp_fastqc"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module1_tools_status.env"
 

@@ -433,6 +433,7 @@ workflow {
 
 process SETUP_MODULE3_TOOLS {
     tag "setup_binning_tools"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module3_tools_status.env"
 

@@ -11,23 +11,23 @@ params.output_dir = null
 params.input_trimmed_manifest = null
 params.input_original_binning_manifest = null
 params.input_refined_manifest = null
-params.megahit = false
-params.metaspades = false
 params.auto_install = true
 params.tool_env_dir = null
 params.threads = null
 params.mapping_threads = 4
 params.assembly_threads = 4
 params.bbmap_version = "39.81"
+params.megahit = true
+params.metaspades = false
 params.megahit_version = "1.2.9"
 params.spades_version = "4.2.0"
+params.metaspades_memory_gb = 0
 params.bbmap_extra_args = ""
 params.bbmap_minid = 0.99
 params.bbmap_ambig = "random"
 params.bbmap_xmx = null
 params.megahit_preset = "meta-large"
 params.megahit_threads = null
-params.metaspades_memory_gb = 0
 params.run_second_pass_binning_refinement = true
 params.secondpass_metabat2 = true
 params.secondpass_quickbin = true
@@ -43,8 +43,6 @@ params.pfam_hmm = null
 params.magscot_script = null
 params.magscot_extra_args = ""
 params.publish_reference_mode = "copy"
-params.publish_unmapped_mode = "symlink"
-params.publish_assemblies_mode = "symlink"
 params.publish_final_mags_mode = "copy"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
@@ -71,6 +69,7 @@ def absOrEmpty(value) {
 
 workflow {
 
+    def do_secondpass = params.run_second_pass_binning_refinement.toString().toBoolean()
     def use_megahit = params.megahit.toString().toBoolean()
     def use_metaspades = params.metaspades.toString().toBoolean()
 
@@ -80,13 +79,11 @@ workflow {
         No subtractive assembler selected.
 
         Please specify at least one of:
-          --megahit
-          --metaspades
+          --megahit true
+          --metaspades true
         """.stripIndent()
         )
     }
-
-    def do_secondpass = params.run_second_pass_binning_refinement.toString().toBoolean()
 
     def use_secondpass_metabat2 = params.secondpass_metabat2.toString().toBoolean()
     def use_secondpass_quickbin = params.secondpass_quickbin.toString().toBoolean()
@@ -123,7 +120,15 @@ workflow {
     log.info("Second-pass working directory: ${params.secondpass_dir}")
     log.info("Final joint refinement working directory: ${params.final_joint_dir}")
 
-    def assembler_list = ["megahit"]
+    def assembler_list = []
+
+    if (use_megahit) {
+        assembler_list << "megahit"
+    }
+
+    if (use_metaspades) {
+        assembler_list << "metaspades"
+    }
 
     def trimmed_manifest_ch = channel.fromPath(
         trimmed_manifest_file,
@@ -164,16 +169,38 @@ workflow {
                 error("Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}")
             }
 
+            def read1 = absOrEmpty(row.read1)
+            def read2 = absOrEmpty(row.read2)
+            def interleaved = absOrEmpty(row.interleaved)
+            def read_files
+
+            if (layout == "paired") {
+                if (!read1 || !read2) {
+                    error("Paired layout requires read1 and read2 for sample '${sample_id}'")
+                }
+
+                read_files = [
+                    file(read1, checkIfExists: true),
+                    file(read2, checkIfExists: true),
+                ]
+            } else {
+                if (!interleaved) {
+                    error("Interleaved layout requires an interleaved read file for sample '${sample_id}'")
+                }
+
+                read_files = [file(interleaved, checkIfExists: true)]
+            }
+
             tuple(
                 sample_id,
                 safe_id,
                 assembly_sample_id,
                 layout,
-                absOrEmpty(row.read1),
-                absOrEmpty(row.read2),
-                absOrEmpty(row.interleaved),
+                read_files,
             )
         }
+
+    CLEAN_MODULE5_DURABLE_SUBTRACTIVE_OUTPUTS()
 
     SETUP_MODULE5_TOOLS()
 
@@ -182,7 +209,10 @@ workflow {
     )
 
     MAP_READS_TO_REFINED_MAGS(
-        reads_ch.combine(PREPARE_REFINED_MAG_REFERENCE.out.reference_info).combine(SETUP_MODULE5_TOOLS.out.status)
+        reads_ch
+            .combine(PREPARE_REFINED_MAG_REFERENCE.out.reference_info)
+            .combine(SETUP_MODULE5_TOOLS.out.status)
+            .combine(CLEAN_MODULE5_DURABLE_SUBTRACTIVE_OUTPUTS.out.status)
     )
 
     WRITE_SUBTRACTIVE_MAPPING_SUMMARY(
@@ -237,12 +267,47 @@ workflow {
         BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT(
             RUN_FINAL_JOINT_REFINEMENT.out.status
         )
+    } else {
+        WRITE_SECOND_PASS_DISABLED_STATUS()
+
+        BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT(
+            WRITE_SECOND_PASS_DISABLED_STATUS.out.status
+        )
     }
 }
 
 
+process CLEAN_MODULE5_DURABLE_SUBTRACTIVE_OUTPUTS {
+    tag "clean_module5_durable_subtractive_outputs"
+    cache false
+
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module5_durable_output_cleanup_status.tsv"
+
+    output:
+    path "module5_durable_output_cleanup_status.tsv", emit: status
+
+    script:
+    """
+    set -euo pipefail
+
+    printf 'step\tstatus\tmessage\n' > module5_durable_output_cleanup_status.tsv
+
+    for output_dir in \
+        "${params.outdir}/assemblies" \
+        "${params.outdir}/unmapped_reads"; do
+        if [[ -e "\$output_dir" ]]; then
+            rm -rf "\$output_dir"
+        fi
+        mkdir -p "\$output_dir"
+    done
+
+    printf 'module5_durable_subtractive_output_cleanup\tcompleted\tRemoved prior durable subtractive assemblies and unmapped reads\n' >> module5_durable_output_cleanup_status.tsv
+    """
+}
+
 process SETUP_MODULE5_TOOLS {
     tag "setup_subtractive_assembly_tools"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module5_tools_status.env"
 
@@ -401,61 +466,93 @@ process PREPARE_REFINED_MAG_REFERENCE {
     FASTA_LIST="refined_fasta_files.txt"
 
     echo "Preparing refined MAG reference: \$(date)" > "\$LOG_FILE"
-    echo "Refined manifest, used only as dependency/check: ${refined_manifest}" >> "\$LOG_FILE"
-    echo "Nextflow launchDir: ${workflow.launchDir}" >> "\$LOG_FILE"
-    echo "Module 4 outdir parameter: ${params.module4_outdir}" >> "\$LOG_FILE"
+    echo "Refined MAG manifest: ${refined_manifest}" >> "\$LOG_FILE"
     echo "Task working directory: \$(pwd -P)" >> "\$LOG_FILE"
-    echo "----------------------------------------" >> "\$LOG_FILE"
-
-    MODULE4_OUTDIR="${params.module4_outdir}"
-
-    if [[ "\$MODULE4_OUTDIR" != /* ]]; then
-        MODULE4_OUTDIR="${workflow.launchDir}/\$MODULE4_OUTDIR"
-    fi
-
-    REFINED_BINS_DIR="\$MODULE4_OUTDIR/refined_bins"
-
-    echo "Resolved Module 4 outdir: \$MODULE4_OUTDIR" >> "\$LOG_FILE"
-    echo "Refined bins directory to concatenate: \$REFINED_BINS_DIR" >> "\$LOG_FILE"
     echo "Reference output file: \$REF_OUT" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
 
-    if [[ ! -d "\$REFINED_BINS_DIR" ]]; then
-        echo "ERROR: refined bins directory does not exist:" >> "\$LOG_FILE"
-        echo "  \$REFINED_BINS_DIR" >> "\$LOG_FILE"
+    if [[ ! -s "${refined_manifest}" ]]; then
+        echo "ERROR: refined MAG manifest is missing or empty: ${refined_manifest}" >> "\$LOG_FILE"
         exit 1
     fi
 
-    echo "Contents of refined bins directory:" >> "\$LOG_FILE"
-    ls -lah "\$REFINED_BINS_DIR" >> "\$LOG_FILE" 2>&1 || true
-    echo "----------------------------------------" >> "\$LOG_FILE"
+    python3 - "${refined_manifest}" "\$FASTA_LIST" <<'PY'
+import csv
+import sys
+from pathlib import Path
 
-    find -L "\$REFINED_BINS_DIR" -maxdepth 1 -type f \\
-        \\( -name '*.fa' -o -name '*.fna' -o -name '*.fasta' -o -name '*.fa.gz' -o -name '*.fna.gz' -o -name '*.fasta.gz' \\) \\
-        | sort > "\$FASTA_LIST"
+manifest_path = Path(sys.argv[1]).resolve()
+output_list = Path(sys.argv[2])
+
+if not manifest_path.exists() or manifest_path.stat().st_size == 0:
+    raise SystemExit(f"ERROR: manifest missing or empty: {manifest_path}")
+
+selected = []
+seen = set()
+
+with manifest_path.open() as handle:
+    reader = csv.DictReader(handle, delimiter="\t")
+
+    if not reader.fieldnames:
+        raise SystemExit(f"ERROR: manifest has no header: {manifest_path}")
+
+    if "refined_bin_fasta" not in reader.fieldnames:
+        raise SystemExit(
+            "ERROR: refined MAG manifest does not contain required column "
+            "'refined_bin_fasta'. Found columns: {}".format(
+                ", ".join(reader.fieldnames)
+            )
+        )
+
+    for row_number, row in enumerate(reader, start=2):
+        value = (row.get("refined_bin_fasta") or "").strip()
+
+        if not value:
+            continue
+
+        fasta = Path(value)
+
+        if not fasta.is_absolute():
+            fasta = manifest_path.parent / fasta
+
+        fasta = fasta.resolve()
+
+        if not fasta.exists():
+            raise SystemExit(
+                f"ERROR: refined MAG FASTA from manifest does not exist "
+                f"(row {row_number}): {fasta}"
+            )
+
+        if fasta.stat().st_size == 0:
+            raise SystemExit(
+                f"ERROR: refined MAG FASTA from manifest is empty "
+                f"(row {row_number}): {fasta}"
+            )
+
+        if fasta not in seen:
+            selected.append(fasta)
+            seen.add(fasta)
+
+if not selected:
+    raise SystemExit(
+        f"ERROR: no non-empty refined_bin_fasta values found in {manifest_path}"
+    )
+
+with output_list.open("w") as out:
+    for fasta in selected:
+        print(fasta, file=out)
+PY
 
     BINS_FOUND="\$(wc -l < "\$FASTA_LIST" | tr -d ' ')"
 
-    echo "Refined FASTA files found: \$BINS_FOUND" >> "\$LOG_FILE"
-    echo "Refined FASTA files selected for concatenation:" >> "\$LOG_FILE"
-    cat "\$FASTA_LIST" >> "\$LOG_FILE" || true
+    echo "Refined MAG FASTAs selected from manifest: \$BINS_FOUND" >> "\$LOG_FILE"
+    echo "Selected refined MAG FASTAs:" >> "\$LOG_FILE"
+    cat "\$FASTA_LIST" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
-
-    if [[ "\$BINS_FOUND" -eq 0 ]]; then
-        echo "ERROR: no refined MAG FASTA files found in:" >> "\$LOG_FILE"
-        echo "  \$REFINED_BINS_DIR" >> "\$LOG_FILE"
-        echo "Expected extensions: .fa, .fna, .fasta, .fa.gz, .fna.gz, .fasta.gz" >> "\$LOG_FILE"
-        exit 1
-    fi
 
     : > "\$REF_OUT"
 
     while IFS= read -r fasta; do
-        if [[ ! -s "\$fasta" ]]; then
-            echo "WARNING: skipping missing or empty FASTA: \$fasta" >> "\$LOG_FILE"
-            continue
-        fi
-
         echo "Adding refined MAG FASTA to reference: \$fasta" >> "\$LOG_FILE"
 
         case "\$fasta" in
@@ -478,27 +575,23 @@ process PREPARE_REFINED_MAG_REFERENCE {
     CONTIGS="\$(grep -c '^>' "\$REF_OUT" || true)"
     BP="\$(grep -v '^>' "\$REF_OUT" | tr -d '\\n[:space:]' | wc -c | tr -d ' ')"
 
-    echo "Reference contigs: \$CONTIGS" >> "\$LOG_FILE"
-    echo "Reference bp: \$BP" >> "\$LOG_FILE"
-    echo "Reference FASTA written: \$REF_OUT" >> "\$LOG_FILE"
-    echo "Reference FASTA size:" >> "\$LOG_FILE"
-    ls -lh "\$REF_OUT" >> "\$LOG_FILE" 2>&1 || true
-
     if [[ "\$CONTIGS" -eq 0 ]]; then
         echo "ERROR: reference FASTA contains zero contigs." >> "\$LOG_FILE"
         exit 1
     fi
 
-    printf 'refined_bins_dir\\trefined_bins_used\\treference_contigs\\treference_bp\\treference_fasta\\n' > "\$STATS_OUT"
+    printf 'refined_manifest\\trefined_bins_used\\treference_contigs\\treference_bp\\treference_fasta\\n' > "\$STATS_OUT"
 
     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \\
-        "\$REFINED_BINS_DIR" \\
+        "\$(readlink -f "${refined_manifest}")" \\
         "\$BINS_FOUND" \\
         "\$CONTIGS" \\
         "\$BP" \\
         "\$REF_OUT" \\
         >> "\$STATS_OUT"
 
+    echo "Reference contigs: \$CONTIGS" >> "\$LOG_FILE"
+    echo "Reference bp: \$BP" >> "\$LOG_FILE"
     echo "Reference preparation finished: \$(date)" >> "\$LOG_FILE"
     """
 }
@@ -508,7 +601,6 @@ process MAP_READS_TO_REFINED_MAGS {
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/unmapped_reads", mode: params.publish_unmapped_mode, pattern: "*.unmapped_interleaved.fastq.gz"
     publishDir "${params.outdir}/summary/per_sample_mapping", mode: 'copy', pattern: "*.subtractive_mapping_stats.tsv"
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*.bbmap_subtractive.log"
 
@@ -519,7 +611,7 @@ process MAP_READS_TO_REFINED_MAGS {
     }
 
     input:
-    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), val(read1), val(read2), val(interleaved), path(refined_reference_fasta), path(reference_stats), path(tools_status)
+    tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), path(read_files), path(refined_reference_fasta), path(reference_stats), path(tools_status), path(cleanup_status)
 
     output:
     tuple val(sample_id), val(safe_id), val(assembly_sample_id), val(layout), path("${safe_id}.unmapped_interleaved.fastq.gz"), val(0), val(0), emit: unmapped_reads
@@ -528,6 +620,32 @@ process MAP_READS_TO_REFINED_MAGS {
     path "${safe_id}.bbmap_subtractive.log", emit: log_file
 
     script:
+    def durable_module5_outdir = absOrEmpty(params.outdir)
+    def staged_read_files = read_files instanceof Collection ? read_files.toList() : [read_files]
+    def staged_read_count = staged_read_files.size()
+
+    if ((layout == 'paired' && staged_read_count != 2) ||
+        (layout == 'interleaved' && staged_read_count != 1)) {
+        error("Layout '${layout}' for sample '${sample_id}' requires ${layout == 'paired' ? 2 : 1} read file(s), but Nextflow staged ${staged_read_count}.")
+    }
+
+    def bbmap_xmx = params.bbmap_xmx == null ? '' : params.bbmap_xmx.toString().trim()
+    if (bbmap_xmx.equalsIgnoreCase('null') || bbmap_xmx.equalsIgnoreCase('na')) {
+        bbmap_xmx = ''
+    }
+    if (bbmap_xmx.startsWith('-Xmx')) {
+        bbmap_xmx = bbmap_xmx.substring(4)
+    }
+    if (bbmap_xmx && !(bbmap_xmx ==~ /(?i)^\d+[kmgt]?$/)) {
+        error("Invalid --bbmap_xmx value '${params.bbmap_xmx}'. Use a Java heap size such as '32g' or '8000m' (without -Xmx).")
+    }
+
+    def bbmap_xmx_arg = bbmap_xmx ? " -Xmx${bbmap_xmx}" : ''
+    def bbmap_extra_args = params.bbmap_extra_args == null ? '' : params.bbmap_extra_args.toString().trim()
+    if (bbmap_extra_args.equalsIgnoreCase('null') || bbmap_extra_args.equalsIgnoreCase('na')) {
+        bbmap_extra_args = ''
+    }
+
     """
     set -euo pipefail
 
@@ -568,57 +686,6 @@ process MAP_READS_TO_REFINED_MAGS {
     BBMAP_EXIT_STATUS=0
     MAPPING_STATUS="completed"
 
-    make_passthrough_interleaved() {
-        python3 - \\
-            "${layout}" \\
-            "${read1}" \\
-            "${read2}" \\
-            "${interleaved}" \\
-            "\$OUT_FASTQ" <<'PY'
-import gzip
-import shutil
-import sys
-
-layout, read1, read2, interleaved, out_fastq = sys.argv[1:]
-
-def open_fastq(path):
-    if str(path).endswith(".gz"):
-        return gzip.open(path, "rt", errors="replace")
-    return open(path, "rt", errors="replace")
-
-def records(path):
-    with open_fastq(path) as handle:
-        while True:
-            record = [
-                handle.readline(),
-                handle.readline(),
-                handle.readline(),
-                handle.readline(),
-            ]
-
-            if not record[0]:
-                break
-
-            if not record[3]:
-                raise RuntimeError("Incomplete FASTQ record in {}".format(path))
-
-            yield record
-
-with gzip.open(out_fastq, "wt") as out:
-    if layout == "paired":
-        for r1, r2 in zip(records(read1), records(read2)):
-            out.writelines(r1)
-            out.writelines(r2)
-
-    elif layout == "interleaved":
-        with open_fastq(interleaved) as inp:
-            shutil.copyfileobj(inp, out)
-
-    else:
-        raise RuntimeError("Unsupported layout: {}".format(layout))
-PY
-    }
-
     if [[ "\$REF_CONTIGS" -eq 0 ]]; then
         echo "ERROR: refined MAG reference contains zero contigs: \$REF_FASTA" >> "\$LOG_FILE"
         echo "This should not happen if PREPARE_REFINED_MAG_REFERENCE succeeded." >> "\$LOG_FILE"
@@ -633,23 +700,18 @@ PY
     echo "BBMap executable: \$(command -v bbmap.sh)" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
 
-    BBMAP_ARGS="ref=\$REF_FASTA outu=\$OUT_FASTQ threads=${task.cpus} overwrite=t minid=${params.bbmap_minid} ambig=${params.bbmap_ambig}"
+    BBMAP_ARGS="ref=\$REF_FASTA outu=\$OUT_FASTQ threads=${task.cpus} overwrite=t minid=${params.bbmap_minid} ambig=${params.bbmap_ambig}${bbmap_xmx_arg}"
 
-    if [[ -n "${params.bbmap_extra_args}" ]]; then
-        BBMAP_ARGS="\${BBMAP_ARGS} ${params.bbmap_extra_args}"
+    if [[ -n "${bbmap_extra_args}" ]]; then
+        BBMAP_ARGS="\${BBMAP_ARGS} ${bbmap_extra_args}"
     fi
 
     echo "BBMap args: \$BBMAP_ARGS" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
 
     if [[ "${layout}" == "paired" ]]; then
-        if [[ -z "${read1}" || -z "${read2}" ]]; then
-            echo "ERROR: paired layout requires read1 and read2." >> "\$LOG_FILE"
-            exit 1
-        fi
-
-        ln -sfn "${read1}" input_R1.fastq.gz
-        ln -sfn "${read2}" input_R2.fastq.gz
+        ln -sfn "${staged_read_files[0]}" input_R1.fastq.gz
+        ln -sfn "${staged_read_files[1]}" input_R2.fastq.gz
 
         set +e
         bbmap.sh \\
@@ -662,12 +724,7 @@ PY
         set -e
 
     elif [[ "${layout}" == "interleaved" ]]; then
-        if [[ -z "${interleaved}" ]]; then
-            echo "ERROR: interleaved layout requires interleaved FASTQ." >> "\$LOG_FILE"
-            exit 1
-        fi
-
-        ln -sfn "${interleaved}" input_interleaved.fastq.gz
+        ln -sfn "${staged_read_files[0]}" input_interleaved.fastq.gz
 
         set +e
         bbmap.sh \\
@@ -693,6 +750,17 @@ PY
         gzip -c /dev/null > "\$OUT_FASTQ"
     fi
 
+    DURABLE_UNMAPPED_DIR="${durable_module5_outdir}/unmapped_reads"
+    DURABLE_OUT_FASTQ="\$DURABLE_UNMAPPED_DIR/\$OUT_FASTQ"
+
+    mkdir -p "\$DURABLE_UNMAPPED_DIR"
+    cp -f "\$OUT_FASTQ" "\$DURABLE_OUT_FASTQ"
+
+    if [[ ! -s "\$DURABLE_OUT_FASTQ" ]]; then
+        echo "ERROR: failed to create durable unmapped FASTQ: \$DURABLE_OUT_FASTQ" >> "\$LOG_FILE"
+        exit 1
+    fi
+
     python3 - \\
         "\$OUT_FASTQ" \\
         "\$STATS_FILE" \\
@@ -703,7 +771,7 @@ PY
         "\$REF_CONTIGS" \\
         "\$MAPPING_STATUS" \\
         "\$BBMAP_EXIT_STATUS" \\
-        "${params.outdir}/unmapped_reads/\$OUT_FASTQ" <<'PY'
+        "\$DURABLE_OUT_FASTQ" <<'PY'
 import gzip
 import sys
 
@@ -744,7 +812,7 @@ with open(stats, "w") as out:
         "mapping_status",
         "bbmap_exit_status",
         "unmapped_fastq",
-        sep="\\t",
+        sep="\t",
         file=out,
     )
 
@@ -759,7 +827,7 @@ with open(stats, "w") as out:
         mapping_status,
         bbmap_exit_status,
         published,
-        sep="\\t",
+        sep="\t",
         file=out,
     )
 PY
@@ -770,28 +838,25 @@ PY
         "interleaved" \\
         "" \\
         "" \\
-        "\$TASK_DIR/\$OUT_FASTQ" \\
+        "\$DURABLE_OUT_FASTQ" \\
         "" \\
         "" \\
         "" \\
         > "\$RECORD_FILE"
-
-    echo "Subtractive BBMap mapping finished: \$(date)" >> "\$LOG_FILE"
     """
 }
 
 process ASSEMBLE_SUBTRACTIVE {
-    tag { "${sample_id}:megahit" }
+    tag { "${sample_id}:${assembler}" }
 
     stageInMode 'symlink'
 
-    publishDir "${params.outdir}/assemblies", mode: params.publish_assemblies_mode, pattern: "*_subtractive.renamed.fa"
     publishDir "${params.outdir}/header_maps", mode: 'copy', pattern: "*_subtractive.header_map.tsv"
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "*_subtractive_assembly.log"
     publishDir "${params.outdir}/summary/per_assembly_stats", mode: 'copy', pattern: "*_subtractive_assembly_stats.tsv"
 
     cpus {
-        if (params.megahit_threads != null) {
+        if (assembler == 'megahit' && params.megahit_threads != null) {
             return params.megahit_threads as int
         }
 
@@ -812,25 +877,35 @@ process ASSEMBLE_SUBTRACTIVE {
     path "*_subtractive_assembly.log", emit: log_file
 
     script:
+    def durable_module5_outdir = absOrEmpty(params.outdir)
     """
     set -euo pipefail
 
     TOOL_ENV="\$(grep '^TOOL_ENV=' "${tools_status}" | tail -n 1 | cut -d= -f2- || true)"
-
     if [[ -n "\$TOOL_ENV" && "\$TOOL_ENV" != "SYSTEM" && "\$TOOL_ENV" != "NOT_USED" ]]; then
         export PATH="\$TOOL_ENV/bin:\$PATH"
     fi
 
-    TASK_DIR="\$(pwd -P)"
-
     SAMPLE_ID="${sample_id}"
     SAFE_ID="${safe_id}"
     ASSEMBLY_SAMPLE_ID="${assembly_sample_id}"
-
-    # Force MEGAHIT only.
-    ASSEMBLER="megahit"
-
+    ASSEMBLER="${assembler}"
     UNMAPPED_FASTQ="${unmapped_interleaved}"
+
+    case "\$ASSEMBLER" in
+        megahit)
+            STRATEGY="E"
+            RAW_OUT="megahit_subtractive_out"
+            ;;
+        metaspades)
+            STRATEGY="F"
+            RAW_OUT="metaspades_subtractive_out"
+            ;;
+        *)
+            echo "ERROR: Unsupported subtractive assembler: \$ASSEMBLER" >&2
+            exit 1
+            ;;
+    esac
 
     OUT_FASTA="\${SAFE_ID}_\${ASSEMBLER}_subtractive.renamed.fa"
     HEADER_MAP="\${SAFE_ID}_\${ASSEMBLER}_subtractive.header_map.tsv"
@@ -841,75 +916,21 @@ process ASSEMBLE_SUBTRACTIVE {
 
     echo "Subtractive assembly started: \$(date)" > "\$LOG_FILE"
     echo "Sample ID: \$SAMPLE_ID" >> "\$LOG_FILE"
-    echo "Safe sample ID: \$SAFE_ID" >> "\$LOG_FILE"
-    echo "Assembly sample ID: \$ASSEMBLY_SAMPLE_ID" >> "\$LOG_FILE"
-    echo "Assembler forced to: \$ASSEMBLER" >> "\$LOG_FILE"
-    echo "Input unmapped FASTQ staged by Nextflow: \$UNMAPPED_FASTQ" >> "\$LOG_FILE"
-    echo "Task working directory: \$TASK_DIR" >> "\$LOG_FILE"
+    echo "Assembler: \$ASSEMBLER" >> "\$LOG_FILE"
+    echo "Assembly strategy: \$STRATEGY" >> "\$LOG_FILE"
     echo "Threads: ${task.cpus}" >> "\$LOG_FILE"
-    echo "----------------------------------------" >> "\$LOG_FILE"
 
-    echo "Listing staged input FASTQ:" >> "\$LOG_FILE"
-    ls -lh "\$UNMAPPED_FASTQ" >> "\$LOG_FILE" 2>&1 || true
-    echo "Resolved staged input FASTQ:" >> "\$LOG_FILE"
-    readlink -f "\$UNMAPPED_FASTQ" >> "\$LOG_FILE" 2>&1 || true
-    echo "----------------------------------------" >> "\$LOG_FILE"
-
-    # Always create declared output files.
     : > "\$OUT_FASTA"
     printf 'old_header\\tnew_header\\n' > "\$HEADER_MAP"
     : > "\$MANIFEST_RECORD"
     : > "\$MODULE3_MANIFEST_RECORD"
 
-    if [[ ! -s "\$UNMAPPED_FASTQ" ]]; then
-        echo "WARNING: staged unmapped FASTQ is missing or empty: \$UNMAPPED_FASTQ" >> "\$LOG_FILE"
-        printf 'UNMAPPED_RECORDS=0\\nUNMAPPED_PAIRS=0\\n' > unmapped_count.env
-    else
-        echo "Testing gzip integrity of staged unmapped FASTQ..." >> "\$LOG_FILE"
-        gzip -t "\$UNMAPPED_FASTQ" >> "\$LOG_FILE" 2>&1 || {
-            echo "ERROR: staged unmapped FASTQ failed gzip test: \$UNMAPPED_FASTQ" >> "\$LOG_FILE"
-            exit 1
-        }
-
-        python3 - "\$UNMAPPED_FASTQ" > unmapped_count.env <<'PY'
-import gzip
-import sys
-
-fastq = sys.argv[1]
-
-lines = 0
-
-with gzip.open(fastq, "rt", errors="replace") as handle:
-    for _ in handle:
-        lines += 1
-
-if_bad = lines % 4
-if if_bad != 0:
-    raise SystemExit("ERROR: FASTQ line count not divisible by 4: {}".format(lines))
-
-records = lines // 4
-pairs = records // 2
-
-print("UNMAPPED_RECORDS={}".format(records))
-print("UNMAPPED_PAIRS={}".format(pairs))
-PY
+    UNMAPPED_RECORDS=0
+    if [[ -s "\$UNMAPPED_FASTQ" ]]; then
+        gzip -t "\$UNMAPPED_FASTQ" >> "\$LOG_FILE" 2>&1
+        UNMAPPED_RECORDS="\$(gzip -cd "\$UNMAPPED_FASTQ" | awk 'END { print NR / 4 }')"
     fi
-
-    echo "Count env file:" >> "\$LOG_FILE"
-    cat unmapped_count.env >> "\$LOG_FILE" 2>&1 || true
-    echo "----------------------------------------" >> "\$LOG_FILE"
-
-    # Load counts robustly.
-    set -a
-    source unmapped_count.env
-    set +a
-
-    UNMAPPED_RECORDS="\${UNMAPPED_RECORDS:-0}"
-    UNMAPPED_PAIRS="\${UNMAPPED_PAIRS:-0}"
-
-    echo "Loaded unmapped FASTQ records: \$UNMAPPED_RECORDS" >> "\$LOG_FILE"
-    echo "Loaded unmapped pairs/fragments: \$UNMAPPED_PAIRS" >> "\$LOG_FILE"
-    echo "----------------------------------------" >> "\$LOG_FILE"
+    UNMAPPED_PAIRS="\$((UNMAPPED_RECORDS / 2))"
 
     SRC_FASTA=""
     ASSEMBLER_EXIT_STATUS=0
@@ -919,265 +940,117 @@ PY
     if [[ "\$UNMAPPED_RECORDS" -eq 0 || "\$UNMAPPED_PAIRS" -eq 0 ]]; then
         ASSEMBLY_STATUS="skipped_no_unmapped_reads"
         ASSEMBLY_MESSAGE="No unmapped reads available"
-        echo "No unmapped reads available according to loaded counts; skipping MEGAHIT." >> "\$LOG_FILE"
-
-    else
-        ln -sfn "\$UNMAPPED_FASTQ" input_unmapped_interleaved.fastq.gz
-
-        echo "Linked MEGAHIT input:" >> "\$LOG_FILE"
-        ls -lh input_unmapped_interleaved.fastq.gz >> "\$LOG_FILE" 2>&1 || true
-        readlink -f input_unmapped_interleaved.fastq.gz >> "\$LOG_FILE" 2>&1 || true
-        echo "----------------------------------------" >> "\$LOG_FILE"
-
+    elif [[ "\$ASSEMBLER" == "megahit" ]]; then
         if ! command -v megahit >/dev/null 2>&1; then
             ASSEMBLER_EXIT_STATUS=127
             ASSEMBLY_STATUS="tool_missing"
             ASSEMBLY_MESSAGE="megahit not available"
-            echo "ERROR: megahit not available after tool setup." >> "\$LOG_FILE"
-
         else
-            echo "MEGAHIT executable: \$(command -v megahit)" >> "\$LOG_FILE"
-            echo "Running MEGAHIT..." >> "\$LOG_FILE"
-            echo "Command:" >> "\$LOG_FILE"
-            echo "megahit --12 input_unmapped_interleaved.fastq.gz -t ${task.cpus} -o megahit_subtractive_out --presets ${params.megahit_preset}" >> "\$LOG_FILE"
-            echo "----------------------------------------" >> "\$LOG_FILE"
-
             set +e
-            megahit \\
-                --12 input_unmapped_interleaved.fastq.gz \\
-                -t ${task.cpus} \\
-                -o megahit_subtractive_out \\
-                --presets ${params.megahit_preset} \\
-                >> "\$LOG_FILE" 2>&1
+            megahit --12 "\$UNMAPPED_FASTQ" -t ${task.cpus} -o "\$RAW_OUT" --presets ${params.megahit_preset} >> "\$LOG_FILE" 2>&1
             ASSEMBLER_EXIT_STATUS="\$?"
             set -e
-
-            echo "----------------------------------------" >> "\$LOG_FILE"
-            echo "MEGAHIT exit status: \$ASSEMBLER_EXIT_STATUS" >> "\$LOG_FILE"
-
             if [[ "\$ASSEMBLER_EXIT_STATUS" -ne 0 ]]; then
                 ASSEMBLY_STATUS="failed_nonfatal"
                 ASSEMBLY_MESSAGE="MEGAHIT exited non-zero"
-                echo "WARNING: MEGAHIT exited non-zero. Continuing with empty assembly output." >> "\$LOG_FILE"
-
-            elif [[ -s megahit_subtractive_out/final.contigs.fa ]]; then
-                SRC_FASTA="megahit_subtractive_out/final.contigs.fa"
-                ASSEMBLY_STATUS="completed"
+            elif [[ -s "\$RAW_OUT/final.contigs.fa" ]]; then
+                SRC_FASTA="\$RAW_OUT/final.contigs.fa"
                 ASSEMBLY_MESSAGE="MEGAHIT completed and produced contigs"
-                echo "MEGAHIT produced contigs: \$SRC_FASTA" >> "\$LOG_FILE"
-                ls -lh "\$SRC_FASTA" >> "\$LOG_FILE" 2>&1 || true
-
             else
                 ASSEMBLY_STATUS="no_contigs"
                 ASSEMBLY_MESSAGE="MEGAHIT produced no contigs"
-                echo "WARNING: MEGAHIT completed but produced no contigs." >> "\$LOG_FILE"
-                echo "MEGAHIT output directory listing:" >> "\$LOG_FILE"
-                find megahit_subtractive_out -maxdepth 2 -type f -print >> "\$LOG_FILE" 2>&1 || true
             fi
         fi
-
-        if [[ -n "\$SRC_FASTA" && -s "\$SRC_FASTA" ]]; then
-            echo "Renaming MEGAHIT contigs..." >> "\$LOG_FILE"
-
-            python3 - "\$SRC_FASTA" "\$OUT_FASTA" "\$HEADER_MAP" "\$ASSEMBLY_SAMPLE_ID" <<'PY'
-import re
-import sys
-
-src, out_fa, hmap, sample = sys.argv[1:]
-
-idx = 0
-
-with open(src) as inp, open(out_fa, "w") as out, open(hmap, "w") as hm:
-    print("old_header", "new_header", sep="\\t", file=hm)
-
-    for line in inp:
-        line = line.rstrip("\\n")
-
-        if line.startswith(">"):
-            idx += 1
-
-            old = line[1:].strip()
-            token = old.split()[0] if old else "contig_{}".format(idx)
-
-            m = re.search(r'(k\\d+)_(\\d+)', token)
-
-            if m:
-                new = "{}_D_{}_{}".format(sample, m.group(1), m.group(2))
-            else:
-                new = "{}_D_k000_{}".format(sample, idx)
-
-            print(">{}".format(new), file=out)
-            print(old, new, sep="\\t", file=hm)
-
-        else:
-            print(line.strip(), file=out)
-PY
+    else
+        if ! command -v metaspades.py >/dev/null 2>&1; then
+            ASSEMBLER_EXIT_STATUS=127
+            ASSEMBLY_STATUS="tool_missing"
+            ASSEMBLY_MESSAGE="metaspades.py not available"
+        else
+            METASPADES_MEMORY_ARG=""
+            if [[ "${params.metaspades_memory_gb}" -gt 0 ]]; then
+                METASPADES_MEMORY_ARG="-m ${params.metaspades_memory_gb}"
+            fi
+            set +e
+            metaspades.py --12 "\$UNMAPPED_FASTQ" -t ${task.cpus} \$METASPADES_MEMORY_ARG -o "\$RAW_OUT" >> "\$LOG_FILE" 2>&1
+            ASSEMBLER_EXIT_STATUS="\$?"
+            set -e
+            if [[ "\$ASSEMBLER_EXIT_STATUS" -ne 0 ]]; then
+                ASSEMBLY_STATUS="failed_nonfatal"
+                ASSEMBLY_MESSAGE="metaSPAdes exited non-zero"
+            elif [[ -s "\$RAW_OUT/scaffolds.fasta" ]]; then
+                SRC_FASTA="\$RAW_OUT/scaffolds.fasta"
+                ASSEMBLY_MESSAGE="metaSPAdes completed and produced scaffolds"
+            elif [[ -s "\$RAW_OUT/contigs.fasta" ]]; then
+                SRC_FASTA="\$RAW_OUT/contigs.fasta"
+                ASSEMBLY_MESSAGE="metaSPAdes completed and produced contigs"
+            else
+                ASSEMBLY_STATUS="no_contigs"
+                ASSEMBLY_MESSAGE="metaSPAdes produced no contigs"
+            fi
         fi
     fi
 
-    python3 - \\
-        "\$OUT_FASTA" \\
-        "\$STATS_FILE" \\
-        "\$MANIFEST_RECORD" \\
-        "\$MODULE3_MANIFEST_RECORD" \\
-        "\$SAMPLE_ID" \\
-        "\$SAFE_ID" \\
-        "\$ASSEMBLY_SAMPLE_ID" \\
-        "\$ASSEMBLER" \\
-        "\$UNMAPPED_RECORDS" \\
-        "\$UNMAPPED_PAIRS" \\
-        "\$ASSEMBLER_EXIT_STATUS" \\
-        "\$ASSEMBLY_STATUS" \\
-        "\$ASSEMBLY_MESSAGE" \\
-        "${params.outdir}/assemblies/\$OUT_FASTA" \\
-        "\$TASK_DIR/\$OUT_FASTA" <<'PY'
+    if [[ -n "\$SRC_FASTA" && -s "\$SRC_FASTA" ]]; then
+        python3 - "\$SRC_FASTA" "\$OUT_FASTA" "\$HEADER_MAP" "\$ASSEMBLY_SAMPLE_ID" "\$STRATEGY" <<'PY2'
+import re
+import sys
+
+src, out_fa, hmap, sample, strategy = sys.argv[1:]
+with open(src) as inp, open(out_fa, 'w') as out, open(hmap, 'w') as hm:
+    print('old_header', 'new_header', sep='\t', file=hm)
+    for idx, line in enumerate(inp):
+        if line.startswith('>'):
+            old = line[1:].strip()
+            token = old.split()[0] if old else f'contig_{idx}'
+            suffix = re.sub(r'[^A-Za-z0-9._-]+', '_', token)
+            new = f'{sample}_{strategy}_{suffix}'
+            print(f'>{new}', file=out)
+            print(old, new, sep='\t', file=hm)
+        else:
+            print(line.strip(), file=out)
+PY2
+    fi
+
+    DURABLE_ASSEMBLIES_DIR="${durable_module5_outdir}/assemblies"
+    DURABLE_OUT_FASTA="\$DURABLE_ASSEMBLIES_DIR/\$OUT_FASTA"
+    mkdir -p "\$DURABLE_ASSEMBLIES_DIR"
+    cp -f "\$OUT_FASTA" "\$DURABLE_OUT_FASTA"
+
+    python3 - "\$OUT_FASTA" "\$STATS_FILE" "\$MANIFEST_RECORD" "\$MODULE3_MANIFEST_RECORD" "\$SAMPLE_ID" "\$SAFE_ID" "\$ASSEMBLY_SAMPLE_ID" "\$ASSEMBLER" "\$STRATEGY" "\$UNMAPPED_RECORDS" "\$UNMAPPED_PAIRS" "\$ASSEMBLER_EXIT_STATUS" "\$ASSEMBLY_STATUS" "\$ASSEMBLY_MESSAGE" "\$DURABLE_OUT_FASTA" <<'PY2'
 import sys
 from pathlib import Path
 
-(
-    fasta,
-    stats_file,
-    manifest_record,
-    module3_manifest_record,
-    sample_id,
-    safe_id,
-    assembly_sample_id,
-    assembler,
-    unmapped_records,
-    unmapped_pairs,
-    assembler_exit_status,
-    assembly_status,
-    assembly_message,
-    published_fasta,
-    task_fasta,
-) = sys.argv[1:]
+(fasta, stats, manifest, module3_manifest, sample, safe, assembly_sample, assembler, strategy,
+ unmapped_records, unmapped_pairs, exit_status, status, message, published) = sys.argv[1:]
+lengths, current, seen = [], 0, False
+for line in Path(fasta).open():
+    if line.startswith('>'):
+        if seen: lengths.append(current)
+        current, seen = 0, True
+    else:
+        current += len(line.strip())
+if seen: lengths.append(current)
+ordered = sorted(lengths, reverse=True)
+half, running, n50 = sum(ordered) / 2, 0, 0
+for length in ordered:
+    running += length
+    if running >= half:
+        n50 = length
+        break
+with open(stats, 'w') as out:
+    print('sample_id', 'safe_sample_id', 'assembly_sample_id', 'assembler', 'assembly_mode', 'unmapped_fastq_records', 'unmapped_pairs_or_fragments', 'contigs', 'total_bp', 'max_contig_bp', 'n50_bp', 'assembler_exit_status', 'assembly_status', 'assembly_message', 'renamed_fasta', sep='\t', file=out)
+    print(sample, safe, assembly_sample, assembler, 'subtractive', unmapped_records, unmapped_pairs, len(lengths), sum(lengths), max(lengths) if lengths else 0, n50, exit_status, status, message, published, sep='\t', file=out)
+with open(manifest, 'w') as out:
+    print(sample, safe, assembly_sample, assembler, 'subtractive', published, sep='\t', file=out)
+with open(module3_manifest, 'w') as out:
+    if lengths:
+        print(sample, safe, assembly_sample, assembler, 'subtractive', '', strategy, published, sep='\t', file=out)
+PY2
 
-fasta = Path(fasta)
-
-lengths = []
-cur = 0
-seen = False
-
-if fasta.exists():
-    with fasta.open() as handle:
-        for line in handle:
-            line = line.rstrip("\\n")
-
-            if line.startswith(">"):
-                if seen:
-                    lengths.append(cur)
-
-                cur = 0
-                seen = True
-
-            else:
-                cur += len(line.strip())
-
-    if seen:
-        lengths.append(cur)
-
-def n50(values):
-    if not values:
-        return 0
-
-    values = sorted(values, reverse=True)
-    half = sum(values) / 2.0
-    running = 0
-
-    for value in values:
-        running += value
-        if running >= half:
-            return value
-
-    return 0
-
-contigs = len(lengths)
-total_bp = sum(lengths)
-max_contig = max(lengths) if lengths else 0
-n50_value = n50(lengths)
-
-with open(stats_file, "w") as out:
-    print(
-        "sample_id",
-        "safe_sample_id",
-        "assembly_sample_id",
-        "assembler",
-        "assembly_mode",
-        "unmapped_fastq_records",
-        "unmapped_pairs_or_fragments",
-        "contigs",
-        "total_bp",
-        "max_contig_bp",
-        "n50_bp",
-        "assembler_exit_status",
-        "assembly_status",
-        "assembly_message",
-        "renamed_fasta",
-        sep="\\t",
-        file=out,
-    )
-
-    print(
-        sample_id,
-        safe_id,
-        assembly_sample_id,
-        assembler,
-        "subtractive",
-        unmapped_records,
-        unmapped_pairs,
-        contigs,
-        total_bp,
-        max_contig,
-        n50_value,
-        assembler_exit_status,
-        assembly_status,
-        assembly_message,
-        published_fasta,
-        sep="\\t",
-        file=out,
-    )
-
-with open(manifest_record, "w") as out:
-    print(
-        sample_id,
-        safe_id,
-        assembly_sample_id,
-        assembler,
-        "subtractive",
-        published_fasta,
-        sep="\\t",
-        file=out,
-    )
-
-with open(module3_manifest_record, "w") as out:
-    if contigs > 0:
-        print(
-            sample_id,
-            safe_id,
-            assembly_sample_id,
-            assembler,
-            "subtractive",
-            "",
-            "D",
-            task_fasta,
-            sep="\\t",
-            file=out,
-        )
-PY
-
-    CONTIG_COUNT="\$(grep -c '^>' "\$OUT_FASTA" || true)"
-
-    echo "----------------------------------------" >> "\$LOG_FILE"
     echo "Final assembly status: \$ASSEMBLY_STATUS" >> "\$LOG_FILE"
-    echo "Final assembly message: \$ASSEMBLY_MESSAGE" >> "\$LOG_FILE"
-    echo "Assembler exit status: \$ASSEMBLER_EXIT_STATUS" >> "\$LOG_FILE"
-    echo "Output renamed FASTA: \$OUT_FASTA" >> "\$LOG_FILE"
-    echo "Output contigs: \$CONTIG_COUNT" >> "\$LOG_FILE"
-    echo "Output files:" >> "\$LOG_FILE"
-    ls -lh "\$OUT_FASTA" "\$HEADER_MAP" "\$STATS_FILE" "\$MANIFEST_RECORD" "\$MODULE3_MANIFEST_RECORD" >> "\$LOG_FILE" 2>&1 || true
-
-    rm -rf megahit_subtractive_out input_unmapped_interleaved.fastq.gz unmapped_count.env
-
+    echo "Output contigs: \$(grep -c '^>' "\$OUT_FASTA" || true)" >> "\$LOG_FILE"
+    rm -rf "\$RAW_OUT"
     echo "Subtractive assembly finished: \$(date)" >> "\$LOG_FILE"
     """
 }
@@ -1221,7 +1094,7 @@ process WRITE_SUBTRACTIVE_MAPPING_SUMMARY {
 process WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES {
     tag "write_subtractive_assembly_summaries"
 
-    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_assembly_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_assembly_summary_manifest.tsv"
 
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_assembly_stats_summary.tsv"
 
@@ -1230,7 +1103,7 @@ process WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES {
     path stats_files
 
     output:
-    path "subtractive_assembly_manifest.tsv", emit: manifest
+    path "subtractive_assembly_summary_manifest.tsv", emit: manifest
     path "subtractive_assembly_stats_summary.tsv", emit: stats_summary
 
     script:
@@ -1249,10 +1122,10 @@ process WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES {
     """
     set -euo pipefail
 
-    printf 'sample_id\\tsafe_sample_id\\tassembly_sample_id\\tassembler\\tassembly_mode\\trenamed_fasta\\n' > subtractive_assembly_manifest.tsv
+    printf 'sample_id\\tsafe_sample_id\\tassembly_sample_id\\tassembler\\tassembly_mode\\trenamed_fasta\\n' > subtractive_assembly_summary_manifest.tsv
 
     for f in ${manifest_file_list}; do
-        cat "\$f" >> subtractive_assembly_manifest.tsv
+        cat "\$f" >> subtractive_assembly_summary_manifest.tsv
     done
 
     first=1
@@ -1273,7 +1146,8 @@ process WRITE_SUBTRACTIVE_ASSEMBLY_SUMMARIES {
 process WRITE_SUBTRACTIVE_MODULE3_INPUTS {
     tag "write_subtractive_module3_inputs"
 
-    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_*_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_trimmed_manifest.tsv"
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "subtractive_module3_assembly_manifest.tsv"
 
     input:
     path trimmed_manifest_records
@@ -1281,7 +1155,7 @@ process WRITE_SUBTRACTIVE_MODULE3_INPUTS {
 
     output:
     path "subtractive_trimmed_manifest.tsv", emit: trimmed_manifest
-    path "subtractive_assembly_manifest.tsv", emit: assembly_manifest
+    path "subtractive_module3_assembly_manifest.tsv", emit: assembly_manifest
 
     script:
     def trimmed_files = trimmed_manifest_records
@@ -1309,12 +1183,12 @@ process WRITE_SUBTRACTIVE_MODULE3_INPUTS {
         done
     fi
 
-    printf 'sample_id\\tsafe_sample_id\\tassembly_sample_id\\tassembler\\tassembly_mode\\trarefaction_label\\tassembly_strategy\\trenamed_fasta\\n' > subtractive_assembly_manifest.tsv
+    printf 'sample_id\\tsafe_sample_id\\tassembly_sample_id\\tassembler\\tassembly_mode\\trarefaction_label\\tassembly_strategy\\trenamed_fasta\\n' > subtractive_module3_assembly_manifest.tsv
 
     if [[ -n "${assembly_files}" ]]; then
         for f in ${assembly_files}; do
             if [[ -s "\$f" ]]; then
-                cat "\$f" >> subtractive_assembly_manifest.tsv
+                cat "\$f" >> subtractive_module3_assembly_manifest.tsv
             fi
         done
     fi
@@ -1359,7 +1233,8 @@ process RUN_SECOND_PASS_BINNING {
     set -euo pipefail
 
     LOG_FILE="second_pass_binning.log"
-    SECOND_PASS_BINNING_MANIFEST="${params.secondpass_dir}/module_3_binning/summary/binning_manifest.tsv"
+    SECOND_PASS_MODULE3_DIR="${params.secondpass_dir}/module_3_binning"
+    SECOND_PASS_BINNING_MANIFEST="\$SECOND_PASS_MODULE3_DIR/summary/binning_manifest.tsv"
 
     echo "Second-pass binning started: \$(date)" > "\$LOG_FILE"
     echo "Subtractive trimmed manifest: ${subtractive_trimmed_manifest}" >> "\$LOG_FILE"
@@ -1395,6 +1270,14 @@ process RUN_SECOND_PASS_BINNING {
 
     SUB_TRIMMED="\$(pwd -P)/${subtractive_trimmed_manifest}"
     SUB_ASSEMBLY="\$(pwd -P)/${subtractive_assembly_manifest}"
+
+    # Module 3 writes its results below a persistent second-pass directory. Remove
+    # the prior Module 3 result tree so its manifest cannot be mistaken for output
+    # from this invocation.
+    if [[ -e "\$SECOND_PASS_MODULE3_DIR" ]]; then
+        echo "Removing previous Module 3 second-pass output: \$SECOND_PASS_MODULE3_DIR" >> "\$LOG_FILE"
+        rm -rf "\$SECOND_PASS_MODULE3_DIR"
+    fi
 
     set +e
     ${params.nextflow_exe} run "${params.module3_script}" \\
@@ -1443,6 +1326,24 @@ process RUN_SECOND_PASS_BINNING {
 }
 
 
+process WRITE_SECOND_PASS_DISABLED_STATUS {
+    tag "second_pass_disabled"
+
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "final_joint_refinement_status.tsv"
+
+    output:
+    path "final_joint_refinement_status.tsv", emit: status
+
+    script:
+    """
+    set -euo pipefail
+
+    printf 'step\\tstatus\\texit_status\\tmessage\\n' > final_joint_refinement_status.tsv
+    printf 'final_joint_refinement\\tskipped_second_pass_disabled\\t0\\tSecond-pass binning and final joint refinement disabled; using original Module 4 refined MAGs\\n' >> final_joint_refinement_status.tsv
+    """
+}
+
+
 process COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS {
     tag "combine_original_and_subtractive_binning_manifests"
 
@@ -1468,6 +1369,7 @@ process COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS {
     LOG_FILE="combine_binning_manifests.log"
 
     ORIGINAL="${original_binning_manifest}"
+    SECOND_PASS_STATUS_FILE="${second_pass_binning_status}"
     SUBTRACTIVE="${params.secondpass_dir}/module_3_binning/summary/binning_manifest.tsv"
     OUT="combined_original_plus_subtractive_binning_manifest.tsv"
     STATS="combined_original_plus_subtractive_binning_manifest_stats.tsv"
@@ -1475,12 +1377,26 @@ process COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS {
     echo "Combining original and subtractive binning manifests: \$(date)" > "\$LOG_FILE"
     echo "Original manifest: \$ORIGINAL" >> "\$LOG_FILE"
     echo "Subtractive manifest: \$SUBTRACTIVE" >> "\$LOG_FILE"
-    echo "Second-pass binning status: ${second_pass_binning_status}" >> "\$LOG_FILE"
+    echo "Second-pass binning status file: \$SECOND_PASS_STATUS_FILE" >> "\$LOG_FILE"
 
     if [[ ! -s "\$ORIGINAL" ]]; then
         echo "ERROR: Original binning manifest is missing or empty: \$ORIGINAL" >> "\$LOG_FILE"
         exit 1
     fi
+
+    if [[ ! -s "\$SECOND_PASS_STATUS_FILE" ]]; then
+        echo "ERROR: second-pass binning status is missing or empty: \$SECOND_PASS_STATUS_FILE" >> "\$LOG_FILE"
+        exit 1
+    fi
+
+    SECOND_PASS_STATUS="\$(tail -n 1 "\$SECOND_PASS_STATUS_FILE" | cut -f2 | tr -d '[:space:]')"
+
+    if [[ -z "\$SECOND_PASS_STATUS" ]]; then
+        echo "ERROR: could not determine second-pass binning status." >> "\$LOG_FILE"
+        exit 1
+    fi
+
+    echo "Second-pass status: \$SECOND_PASS_STATUS" >> "\$LOG_FILE"
 
     HEADER="\$(head -n 1 "\$ORIGINAL")"
     printf '%s\\n' "\$HEADER" > "\$OUT"
@@ -1490,11 +1406,16 @@ process COMBINE_ORIGINAL_AND_SUBTRACTIVE_BINNING_MANIFESTS {
 
     tail -n +2 "\$ORIGINAL" | awk 'NF > 0' >> "\$OUT"
 
-    if [[ -s "\$SUBTRACTIVE" ]]; then
+    if [[ "\$SECOND_PASS_STATUS" == "completed" ]]; then
+        if [[ ! -s "\$SUBTRACTIVE" ]]; then
+            echo "ERROR: second-pass status is completed, but subtractive binning manifest is missing or empty: \$SUBTRACTIVE" >> "\$LOG_FILE"
+            exit 1
+        fi
+
         SUBTRACTIVE_ROWS="\$(tail -n +2 "\$SUBTRACTIVE" | awk 'NF > 0' | wc -l | tr -d ' ')"
         tail -n +2 "\$SUBTRACTIVE" | awk 'NF > 0' >> "\$OUT"
     else
-        echo "WARNING: subtractive binning manifest missing or empty. Final joint refinement will use original bins only." >> "\$LOG_FILE"
+        echo "Second-pass status is \$SECOND_PASS_STATUS; not using the subtractive manifest. Final joint refinement will use original bins only." >> "\$LOG_FILE"
     fi
 
     TOTAL_ROWS="\$(tail -n +2 "\$OUT" | awk 'NF > 0' | wc -l | tr -d ' ')"
@@ -1550,6 +1471,7 @@ process RUN_FINAL_JOINT_REFINEMENT {
     set -euo pipefail
 
     LOG_FILE="final_joint_refinement.log"
+    FINAL_JOINT_MODULE4_DIR="${params.final_joint_dir}/module_4_binrefinement"
 
     echo "Final joint refinement started: \$(date)" > "\$LOG_FILE"
     echo "Combined binning manifest: ${combined_binning_manifest}" >> "\$LOG_FILE"
@@ -1588,6 +1510,14 @@ process RUN_FINAL_JOINT_REFINEMENT {
     fi
 
     COMBINED="\$(pwd -P)/${combined_binning_manifest}"
+
+    # Module 4 writes its results below a persistent final-joint directory. Remove
+    # the prior Module 4 result tree so its manifest cannot be mistaken for output
+    # from this invocation.
+    if [[ -e "\$FINAL_JOINT_MODULE4_DIR" ]]; then
+        echo "Removing previous Module 4 final-joint output: \$FINAL_JOINT_MODULE4_DIR" >> "\$LOG_FILE"
+        rm -rf "\$FINAL_JOINT_MODULE4_DIR"
+    fi
 
     set +e
     ${params.nextflow_exe} run "${params.module4_script}" \\
@@ -1633,6 +1563,14 @@ process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
     set -euo pipefail
 
     LOG_FILE="build_final_mag_database.log"
+    PUBLISHED_FINAL_MAG_DIR="${params.outdir}/final_mag_database"
+
+    echo "Final MAG database construction started: \$(date)" > "\$LOG_FILE"
+
+    if [[ -e "\$PUBLISHED_FINAL_MAG_DIR" ]]; then
+        echo "Removing previous published final MAG database: \$PUBLISHED_FINAL_MAG_DIR" >> "\$LOG_FILE"
+        rm -rf "\$PUBLISHED_FINAL_MAG_DIR"
+    fi
 
     FINAL_STATUS="\$(tail -n 1 "${final_joint_refinement_status}" | cut -f2 || true)"
     FINAL_MESSAGE="\$(tail -n 1 "${final_joint_refinement_status}" | cut -f4- || true)"
@@ -1640,29 +1578,19 @@ process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
     FINAL_JOINT_MANIFEST="${params.final_joint_dir}/module_4_binrefinement/summary/magscot_refined_bins_manifest.tsv"
     ORIGINAL_REFINED_MANIFEST="${params.module4_outdir}/summary/magscot_refined_bins_manifest.tsv"
 
-    FINAL_JOINT_REFINED_BINS_DIR="${params.final_joint_dir}/module_4_binrefinement/refined_bins"
-    ORIGINAL_REFINED_BINS_DIR="${params.module4_outdir}/refined_bins"
-
-    echo "Final MAG database construction started: \$(date)" > "\$LOG_FILE"
     echo "Final joint refinement status file: ${final_joint_refinement_status}" >> "\$LOG_FILE"
     echo "Final status: \$FINAL_STATUS" >> "\$LOG_FILE"
     echo "Final message: \$FINAL_MESSAGE" >> "\$LOG_FILE"
     echo "Final joint refined MAG manifest: \$FINAL_JOINT_MANIFEST" >> "\$LOG_FILE"
     echo "Original refined MAG manifest: \$ORIGINAL_REFINED_MANIFEST" >> "\$LOG_FILE"
-    echo "Final joint refined MAG directory: \$FINAL_JOINT_REFINED_BINS_DIR" >> "\$LOG_FILE"
-    echo "Original refined MAG directory: \$ORIGINAL_REFINED_BINS_DIR" >> "\$LOG_FILE"
-
     mkdir -p final_mag_database
 
     if [[ "\$FINAL_STATUS" == "completed" ]]; then
         SELECTED_MANIFEST="\$FINAL_JOINT_MANIFEST"
-        SELECTED_REFINED_BINS_DIR="\$FINAL_JOINT_REFINED_BINS_DIR"
         FINAL_DATABASE_MODE="final_joint_refinement"
-    elif [[ "\$FINAL_STATUS" == "skipped_no_new_mags" || "\$FINAL_STATUS" == "skipped_no_bins" ]]; then
-        echo "No new MAGs were added with subtractive assembly." >> "\$LOG_FILE"
+    elif [[ "\$FINAL_STATUS" == "skipped_no_new_mags" || "\$FINAL_STATUS" == "skipped_no_bins" || "\$FINAL_STATUS" == "skipped_second_pass_disabled" ]]; then
         echo "Using original Module 4 refined MAGs as final MAG database." >> "\$LOG_FILE"
         SELECTED_MANIFEST="\$ORIGINAL_REFINED_MANIFEST"
-        SELECTED_REFINED_BINS_DIR="\$ORIGINAL_REFINED_BINS_DIR"
         FINAL_DATABASE_MODE="original_refined_mags_only"
     else
         echo "ERROR: Final joint refinement did not complete or skip cleanly." >> "\$LOG_FILE"
@@ -1670,17 +1598,7 @@ process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
         exit 1
     fi
 
-    echo "Copying refined MAGs from: \$SELECTED_REFINED_BINS_DIR" >> "\$LOG_FILE"
-
-    if [[ -d "\$SELECTED_REFINED_BINS_DIR" ]]; then
-        if compgen -G "\$SELECTED_REFINED_BINS_DIR/*.fa" > /dev/null; then
-            cp -v "\$SELECTED_REFINED_BINS_DIR"/*.fa final_mag_database/ >> "\$LOG_FILE" 2>&1
-        else
-            echo "WARNING: no .fa files found in: \$SELECTED_REFINED_BINS_DIR" >> "\$LOG_FILE"
-        fi
-    else
-        echo "WARNING: refined MAG directory does not exist: \$SELECTED_REFINED_BINS_DIR" >> "\$LOG_FILE"
-    fi
+    echo "Building final MAG database from selected manifest: \$SELECTED_MANIFEST" >> "\$LOG_FILE"
 
     python3 - \\
         "\$SELECTED_MANIFEST" \\
@@ -1707,7 +1625,8 @@ from pathlib import Path
     published_final_dir
 ) = sys.argv[1:]
 
-selected_manifest = Path(selected_manifest)
+selected_manifest = Path(selected_manifest).resolve()
+selected_manifest_dir = selected_manifest.parent
 final_dir = Path(final_dir)
 final_manifest = Path(final_manifest)
 final_stats = Path(final_stats)
@@ -1747,6 +1666,16 @@ def fasta_stats(path):
         bp += cur
     return contigs, bp
 
+def copy_as_plain_fasta(source, destination):
+    source = Path(source)
+    destination = Path(destination)
+
+    if str(source).endswith(".gz"):
+        with gzip.open(source, "rt", errors="replace") as inp, destination.open("w") as out:
+            shutil.copyfileobj(inp, out)
+    else:
+        shutil.copyfile(source, destination)
+
 rows = []
 manifest_rows = 0
 
@@ -1783,6 +1712,12 @@ with final_manifest.open("w") as out:
 
     for idx, (bin_id, fasta) in enumerate(rows, start=1):
         fasta = Path(fasta)
+
+        if not fasta.is_absolute():
+            fasta = selected_manifest_dir / fasta
+
+        fasta = fasta.resolve()
+
         if not fasta.exists():
             log(f"WARNING: missing source MAG FASTA: {fasta}")
             missing += 1
@@ -1799,7 +1734,7 @@ with final_manifest.open("w") as out:
         seen_names.add(name)
         dest = final_dir / name
 
-        shutil.copyfile(fasta, dest)
+        copy_as_plain_fasta(fasta, dest)
 
         contigs, bp = fasta_stats(dest)
 

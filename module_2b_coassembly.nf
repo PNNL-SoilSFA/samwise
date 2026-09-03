@@ -61,7 +61,7 @@ workflow {
     log.info("Using co-assembly groups table: ${params.coassembly_groups}")
     log.info("Writing Module 2b outputs to: ${params.outdir}")
     log.info("Assembler: MEGAHIT only")
-    log.info("Assembly strategy letter: E")
+    log.info("Assembly strategy letter: G")
     log.info("Threads: ${params.threads ?: params.assembly_threads}")
     log.info("MEGAHIT thread override: ${params.megahit_threads ?: 'not supplied'}")
     log.info("Global memory: ${(params.memory_gb as int) > 0 ? params.memory_gb + ' GB' : 'not supplied'}")
@@ -112,6 +112,7 @@ workflow {
 
 process SETUP_MODULE2B_TOOLS {
     tag "setup_megahit"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module2b_tools_status.env"
 
@@ -622,7 +623,7 @@ process ASSEMBLE_COASSEMBLY {
     SAFE_GROUP_ID="${safe_group_id}"
     ASSEMBLER="megahit"
     MODE="coassembly"
-    ASSEMBLY_STRATEGY="E"
+    ASSEMBLY_STRATEGY="G"
     ASSEMBLY_STATUS="ok"
     ASSEMBLY_WARNING=""
 
@@ -701,7 +702,7 @@ paired_count = 0
 interleaved_count = 0
 records_written = 0
 
-with group_reads_tsv.open() as inp, gzip.open(out_fastq, "wt", compressionlevel=4) as out:
+with group_reads_tsv.open() as inp, gzip.open(out_fastq, "wt", compresslevel=4) as out:
     reader = csv.DictReader(inp, delimiter="\\t")
 
     required = {

@@ -48,28 +48,35 @@ nextflow run module_1_readtrimming.nf \
 --working_dir ./samwise-main \
 --threads 36
 
-# Assemble your reads
+# Assemble reads in parallel across SLURM nodes
 nextflow run module_2_readassembly.nf \
+-c ./bin/module_2_slurm.config \
 --working_dir ./samwise-main \
+--slurm_account ChargeAccountID \
 --threads 36 \
 --memory_gb 0 \
+--max_parallel_assemblies 8 \
 --megahit \
 --metaspades \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
 
-#NOTE: If you want to run these assemblies in parallel across multiple nodes,
-#you can modify your code to include the following flags:
+# Keep --memory_gb 0 with this SLURM config: each assembly receives a whole
+# node and auto-detects its available memory. Adjust --max_parallel_assemblies
+# to the number of simultaneous assembly jobs permitted by your allocation.
 
-#-c ./bin/module_2_slurm.config \
-#--slurm_account ChargeAccountID \
-#--max_parallel_assemblies 8
-
+# Coassemble each group in parallel across SLURM nodes
 nextflow run module_2b_coassembly.nf \
+-c ./bin/module_2b_slurm.config \
 --working_dir ./samwise-main \
 --coassembly_groups ./coassembly_manifest.txt \
+--slurm_account ChargeAccountID \
 --threads 36 \
---memory_gb 0
+--memory_gb 0 \
+--max_parallel_coassemblies 4
+
+# Each distinct group becomes one MEGAHIT job. Keep --memory_gb 0 with this
+# SLURM profile; set --max_parallel_coassemblies to the allowed group-job count.
 
 #check the module notes for coassembly_manifest.txt examples / format
 
@@ -108,14 +115,7 @@ nextflow run module_6_magannotate.nf \
 --run_microtrait true \
 --threads 36
 
-#Note: If running only 1 binner and not using MAGScoT, you need to pass the MAG manifest from Module 3 directly to Module 6 with: --input_mag_manifest
-
-#Make genome scale metabolic models of MAGs
-nextflow run module_7_gems.nf \
---working_dir ./samwise-main \
---memote_mode run
-
-#Note: This may take a very long time if you have many genomes. Consider subsetting if only interested in a handful of GEMs.
+#Note: If running only 1 binner and not using MAGScoT, pass the MAG manifest from Module 3 directly to Module 6 with --input_mag_manifest.
 
 # To save compute time, you can pre-download the databases before you run module 6.
 # For this, see: CheckM2: https://zenodo.org/records/14897628, gtdbtk: https://ecogenomics.github.io/GTDBTk/installing/index.html,
@@ -126,6 +126,16 @@ nextflow run module_7_gems.nf \
 # --gtdbtk_data_path /path/to/gtdbtk/database_directory
 # --eggnog_data_path /path/to/eggnog/database_directory
 
+nextflow run AuxModule_1_assemblyAnnotate.nf \
+--working_dir ./output_samwise \
+--threads 36 \
+--min_scaffold_bp 1000
+
+nextflow run AuxModule_2_mvp.nf \
+--working_dir ./output_samwise \
+--mvp_modules "0,1,2,3,6" \
+--threads 36 \
+--memory_gb 0
 ```
 
 ```
@@ -229,19 +239,12 @@ nextflow run module_1_readtrimming.nf \
 | `module0_outdir` | `<results_dir>/module_0_readprocess` | Expected Module 0 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_1_readtrimming` | Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 
-```
-*IMPORTANT*
-Currently, rarefied assemblies are set to run as paralell processes to single assemblies to speed things up.
-In theory, they should play nice. However, if you run into issues with clobbering memory, we will be working
-on adding a flag so that the rarefied assemblies run only after single assemblies are complete.
-```
 
 ![SAMWISE step2](images/step_2.png)
 
-`module_2_readassembly.nf` is a workflow for assembly of reads that have been trimmed in module 1. 
-This module will run single assemblies using either `megahit`, `metaspades` or both, and then also 
-do rarefied assemblies (if specified) using `megahit`. It will rename and standardize all assembled
-output scaffolds.
+`module_2_readassembly.nf` assembles reads trimmed by Module 1. It can run single assemblies with `megahit`, `metaspades`, or both; when `--rarefied_assembly` is enabled, it can also run rarefied assemblies with either selected assembler. Final contigs are renamed and standardized for downstream Module 3 binning.
+
+Assembly strategies in `summary/assembly_manifest.tsv` are `A` (single MEGAHIT), `B` (single metaSPAdes), `C` (rarefied MEGAHIT), and `D` (rarefied metaSPAdes).
 
 ## Recommended Usage:
 
@@ -266,12 +269,13 @@ nextflow run module_2_readassembly.nf \
 #if on a mac, megahit running on more than 1 thread doesnt work, so there is an explicit arg:
 #--megahit_threads that you can set separately from the global --threads (which will set it for both)
 
-#NOTE: If you want to run these assemblies in parallel across multiple nodes,
-#you can modify your code to include the following flags:
-
-#-c ./bin/module_2_slurm.config \
-#--slurm_account ChargeAccountID \
-#--max_parallel_assemblies 8
+# For parallel SLURM execution, add these arguments immediately after the
+# workflow filename. Every single and rarefied assembly becomes an sbatch job.
+# Keep --memory_gb 0 because the profile requests the full node memory.
+#
+# -c ./bin/module_2_slurm.config \
+# --slurm_account ChargeAccountID \
+# --max_parallel_assemblies 8
 
 # use `--` for any additional flags as well
 ```
@@ -292,7 +296,7 @@ nextflow run module_2_readassembly.nf \
 | `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 2 assembly tools. |
 | `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
 | `assembly_threads` | `4` | Number of threads to use for assembly if `--threads` is not provided. |
-| `memory_gb` | `0` | Global memory limit in GB for assembly processes. Use `0` to leave memory unset / at max. |
+| `memory_gb` | `0` | Global assembly memory limit in GB. Use `0` to auto-detect memory available to the task and reserve 10% headroom. |
 | `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. This is really only important for mac users that need to specify a single thread for it to work. |
 | `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. Could also use `meta-sensitive` |
 | `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
@@ -309,7 +313,7 @@ write out the output assemblies into a more accessible location, you can set pub
 
 ![SAMWISE step2b](images/step_2b.png)
 
-`module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**. This module is designed to run alongside the normal Module 2 assembly workflow. It produces Module-3-compatible manifests so that Module 3 can automatically bin co-assemblies using the exact concatenated reads that were used to generate each co-assembly.
+`module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**. This module is designed to run alongside the normal Module 2 assembly workflow. It produces Module-3-compatible manifests so that Module 3 can automatically bin co-assemblies using the exact concatenated reads that were used to generate each co-assembly. Coassembly contigs use assembly strategy `G`.
 
 This module needs a co-assembly reads manifest that shows which reads you want to co-assemble.
 
@@ -335,27 +339,21 @@ nextflow run module_2b_coassembly.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 2B outputs are written to `<working_dir>/module_2_readassembly`. |
-| `input_manifest` | `null` | Input manifest file containing reads for assembly. This is typically produced by Module 1 after read trimming. |
-| `output_dir` | `null` | Alternative output directory used only if `--working_dir` is not provided. |
-| `megahit` | `false` | Enables assembly with MEGAHIT. |
-| `metaspades` | `false` | Enables assembly with metaSPAdes. |
-| `single_assembly` | `true` | Performs a single assembly using the available input reads. |
-| `rarefied_assembly` | `false` | Enables rarefied assembly mode. |
-| `rarefaction_splits` | `2` | Number of rarefaction splits to generate when `--rarefied_assembly` is enabled. |
-| `megahit_version` | `1.2.9` | Version of MEGAHIT to install/use. |
-| `spades_version` | `4.2.0` | Version of SPAdes/metaSPAdes to install/use. |
-| `auto_install` | `true` | Whether to automatically install required assembly tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
-| `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 2B assembly tools. |
-| `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
-| `assembly_threads` | `4` | Number of threads to use for assembly if `--threads` is not provided. |
-| `memory_gb` | `0` | Global memory limit in GB for assembly processes. Use `0` to leave memory unset. |
-| `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. |
-| `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. |
-| `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`.|
-| `results_dir` | `null` | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
-| `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
-| `outdir` | `<results_dir>/module_2_readassembly` | Module 2B output directory. Usually derived automatically and does not need to be set directly. |
+| `working_dir` | `null` | Main working/results directory. Module 2B writes to `<working_dir>/module_2b_coassembly`. |
+| `input_manifest` | `null` | Module 1 trimmed-read manifest; defaults to Module 1's `summary/trimmed_manifest.tsv`. |
+| `coassembly_groups` | `null` | Required two-column tab-separated read/sample-to-group manifest. |
+| `output_dir` | `null` | Alternative results directory used when `--working_dir` is not supplied. |
+| `megahit_version` | `1.2.9` | MEGAHIT version to install/use. |
+| `auto_install` | `true` | Install MEGAHIT automatically when it is unavailable. |
+| `tool_env_dir` | `null` | Optional custom environment directory for Module 2B tools. |
+| `threads` | `null` | Global thread override. |
+| `assembly_threads` | `4` | Assembly threads when `--threads` is unset. |
+| `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. |
+| `memory_gb` | `0` | Assembly memory limit in GB; `0` auto-detects available task memory with safety headroom. |
+| `megahit_preset` | `meta-large` | MEGAHIT preset. |
+| `publish_assemblies_mode` | `symlink` | Publication mode for coassembly FASTAs: `symlink`, `copy`, or `move`. |
+| `publish_coassembly_reads_mode` | `symlink` | Publication mode for concatenated coassembly reads. |
+| `outdir` | `<results_dir>/module_2b_coassembly` | Module 2B output directory. |
 
 ```
 *IMPORTANT*
@@ -437,13 +435,9 @@ nextflow run module_3_binning.nf \
 
 ![SAMWISE step4](images/step_4.png)
 
-This module performs the following steps:
+`module_4_binrefinement.nf` collects Module 3 bins, predicts genes with Prodigal, runs HMMER marker searches, runs MAGScoT, and reconstructs refined MAG FASTAs. Its primary downstream contract is `summary/magscot_refined_bins_manifest.tsv` together with `refined_bins/`.
 
-1. **Checks for MAGScoT dependencies and installs if necessary**
-   - Looks for r, r-base, r-optparse, r-dplyr, r-readr, r-funr, r-digest, hmmer, prodigal, parallel, pandas and installs if needed
-   
-2. **Runs the MAGScoT workflow and generates refined MAGs**
-   - Runs MAGScoT which uses GTDB r207 to re-group / rebin genomes and outputs cleaned, refined MAG set.
+MAGScoT is intentionally best-effort: missing usable marker/contig input, no refined assignments, or a nonzero MAGScoT exit produce a status/summary rather than an immediate workflow failure. Review the Module 4 summary and refined-bin manifest before continuing; Module 5 and Module 6 require usable refined MAGs.
 
 ## Usage:
 ```bash
@@ -498,26 +492,26 @@ This module performs the following steps:
 nextflow run module_5_subassembly.nf \
 --working_dir ./output_samwise \
 --threads 20 \
---megahit \
---metaspades \
+--megahit true \
+--metaspades true \
 --secondpass_metabat2 true \
 --secondpass_quickbin true \
 --secondpass_maxbin2 true \
 --run_second_pass_binning_refinement true
 
-# --run_second_pass_binning_refinement specifies whether or not you want it to re-bin after subassembly - some users may want to disable this if they want to make sure subassemblies are worth performing after looking at the assembly stats, but most should leave on. Default is true.
+# --run_second_pass_binning_refinement specifies whether or not you want it to re-bin after subassembly - some users may want to disable this if they want to make sure subassemblies are worth performing after looking at the assembly stats, but most should leave on. Default is true. When disabled, Module 5 still writes final_mag_database using the original Module 4 refined MAGs.
 
 # use `--` for any additional flags as well\
 ```
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 5 outputs are written to `<working_dir>/module_5_subtractiveassembly`. |
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 5 outputs are written to `<working_dir>/module_5_subassembly`. |
 | `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
 | `input_trimmed_manifest` | `null` | Input trimmed-read manifest file, typically produced by Module 1. |
 | `input_original_binning_manifest` | `null` | Input original binning manifest file, typically produced by Module 3. |
 | `input_refined_manifest` | `null` | Input refined-bin manifest file, typically produced by Module 4. |
-| `megahit` | `false` | Enables subtractive assembly with MEGAHIT. |
-| `metaspades` | `false` | Enables subtractive assembly with metaSPAdes. |
+| `megahit` | `true` | Enables subtractive assembly with MEGAHIT. At least one subtractive assembler must be enabled. |
+| `metaspades` | `false` | Enables subtractive assembly with metaSPAdes. It can be enabled together with MEGAHIT. |
 | `auto_install` | `true` | Whether to automatically install required tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
 | `tool_env_dir` | `null` | Optional custom path for the conda environment containing Module 5 tools. |
 | `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
@@ -532,8 +526,8 @@ nextflow run module_5_subassembly.nf \
 | `bbmap_xmx` | `null` | Optional Java memory setting for BBMap. If unset, no custom BBMap memory value is used. |
 | `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Options can be `meta-large` or `meta-sensitive`. |
 | `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. |
-| `metaspades_memory_gb` | `0` | Memory limit in GB for metaSPAdes. Use `0` to leave memory unset. |
-| `run_second_pass_binning_refinement` | `true` | Whether to run a second-pass binning and refinement workflow after subtractive assembly. |
+| `metaspades_memory_gb` | `0` | Memory limit in GB passed to metaSPAdes. Use `0` to leave metaSPAdes memory unset. |
+| `run_second_pass_binning_refinement` | `true` | Whether to run a second-pass binning and refinement workflow after subtractive assembly. If `false`, Module 5 publishes the original Module 4 refined MAGs to its `final_mag_database` output. |
 | `secondpass_metabat2` | `true` | Enables MetaBAT2 during second-pass binning. |
 | `secondpass_quickbin` | `true` | Enables QuickBin during second-pass binning. |
 | `secondpass_maxbin2` | `true` | Enables MaxBin2 during second-pass binning. |
@@ -555,19 +549,15 @@ nextflow run module_5_subassembly.nf \
 | `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 | `module3_outdir` | `<results_dir>/module_3_binning` | Expected Module 3 output directory. Usually derived automatically and does not need to be set directly. |
 | `module4_outdir` | `<results_dir>/module_4_binrefinement` | Expected Module 4 output directory. Usually derived automatically and does not need to be set directly. |
-| `outdir` | `<results_dir>/module_5_subtractiveassembly` | Module 5 output directory. Usually derived automatically and does not need to be set directly. |
+| `outdir` | `<results_dir>/module_5_subassembly` | Module 5 output directory. Usually derived automatically and does not need to be set directly. |
 | `secondpass_dir` | `<outdir>/second_pass` | Derived second-pass output directory. Uses `secondpass_working_dir` if provided. Usually does not need to be set directly. |
 | `final_joint_dir` | `<outdir>/final_joint_refinement` | Derived final joint refinement output directory. Uses `final_joint_working_dir` if provided. Usually does not need to be set directly. |
 
 ![SAMWISE step6](images/step_6.png)
 
-This module performs the following steps:
+`module_6_magannotate.nf` prepares normalized MAG FASTAs and runs the selected final quality and annotation tools. It prefers Module 5's `final_mag_database` and its manifest; if that is unavailable, it falls back to Module 4 `refined_bins`.
 
-1. **Checks for dependencies and installs them if necessary** \
-   -Module 2 will download required databases for each tool if needed, but arguments can be passed to directly point to dbs. \
-   -Module 2 will also dereplicate genomes prior to running final characterization.
-3. **Runs CheckM2, GTDB-tk, and Eggnog (or DRAM2)** \
-   -We note that for right now, DRAM2 has been replaced with eggnog v2 since DRAM2 is undergoing significant development and is currently not fully installable. Once development is finished, we will update our module to incldue both DRAM2 and eggnog (and can updated to eggnog v3 once available as well).
+The module can run CheckM2 quality assessment, dRep dereplication, GTDB-Tk taxonomy, EggNOG-mapper functional annotation, and microTrait trait prediction. dRep requires `--run_checkm2 true`, because it uses the CheckM2 quality report as genome information. Only selected tools are installed and run. Database paths can be supplied explicitly or downloaded into Module 6's database directory when automatic download is enabled.
 
 ## Usage:
 ```bash
@@ -578,11 +568,9 @@ nextflow run module_6_magannotate.nf \
 --run_eggnog true \
 --threads 32
 
-# IMPORTANT: For some reason, pplacer + gtdbtk do not play very well
-# in HPC-like systems in the way that they try and allocate memory.
-# As such, for this step pplacer thread defaults are set to 2. You
-# can try and add more threads using arg. --pplacer_cpus but if
-# this step fails, this is probably why.
+# IMPORTANT: pplacer + GTDB-Tk can overallocate memory on HPC systems.
+# Module 6 therefore defaults --gtdbtk_pplacer_cpus to 1. Increase it
+# cautiously if the scheduler allocation has adequate memory.
 
 # If you already pre-downloaded the databases and have them installed elsewhere, you can directly pass arguments:
 # --checkm2_db_path /path/to/uniref100.KO.1.dmnd
@@ -599,29 +587,35 @@ nextflow run module_6_magannotate.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 6 outputs are written to `<working_dir>/module_6_magannotation`. |
+| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 6 outputs are written to `<working_dir>/module_6_magannotate`. |
 | `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
-| `input_mag_dir` | `null` | Directory containing MAG/bin FASTA files to annotate. |
-| `input_mag_manifest` | `null` | Input MAG manifest file describing MAG/bin files to annotate. |
-| `mag_extension` | `fa` | File extension used to detect MAG files in `input_mag_dir`. |
+| `input_mag_dir` | `null` | Directory containing MAG FASTA files to annotate. Nextflow stages this directory as a formal workflow input. If unset, Module 6 prefers Module 5's `final_mag_database`, then falls back to Module 4 refined bins. |
+| `input_mag_manifest` | `null` | Input MAG manifest describing MAG files to annotate. Nextflow stages this file as a formal workflow input. If unset and Module 5's final MAG database is selected, Module 6 automatically uses Module 5's `summary/final_mag_database_manifest.tsv`. |
+| `mag_extension` | `fa` | Required prepared-MAG extension. Module 6 normalizes all inputs to uncompressed `.fa`; this value must remain `fa`. |
 | `threads` | `null` | Total number of threads to use. If unset, tool-specific defaults may be used. |
 | `tool_env_dir` | `null` | Optional custom path for the conda/mamba environment containing Module 6 tools. |
 | `auto_install` | `true` | Whether to automatically install required tools using `mamba` or `conda` if they are not found. If set to `false`, required tools must already be available. |
 | `conda_pkgs_dir` | `null` | Optional workflow-local conda/mamba package cache directory. |
+| `run_drep` | `true` | Whether to dereplicate MAGs with dRep. Requires `run_checkm2=true`. |
 | `run_checkm2` | `true` | Whether to run CheckM2 for MAG quality assessment. |
 | `run_gtdbtk` | `true` | Whether to run GTDB-Tk for taxonomic classification. |
 | `run_eggnog` | `false` | Whether to run EggNOG-mapper for functional annotation. |
+| `run_microtrait` | `false` | Whether to run microTrait genomic trait prediction. |
+| `drep_version` | `null` | Version of dRep to install/use. |
+| `drep_env_dir` | `null` | Optional custom environment directory for dRep. |
+| `drep_threads` | `null` | dRep thread count; defaults to the global `threads` setting when unset. |
+| `drep_extra_args` | `-sa 0.99 -comp 50 -con 10` | Additional arguments passed to dRep. |
 | `checkm2_version` | `null` | Version of CheckM2 to install/use. If `null`, the environment/tool setup may use its default version. |
 | `gtdbtk_version` | `2.7.2` | Version of GTDB-Tk to install/use. |
 | `checkm2_db_path` | `null` | Path to an existing CheckM2 database file. If provided, this database is used directly. |
 | `checkm2_db_dir` | `null` | Directory where the CheckM2 database should be stored or checked. If unset, defaults to `<outdir>/databases/checkm2`. |
 | `checkm2_zenodo_record` | `14897628` | Zenodo record ID used for downloading the CheckM2 database. |
 | `checkm2_auto_download_db` | `true` | Whether to automatically download the CheckM2 database if it is missing. |
-| `checkm2_extension` | `fa` | File extension used for MAG files passed to CheckM2. |
+| `checkm2_extension` | `fa` | Required extension for prepared MAGs passed to CheckM2; must remain `fa`. |
 | `gtdbtk_data_path` | `null` | Path to an existing GTDB-Tk database directory. If provided, this database is used directly. |
 | `gtdbtk_db_dir` | `null` | Directory where the GTDB-Tk database should be stored or checked. If unset, defaults to `<outdir>/databases/gtdbtk`. |
 | `gtdbtk_auto_download_db` | `true` | Whether to automatically download the GTDB-Tk database if it is missing. |
-| `gtdbtk_extension` | `fa` | File extension used for MAG files passed to GTDB-Tk. |
+| `gtdbtk_extension` | `fa` | Required extension for prepared MAGs passed to GTDB-Tk; must remain `fa`. |
 | `gtdbtk_download_url` | `https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz` | URL used to download the GTDB-Tk database package. |
 | `eggnog_env_dir` | `null` | Optional custom environment directory for EggNOG-mapper. |
 | `eggnog_mapper_version` | `2.1.13` | Version of EggNOG-mapper to install/use. |
@@ -639,11 +633,16 @@ nextflow run module_6_magannotate.nf \
 | `eggnog_extra_args` | `""` | Additional custom arguments to pass directly to EggNOG-mapper. |
 | `eggnog_mmseqs_db` | `null` | Optional MMseqs database path for EggNOG-mapper workflows that use MMseqs. |
 | `eggnog_fail_nonfatal` | `false` | If enabled, EggNOG-mapper failures are treated as non-fatal, allowing the workflow to continue. |
-| `publish_mags_mode` | `copy` | How MAG files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
+| `microtrait_env_dir` | `null` | Optional custom microTrait environment directory. |
+| `microtrait_type` | `genomic` | microTrait analysis type. |
+| `microtrait_output_prefix` | `samwise_microtrait` | Prefix for microTrait outputs. |
+| `microtrait_auto_download_db` | `true` | Whether microTrait dependencies/databases may be downloaded during setup. |
+| `microtrait_fail_nonfatal` | `false` | If enabled, an unrecoverable microTrait failure is recorded without failing the complete workflow. |
 | `publish_tool_outputs_mode` | `copy` | How annotation and quality-control tool outputs are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
 | `results_dir` | `null` | Internal results directory. Uses `working_dir` if provided, otherwise `output_dir`, otherwise `.`. Usually does not need to be set directly. |
-| `outdir` | `<results_dir>/module_6_magannotation` | Module 6 output directory. Usually derived automatically and does not need to be set directly. |
-| `module5_final_mag_dir` | `<results_dir>/module_5_subtractiveassembly/final_mag_database` | Candidate MAG directory from Module 5 subtractive assembly. |
+| `outdir` | `<results_dir>/module_6_magannotate` | Module 6 output directory. Usually derived automatically and does not need to be set directly. |
+| `module5_final_mag_dir` | `<results_dir>/module_5_subassembly/final_mag_database` | Candidate MAG directory from Module 5 subtractive assembly. |
+| `module5_final_mag_manifest` | `<results_dir>/module_5_subassembly/summary/final_mag_database_manifest.tsv` | Module 5 final-MAG manifest used automatically when Module 5's final MAG directory is selected. |
 | `module4_refined_mag_dir` | `<results_dir>/module_4_binrefinement/refined_bins` | Candidate refined MAG directory from Module 4 bin refinement. |
 | `checkm2_db_outdir` | `<outdir>/databases/checkm2` | Derived CheckM2 database output directory. Uses `checkm2_db_dir` if provided. Usually does not need to be set directly. |
 | `gtdbtk_db_outdir` | `<outdir>/databases/gtdbtk` | Derived GTDB-Tk database output directory. Uses `gtdbtk_db_dir` if provided. Usually does not need to be set directly. |
@@ -701,3 +700,64 @@ GEMs: mag_id_gapseq_doall, optional mag_id_gapseq_adapt
 MEMOTE: snapshot mag_id_memote_snapshot.json; run mag_id_memote_report.html, mag_id_memote_report.json
 
 Summary: module_7_gems_manifest.tsv, module_7_gems_summary.tsv
+
+![SAMWISE AuxModules](images/AuxModules.png)
+
+## Auxiliary Module 1: Assembly annotation
+
+`AuxModule_1_assemblyAnnotate.nf` functionally annotates assemblies rather than MAGs. It discovers available assembly directories from Module 2, Module 2B, and Module 5; filters scaffolds shorter than `--min_scaffold_bp`; removes exact duplicate and reverse-complement-equivalent full-length scaffolds; then runs EggNOG-mapper on the combined retained sequences. At least one of those assembly-producing modules must have been run.
+
+```bash
+nextflow run AuxModule_1_assemblyAnnotate.nf \
+--working_dir ./output_samwise \
+--threads 36 \
+--min_scaffold_bp 1000
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | required | SAMWISE results root containing Module 2, Module 2B, and/or Module 5 outputs. |
+| `min_scaffold_bp` | `1000` | Minimum scaffold length retained for annotation. |
+| `threads` | `null` | Global EggNOG thread override. |
+| `auto_install` | `true` | Install required tools when unavailable. |
+| `eggnog_data_path` | `null` | Existing EggNOG data directory to use. |
+| `eggnog_data_dir` | `null` | EggNOG data directory to check or populate. |
+| `eggnog_auto_download_db` | `true` | Download EggNOG data when no valid configured or Module 6 database is available. |
+| `eggnog_method` | `diamond` | EggNOG-mapper search method. |
+| `eggnog_fail_nonfatal` | `false` | Continue with a recorded status if EggNOG fails. |
+| `outdir` | `<working_dir>/AuxModule_1_assemblyAnnotate` | Auxiliary Module 1 output directory. |
+
+Auxiliary Module 1 reuses a valid Module 6 EggNOG database at `module_6_magannotate/databases/eggnog` before downloading another copy. Results include `filtered_assemblies/`, `inputs/`, `eggnog/`, and summary tables under `summary/`.
+
+## Auxiliary Module 2: MVP viral analysis
+
+`AuxModule_2_mvp.nf` prepares Module 2 individual assemblies, optional Module 2B coassemblies, and optional Module 5 subtractive assemblies for the MVP viral workflow. It derives compatible metadata and read inputs, interleaving paired reads with BBTools only when required, then invokes selected MVP modules in canonical order. Module 5 is optional: absent or empty subtractive manifests are skipped safely.
+
+```bash
+nextflow run AuxModule_2_mvp.nf \
+--working_dir ./output_samwise \
+--mvp_modules "0,1,2,3,4,5,100" \
+--threads 36 \
+--memory_gb 0
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | SAMWISE results root. |
+| `output_dir` | `null` | Alternative results root when `--working_dir` is omitted. |
+| `mvp_modules` | `0,1,2,3,4,5,100` | Comma-, semicolon-, or whitespace-separated MVP stages; valid values are `0,1,2,3,4,5,6,7,99,100`. |
+| `include_individual_assemblies` | `true` | Include Module 2 assemblies. |
+| `include_coassemblies` | `true` | Include Module 2B assemblies when present. |
+| `include_subtractive_assemblies` | `true` | Include Module 5 assemblies when present. |
+| `assembly_manifest` | `null` | Override Module 2 assembly manifest. |
+| `trimmed_manifest` | `null` | Override Module 1 trimmed-read manifest. |
+| `coassembly_manifest` | `null` | Override Module 2B assembly manifest. |
+| `subtractive_assembly_manifest` | `null` | Override Module 5 subtractive-assembly manifest. |
+| `threads` | `4` | MVP and preparation thread count. |
+| `memory_gb` | `0` | Memory value passed to MVP; `0` delegates memory selection to MVP. |
+| `install_databases` | `false` | Allow MVP to install its databases. |
+| `genomad_db_path` | `null` | Existing geNomad database path. |
+| `checkv_db_path` | `null` | Existing CheckV database path. |
+| `outdir` | `<results_dir>/AuxModule_2_mvp` | MVP output directory. |
+
+MVP stages are not reordered by the supplied list. If an earlier MVP stage is omitted, any outputs it requires must already exist under the Module 2 output directory from a prior MVP run.

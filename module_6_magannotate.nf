@@ -54,11 +54,11 @@ params.eggnog_output_prefix = "samwise_eggnog"
 params.eggnog_extra_args = ""
 params.eggnog_mmseqs_db = null
 params.eggnog_fail_nonfatal = false
-params.publish_mags_mode = "copy"
 params.publish_tool_outputs_mode = "copy"
 params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
 params.outdir = "${params.results_dir}/module_6_magannotate"
-params.module5_final_mag_dir = "${params.results_dir}/module_5_subtractiveassembly/final_mag_database"
+params.module5_final_mag_dir = "${params.results_dir}/module_5_subassembly/final_mag_database"
+params.module5_final_mag_manifest = "${params.results_dir}/module_5_subassembly/summary/final_mag_database_manifest.tsv"
 params.module4_refined_mag_dir = "${params.results_dir}/module_4_binrefinement/refined_bins"
 params.checkm2_db_outdir = params.checkm2_db_dir ?: "${params.outdir}/databases/checkm2"
 params.gtdbtk_db_outdir = params.gtdbtk_db_dir ?: "${params.outdir}/databases/gtdbtk"
@@ -87,7 +87,7 @@ def absPath(value) {
 
 
 def firstExistingMagDir(candidates) {
-    def suffixes = [".fa", ".fna", ".fasta", ".fa.gz", ".fna.gz", ".fasta.gz"]
+    def suffixes = [".fa", ".fa.gz"]
 
     def found_with_fastas = candidates.find { candidate ->
         def d = new File(candidate.toString())
@@ -149,15 +149,32 @@ workflow {
         )
     }
 
+    def forced_fa_extensions = [
+        params.mag_extension,
+        params.drep_extension,
+        params.checkm2_extension,
+        params.gtdbtk_extension,
+        params.microtrait_extension,
+    ].collect { value -> value == null ? "" : value.toString().trim().replaceFirst(/^\\./, "") }
+
+    if (forced_fa_extensions.any { extension -> extension != "fa" }) {
+        error("Module 6 normalizes prepared MAGs to .fa; mag_extension, drep_extension, checkm2_extension, gtdbtk_extension, and microtrait_extension must all be 'fa'.")
+    }
+
+    def module5_mag_dir = absPath(params.module5_final_mag_dir)
+    def module5_mag_manifest = absPath(params.module5_final_mag_manifest)
+
     def selected_mag_dir = params.input_mag_dir
         ? absPath(params.input_mag_dir)
         : firstExistingMagDir(
-            [params.module5_final_mag_dir, params.module4_refined_mag_dir]
+            [module5_mag_dir, params.module4_refined_mag_dir]
         )
 
     def selected_mag_manifest = params.input_mag_manifest
         ? absPath(params.input_mag_manifest)
-        : ""
+        : (selected_mag_dir == module5_mag_dir && new File(module5_mag_manifest).isFile()
+            ? module5_mag_manifest
+            : "")
 
     log.info("Module 6 results directory: ${params.results_dir}")
     log.info("Writing Module 6 outputs to: ${params.outdir}")
@@ -174,9 +191,18 @@ workflow {
     log.info("Per-tool conda package caches will be used under the cache root.")
     log.info("Run microTrait: ${run_microtrait}")
 
+    CLEAN_MODULE6_PUBLISHED_OUTPUTS()
+
+    def selected_mag_dir_file = file(selected_mag_dir, checkIfExists: true)
+    def selected_mag_manifest_file = selected_mag_manifest
+        ? file(selected_mag_manifest, checkIfExists: true)
+        : file("${projectDir}/dependencies/module6_no_manifest.placeholder", checkIfExists: true)
+
     PREPARE_MAG_INPUTS(
-        channel.value(selected_mag_dir),
-        channel.value(selected_mag_manifest),
+        channel.value(selected_mag_dir_file),
+        channel.value(selected_mag_manifest_file),
+        channel.value(selected_mag_manifest ? true : false),
+        CLEAN_MODULE6_PUBLISHED_OUTPUTS.out.status,
     )
 
     /*
@@ -230,8 +256,7 @@ workflow {
             RUN_DREP.out.derep_mags_dir,
             PREPARE_DREP_GENOME_INFO.out.genome_info,
             RUN_GTDBTK.out.status,
-            channel.value("${params.outdir}/gtdbtk/gtdbtk.bac120.summary.tsv"),
-            channel.value("${params.outdir}/gtdbtk/gtdbtk.ar53.summary.tsv"),
+            RUN_GTDBTK.out.gtdbtk_out,
         )
     }
 
@@ -295,6 +320,36 @@ workflow {
     )
 }
 
+process CLEAN_MODULE6_PUBLISHED_OUTPUTS {
+    tag "clean_module6_published_outputs"
+    cache false
+
+    publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module6_publication_cleanup_status.tsv"
+
+    output:
+    path "module6_publication_cleanup_status.tsv", emit: status
+
+    script:
+    """
+    set -euo pipefail
+
+    printf 'step\tstatus\tmessage\n' > module6_publication_cleanup_status.tsv
+
+    for output_dir in \
+        "${params.outdir}/drep_out" \
+        "${params.outdir}/checkm2" \
+        "${params.outdir}/gtdbtk" \
+        "${params.outdir}/eggnog" \
+        "${params.outdir}/microtrait"; do
+        if [[ -e "\$output_dir" ]]; then
+            rm -rf "\$output_dir"
+        fi
+    done
+
+    printf 'module6_publication_cleanup\tcompleted\tRemoved prior managed published-output directories\n' >> module6_publication_cleanup_status.tsv
+    """
+}
+
 process PREPARE_MAG_INPUTS {
     tag "prepare_final_mags"
 
@@ -302,8 +357,10 @@ process PREPARE_MAG_INPUTS {
     publishDir "${params.outdir}/logs", mode: 'copy', pattern: "prepare_mag_inputs.log"
 
     input:
-    val input_mag_dir
-    val input_mag_manifest
+    path input_mag_dir
+    path input_mag_manifest
+    val use_input_mag_manifest
+    path publication_cleanup_status
 
     output:
     path "refined_genomes", emit: mags_dir
@@ -319,7 +376,8 @@ process PREPARE_MAG_INPUTS {
 
     echo "Preparing MAG inputs: \$(date)" > "\$LOG_FILE"
     echo "Input MAG directory: ${input_mag_dir}" >> "\$LOG_FILE"
-    echo "Input MAG manifest: ${input_mag_manifest}" >> "\$LOG_FILE"
+    echo "Input MAG manifest: ${use_input_mag_manifest ? input_mag_manifest : 'not supplied'}" >> "\$LOG_FILE"
+    echo "Publication cleanup status: ${publication_cleanup_status}" >> "\$LOG_FILE"
     echo "MAG extension: ${params.mag_extension}" >> "\$LOG_FILE"
     echo "Task working directory: \$(pwd -P)" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
@@ -328,7 +386,7 @@ process PREPARE_MAG_INPUTS {
 
     python3 - \
     "${input_mag_dir}" \
-    "${input_mag_manifest}" \
+    "${use_input_mag_manifest ? input_mag_manifest : ''}" \
     "${params.mag_extension}" \
     "refined_genomes" \
     "module6_mag_input_manifest.tsv" \
@@ -401,6 +459,7 @@ def fasta_stats(path):
 def candidate_fastas_from_manifest(path):
     rows = []
     manifest = Path(path)
+    staged_mag_dir = Path(input_mag_dir)
 
     if not manifest.exists():
         raise SystemExit(f"ERROR: input MAG manifest does not exist: {manifest}")
@@ -425,7 +484,8 @@ def candidate_fastas_from_manifest(path):
             )
 
             if fasta:
-                rows.append((mag_id, Path(fasta)))
+                staged_source = staged_mag_dir / Path(fasta).name
+                rows.append((mag_id, staged_source))
 
     return rows
 
@@ -434,16 +494,7 @@ def candidate_fastas_from_dir(path):
     if not path.exists():
         return rows
 
-    patterns = [
-        f"*.{mag_extension}",
-        f"*.{mag_extension}.gz",
-        "*.fa",
-        "*.fa.gz",
-        "*.fna",
-        "*.fna.gz",
-        "*.fasta",
-        "*.fasta.gz",
-    ]
+    patterns = ["*.fa", "*.fa.gz"]
 
     seen = set()
 
@@ -453,7 +504,7 @@ def candidate_fastas_from_dir(path):
                 seen.add(p)
                 stem = p.name
 
-                for suffix in [".fasta.gz", ".fna.gz", ".fa.gz", ".fasta", ".fna", ".fa"]:
+                for suffix in [".fa.gz", ".fa"]:
                     if stem.endswith(suffix):
                         stem = stem[:-len(suffix)]
                         break
@@ -573,6 +624,7 @@ PY
 
 process SETUP_DREP {
     tag "setup_drep"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "drep_setup_status.env"
 
@@ -956,6 +1008,7 @@ process RUN_DREP {
 
 process SETUP_CHECKM2 {
     tag "setup_checkm2"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "checkm2_setup_status.env"
 
@@ -1554,6 +1607,7 @@ PY
 
 process SETUP_GTDBTK {
     tag "setup_gtdbtk"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "gtdbtk_setup_status.env"
 
@@ -1903,7 +1957,7 @@ process RUN_GTDBTK {
     output:
     path "gtdbtk_status.tsv", emit: status
     path "gtdbtk.log", emit: log_file
-    path "gtdbtk_out/**", emit: gtdbtk_out
+    path "gtdbtk_out", emit: gtdbtk_out
 
     script:
     def pplacer_cpus = params.gtdbtk_pplacer_cpus != null ? params.gtdbtk_pplacer_cpus as int : 6
@@ -2002,6 +2056,7 @@ process RUN_GTDBTK {
 
 process SETUP_EGGNOG {
     tag "setup_eggnog"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "eggnog_setup_status.env"
 
@@ -2495,6 +2550,7 @@ PY
 }
 process SETUP_MICROTRAIT {
     tag "setup_microtrait"
+    cache false
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "microtrait_setup_status.env"
 
@@ -2912,12 +2968,10 @@ process RUN_MICROTRAIT {
     df -h "\$MICROTRAIT_TMPDIR" >> "\$LOG" 2>&1 || true
     df -i "\$MICROTRAIT_TMPDIR" >> "\$LOG" 2>&1 || true
 
-    find -L "${mags_dir}" -maxdepth 1 -type f \\
-        \\( -name '*.fa' -o -name '*.fna' -o -name '*.faa' -o -name '*.fasta' \\) \\
-        -exec cp {} microtrait_inputs/ \\;
+    find -L "${mags_dir}" -maxdepth 1 -type f -name '*.fa' -exec cp {} microtrait_inputs/ \\;
 
-    MAG_COUNT="\$(find microtrait_inputs -maxdepth 1 -type f -name '*.${params.microtrait_extension}' | wc -l | tr -d ' ')"
-    echo "Staged MAG files matching extension .${params.microtrait_extension}: \$MAG_COUNT" >> "\$LOG"
+    MAG_COUNT="\$(find microtrait_inputs -maxdepth 1 -type f -name '*.fa' | wc -l | tr -d ' ')"
+    echo "Staged prepared .fa MAG files: \$MAG_COUNT" >> "\$LOG"
 
     if [[ "\$MAG_COUNT" -eq 0 ]]; then
         echo "ERROR: No MAG files found for microTrait." >> "\$LOG"
@@ -3092,8 +3146,7 @@ process WRITE_DREP_QUALITY_GTDBTK_SUMMARY {
     path derep_mags_dir
     path drep_genome_info
     path gtdbtk_status
-    val gtdbtk_bac120_summary
-    val gtdbtk_ar53_summary
+    path gtdbtk_out
 
     output:
     path "dereplicated_genomes_quality_taxonomy_summary.tsv", emit: summary
@@ -3105,50 +3158,22 @@ process WRITE_DREP_QUALITY_GTDBTK_SUMMARY {
 
     LOG="write_drep_quality_gtdbtk_summary.log"
 
-    BAC120="${gtdbtk_bac120_summary}"
-    AR53="${gtdbtk_ar53_summary}"
+    BAC120="${gtdbtk_out}/gtdbtk.bac120.summary.tsv"
+    AR53="${gtdbtk_out}/gtdbtk.ar53.summary.tsv"
 
     echo "Writing dRep + CheckM2 quality + GTDB-Tk taxonomy summary: \$(date)" > "\$LOG"
     echo "Dereplicated MAG directory: ${derep_mags_dir}" >> "\$LOG"
     echo "dRep genomeInfo CSV: ${drep_genome_info}" >> "\$LOG"
     echo "GTDB-Tk status file dependency: ${gtdbtk_status}" >> "\$LOG"
-    echo "GTDB-Tk bac120 summary, exact path: \$BAC120" >> "\$LOG"
-    echo "GTDB-Tk ar53 summary, exact path: \$AR53" >> "\$LOG"
+    echo "Staged GTDB-Tk output directory: ${gtdbtk_out}" >> "\$LOG"
+    echo "GTDB-Tk bac120 summary, exact staged path: \$BAC120" >> "\$LOG"
+    echo "GTDB-Tk ar53 summary, exact staged path: \$AR53" >> "\$LOG"
     echo "Output summary: dereplicated_genomes_quality_taxonomy_summary.tsv" >> "\$LOG"
     echo "----------------------------------------" >> "\$LOG"
 
-    echo "Waiting for exact GTDB-Tk summary files if needed." >> "\$LOG"
-
-    for i in \$(seq 1 180); do
-        if [[ -s "\$BAC120" && -s "\$AR53" ]]; then
-            echo "Found both exact GTDB-Tk summary files after \$i checks." >> "\$LOG"
-            break
-        fi
-
-        if [[ "\$i" -eq 180 ]]; then
-            echo "ERROR: Timed out waiting for exact GTDB-Tk summary files." >> "\$LOG"
-            echo "Expected bac120: \$BAC120" >> "\$LOG"
-            ls -lh "\$BAC120" >> "\$LOG" 2>&1 || true
-            echo "Expected ar53: \$AR53" >> "\$LOG"
-            ls -lh "\$AR53" >> "\$LOG" 2>&1 || true
-            exit 1
-        fi
-
-        sleep 10
-    done
-
-    if [[ ! -s "\$BAC120" ]]; then
-        echo "ERROR: Missing or empty exact GTDB-Tk bac120 summary: \$BAC120" >> "\$LOG"
-        exit 1
-    fi
-
-    if [[ ! -s "\$AR53" ]]; then
-        echo "ERROR: Missing or empty exact GTDB-Tk ar53 summary: \$AR53" >> "\$LOG"
-        exit 1
-    fi
-
-    echo "Using only these two GTDB-Tk files:" >> "\$LOG"
-    ls -lh "\$BAC120" "\$AR53" >> "\$LOG" 2>&1
+    echo "GTDB-Tk domain summary files available for use:" >> "\$LOG"
+    [[ -s "\$BAC120" ]] && ls -lh "\$BAC120" >> "\$LOG"
+    [[ -s "\$AR53" ]] && ls -lh "\$AR53" >> "\$LOG"
     echo "----------------------------------------" >> "\$LOG"
 
     python3 - \\
@@ -3204,9 +3229,13 @@ if not derep_mags_dir.exists() or not derep_mags_dir.is_dir():
 if not drep_genome_info.exists() or drep_genome_info.stat().st_size == 0:
     raise SystemExit(f"ERROR: dRep genomeInfo CSV missing or empty: {drep_genome_info}")
 
-for required_gtdbtk_file in [gtdbtk_bac120_summary, gtdbtk_ar53_summary]:
-    if not required_gtdbtk_file.exists() or required_gtdbtk_file.stat().st_size == 0:
-        raise SystemExit(f"ERROR: Required exact GTDB-Tk summary missing or empty: {required_gtdbtk_file}")
+gtdbtk_summary_files = [
+    path for path in [gtdbtk_bac120_summary, gtdbtk_ar53_summary]
+    if path.exists() and path.stat().st_size > 0
+]
+
+if not gtdbtk_summary_files:
+    raise SystemExit("ERROR: No nonempty exact GTDB-Tk bac120 or ar53 summary was found.")
 
 derep_fastas = sorted([
     p for p in derep_mags_dir.iterdir()
@@ -3264,20 +3293,6 @@ with drep_genome_info.open(newline="") as handle:
         loaded_quality_rows += 1
 
 log(f"Quality rows loaded: {loaded_quality_rows}")
-
-# --------------------------------------------------------------------
-# Use ONLY these exact GTDB-Tk taxonomy summary files:
-#
-#   ${params.outdir}/gtdbtk/gtdbtk.bac120.summary.tsv
-#   ${params.outdir}/gtdbtk/gtdbtk.ar53.summary.tsv
-#
-# No recursive search is performed.
-# --------------------------------------------------------------------
-
-gtdbtk_summary_files = [
-    gtdbtk_bac120_summary,
-    gtdbtk_ar53_summary,
-]
 
 log("GTDB-Tk taxonomy summary files used:")
 for p in gtdbtk_summary_files:
