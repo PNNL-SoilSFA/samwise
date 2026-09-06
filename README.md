@@ -1,4 +1,4 @@
-![SAMWISE title](images/SAMWISE_title.png)
+![SAMWISE title](images/SAMWISE_title_v2.png)
 
 # Welcome to SAMWISE!
 
