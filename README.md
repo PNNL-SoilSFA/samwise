@@ -115,7 +115,8 @@ nextflow run module_6_magannotate.nf \
 --run_microtrait true \
 --threads 36
 
-#Note: If running only 1 binner and not using MAGScoT, pass the MAG manifest from Module 3 directly to Module 6 with --input_mag_manifest.
+#Note: If running only 1 binner and not using MAGScoT, pass the MAG
+#manifest from Module 3 directly to Module 6 with --input_mag_manifest.
 
 # To save compute time, you can pre-download the databases before you run module 6.
 # For this, see: CheckM2: https://zenodo.org/records/14897628, gtdbtk: https://ecogenomics.github.io/GTDBTk/installing/index.html,
