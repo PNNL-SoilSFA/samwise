@@ -954,6 +954,7 @@ After this, you need to set up your environment file (see env.txt example in sam
 
 Then, you can run the agent using `python chatOpenai.py` within the /agent/ folder (you need to cd /agent/ if you have not already).
 
+_____________________________________________________________________________________
 DISCLAIMER
 This material was prepared as an account of work sponsored by an agency of the
 United States Government.  Neither the United States Government nor the United
