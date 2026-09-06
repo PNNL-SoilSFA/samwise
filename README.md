@@ -4,7 +4,7 @@
 
 SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
-![SAMWISE workflow](images/SAMWISE_FULL-manuscript.png)
+![SAMWISE workflow](images/SAMWISE_FULL-manuscript_v2.png)
 
 ---
 
@@ -773,6 +773,7 @@ This will generate a conda environment called `langchain-chat-openai` that you t
 After this, you need to set up your environment file (see env.txt example in samwise-main/agent/) to include your API key as well as user settings. Once that is done, change the file name to .env instead of env.txt so that the agent can find it. 
 
 Then, you can run the agent using `python chatOpenai.py` within the /agent/ folder (you need to cd /agent/ if you have not already).
+
 _________________________________________________________________________
 DISCLAIMER
 This material was prepared as an account of work sponsored by an agency of the United States Government.  Neither the United States Government nor the United States Department of Energy, nor Battelle, nor any of their employees, nor any jurisdiction or organization that has cooperated in the development of these materials, makes any warranty, express or implied, or assumes any legal liability or responsibility for the accuracy, completeness, or usefulness or any information, apparatus, product, software, or process disclosed, or represents that its use would not infringe privately owned rights.
