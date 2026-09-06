@@ -139,10 +139,8 @@ nextflow run AuxModule_2_mvp.nf \
 --memory_gb 0
 ```
 
-```
 Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer! 
 First, a quick note. If you ever have a module (for example, an assembly module) halt because of time or whatever issue, you can resume the assembly by simply passing "-resume" as an argument for that module.
-```
 
 ![SAMWISE step0](images/step_0.png)
 
