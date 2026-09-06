@@ -29,9 +29,7 @@ Now, you are ready to proceed with SAMWISE!
 ![SAMWISE quickstart](images/quick_start.png)
 ---
 
-`"In a hole in the ground there lived a hobbit... Not a nasty, dirt..."`
-
-Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. Here is how I would run this as an sbatch script on a server.
+You want to run SAMWISE quickly and do not want to read through the full docs? Here is how I would run the full pipeline as an sbatch script on a server.
 
 NOTE: Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
 have extensions (.fq or .fastq - gzipped or not gzipped is fine). See module_0 info below! The --input_dir flag just needs to point to any dir that has reads
