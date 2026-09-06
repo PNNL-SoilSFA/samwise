@@ -4,7 +4,6 @@
 
 SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
-![SAMWISE workflow](images/SAMWISE_FULL-manuscript_v2.png)
 
 ---
 
@@ -29,7 +28,7 @@ Now, you are ready to proceed with SAMWISE!
 ![SAMWISE quickstart](images/quick_start.png)
 ---
 
-You want to run SAMWISE quickly and do not want to read through the full docs? Here is how I would run the full pipeline as an sbatch script on a server.
+Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. Here is how I would run this as an sbatch script on a server.
 
 NOTE: Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
 have extensions (.fq or .fastq - gzipped or not gzipped is fine). See module_0 info below! The --input_dir flag just needs to point to any dir that has reads
@@ -113,8 +112,7 @@ nextflow run module_6_magannotate.nf \
 --run_microtrait true \
 --threads 36
 
-#Note: If running only 1 binner and not using MAGScoT, pass the MAG
-#manifest from Module 3 directly to Module 6 with --input_mag_manifest.
+#Note: If running only 1 binner and not using MAGScoT, pass the MAG manifest from Module 3 directly to Module 6 with --input_mag_manifest.
 
 # To save compute time, you can pre-download the databases before you run module 6.
 # For this, see: CheckM2: https://zenodo.org/records/14897628, gtdbtk: https://ecogenomics.github.io/GTDBTk/installing/index.html,
@@ -137,8 +135,10 @@ nextflow run AuxModule_2_mvp.nf \
 --memory_gb 0
 ```
 
+```
 Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer! 
 First, a quick note. If you ever have a module (for example, an assembly module) halt because of time or whatever issue, you can resume the assembly by simply passing "-resume" as an argument for that module.
+```
 
 ![SAMWISE step0](images/step_0.png)
 
