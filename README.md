@@ -4,7 +4,6 @@
 
 SAMWISE is an automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
-
 ---
 
 ## Requirements
@@ -122,6 +121,9 @@ nextflow run module_6_magannotate.nf \
 # --checkm2_db_path /path/to/uniref100.KO.1.dmnd
 # --gtdbtk_data_path /path/to/gtdbtk/database_directory
 # --eggnog_data_path /path/to/eggnog/database_directory
+
+nextflow run module_7_gems.nf \
+--working_dir ./output_samwise
 
 nextflow run AuxModule_1_assemblyAnnotate.nf \
 --working_dir ./output_samwise \
@@ -647,56 +649,237 @@ nextflow run module_6_magannotate.nf \
 
 ![SAMWISE step7](images/step_7.png)
 
-This module performs the following steps:
+# Module 7: Genome-Scale Metabolic Model Generation
 
-1. **Split unified Module 6 FASTA into per-MAG files: process PREPARE_GAPSEQ_INPUTS()** \
-2. **Setup shared gapseq+memote environment (mamba preferred): process SETUP_GAPSEQ()** \
-3. **Build models per MAG: process RUN_GAPSEQ_DOALL()**
-4. **Optionally adapt per manifest rows: process RUN_GAPSEQ_ADAPT()**
-5. **Optionally run MEMOTE snapshot or run: process RUN_MEMOTE_SNAPSHOT(), process RUN_MEMOTE_RUN()**
-6. **Write scaffold summaries: process WRITE_OUTPUT_MANIFEST()**
+Module 7 constructs one genome-scale metabolic model (GEM) for each MAG represented in Module 6 eggNOG predictions. It uses gapseq to reconstruct and gap-fill models, can adapt selected models to MAG-specific empirical growth requirements, and validates each final SBML model with MEMOTE.
 
-Inputs: 
+The workflow implementation is [`module_7_gems.nf`](module_7_gems.nf). It consumes Module 6 results by default and publishes a per-MAG output manifest containing stable result paths rather than temporary Nextflow work-directory paths.
 
-Unified FASTA: resolved by workflow()
+## What this module does
 
-Upstream manifest: resolved by workflow()
+1. **Creates or validates the pinned gapseq/MEMOTE environment.**
+2. **Prepares per-MAG protein FASTAs** by splitting the Module 6 unified eggNOG predicted-protein FASTA according to MAG IDs in the Module 6 manifest.
+3. **Runs gapseq `doall`** for every MAG using the selected medium and bacterial or archaeal template.
+4. **Optionally runs gapseq `adapt`** for only the MAGs named in an adaptation manifest; unlisted MAGs retain their `doall` model.
+5. **Runs optional MEMOTE validation** on each final model as an HTML snapshot report, JSON test result, or both.
+6. **Writes summary files** describing every input, model, report, and log produced for each MAG.
 
-Optional adapt manifest TSV with mag_id and adapt_compounds: params.adapt_manifest (example: background/test_adapt_manifest.tsv)
+## Usage
 
-Default run:
-```
+### Default run
+
+This expects Module 6 outputs below the working directory, uses the bundled comprehensive medium and `Bacteria` template, and creates one MEMOTE HTML snapshot report per final model.
+
+```bash
 nextflow run module_7_gems.nf \
---working_dir ./samwise-main \
---memote_mode run
+  --working_dir ./output_samwise
 ```
 
-Run with comprehensive media:
-```
+### Use an archaeal template and custom medium
+
+```bash
 nextflow run module_7_gems.nf \
---working_dir ./samwise-main \
---media_csv /absolute/path/to/background/media/gapseq_all_nutrients.csv \
---memote_mode run
+  --working_dir ./output_samwise \
+  --template_organism Archaea \
+  --media_csv /absolute/path/to/media.csv
 ```
 
-Manifest-driven adapt
-```
+### Adapt selected MAGs and generate both MEMOTE outputs
+
+```bash
 nextflow run module_7_gems.nf \
---working_dir /path/to/samwise_work \
---adapt_manifest /path/to/adapt_manifest.tsv \
---memote_mode run
+  --working_dir ./output_samwise \
+  --run_gapseq_adapt true \
+  --adapt_manifest /absolute/path/to/adapt_manifest.tsv \
+  --memote_mode both
 ```
 
-Expected outputs:
-Inputs: gapseq_input_manifest.tsv, gapseq_inputs_stats.tsv, protein_fastas
+### Run JSON MEMOTE tests only
 
-Setup: gapseq_setup_status.env
+```bash
+nextflow run module_7_gems.nf \
+  --working_dir ./output_samwise \
+  --memote_mode run
+```
 
-GEMs: mag_id_gapseq_doall, optional mag_id_gapseq_adapt
+### Build GEMs without MEMOTE validation
 
-MEMOTE: snapshot mag_id_memote_snapshot.json; run mag_id_memote_report.html, mag_id_memote_report.json
+```bash
+nextflow run module_7_gems.nf \
+  --working_dir ./output_samwise \
+  --run_memote false
+```
 
-Summary: module_7_gems_manifest.tsv, module_7_gems_summary.tsv
+### Use Module 6 files stored elsewhere
+
+`protein_fasta_dir` is a historic parameter name. It accepts the path to a unified predicted-protein FASTA **file**, not a directory.
+
+```bash
+nextflow run module_7_gems.nf \
+  --output_dir ./module_7_results \
+  --protein_fasta_dir /absolute/path/to/samwise_eggnog.emapper.genepred.fasta \
+  --input_manifest /absolute/path/to/eggnog_input_manifest.tsv
+```
+
+## Inputs and defaults
+
+### Module 6 inputs
+
+When `working_dir` is supplied, Module 7 reads these files by default:
+
+| Input | Default path |
+|---|---|
+| Unified eggNOG predicted-protein FASTA | `<working_dir>/module_6_magannotate/eggnog/samwise_eggnog.emapper.genepred.fasta` |
+| eggNOG input manifest | `<working_dir>/module_6_magannotate/summary/eggnog_input_manifest.tsv` |
+
+If `working_dir` is not provided, the same paths are derived below `output_dir`; if neither is supplied, they are derived below the current directory. Override one or both defaults with `--protein_fasta_dir` and `--input_manifest`.
+
+The unified FASTA and manifest must be present and non-empty. The manifest must include a non-empty `mag_id` column. Module 7 associates proteins with MAGs from FASTA headers: the text before the first `|` (or whitespace, if there is no `|`) must equal a `mag_id` in the manifest. MAGs with no matching proteins are recorded as warnings; the run fails only if no proteins match any MAG.
+
+### Media and template
+
+- `--media_csv` selects the CSV medium passed to gapseq. It must be an existing, non-empty file.
+- If `media_csv` is not given, Module 7 uses [`background/media/gapseq_all_nutrients.csv`](background/media/gapseq_all_nutrients.csv), the bundled comprehensive medium.
+- The bundled minimal M9 glucose aerobic medium is [`background/media/gapseq_M9_glucose_aerobic.csv`](background/media/gapseq_M9_glucose_aerobic.csv). Select it explicitly with `--media_csv`.
+- `--template_organism` must be exactly `Bacteria` (default) or `Archaea`.
+
+### MAG-specific adaptation manifest
+
+Adaptation is off by default. To enable it, both of the following are required:
+
+```bash
+--run_gapseq_adapt true \
+--adapt_manifest /absolute/path/to/adapt_manifest.tsv
+```
+
+The adaptation manifest is tab-separated and must contain `mag_id` and `adapt_compounds` headers. It may have additional columns. Each data row requires non-empty values, each `mag_id` must occur in the Module 6 manifest exactly once, and every comma-separated compound value must use `cpd#####:(TRUE|FALSE)` syntax.
+
+```tsv
+mag_id	adapt_compounds
+MAGScoT_cleanbin_000023	cpd00076:TRUE,cpd00027:TRUE
+MAGScoT_cleanbin_000038	cpd00027:TRUE
+```
+
+[`background/test_adapt_manifest.tsv`](background/test_adapt_manifest.tsv) provides a format example. Only MAGs listed in the manifest enter the adaptation step. If gapseq reports that a model already grows and produces no `-adapt` files, Module 7 publishes copies of the original `doall` model as that MAG's adaptation output and records the `no_changes` adaptation status in its task metadata.
+
+`adaptation_compounds` has been retired and is rejected if supplied. A global compound list is not supported because adaptation requirements are MAG-specific.
+
+## Environment and tool versions
+
+Module 7 requires these fixed versions:
+
+| Tool | Required version |
+|---|---|
+| gapseq | `1.4.0` |
+| MEMOTE | `0.17.0` |
+
+The workflow confirms both executable versions before it constructs models. The package pins are internal workflow settings and are not user-configurable.
+
+With no environment override, Module 7 manages an environment at `<outdir>/conda_envs/gapseq`, where `<outdir>` is `<results_dir>/module_7_gems`. If it is missing and `--auto_install true` (the default), the workflow creates it with `mamba` or `conda`. A stale workflow-managed environment can be removed and rebuilt automatically.
+
+Provide either `--gapseq_env_dir` or `--tool_env_dir` to use a user-managed environment:
+
+- `--gapseq_env_dir /path/to/environment` uses that exact environment path.
+- `--tool_env_dir /path/to/tool-parent` uses `/path/to/tool-parent/gapseq`.
+
+A user-managed environment must already exist and provide exactly the required gapseq and MEMOTE versions. Module 7 never creates, deletes, or modifies it. `gapseq_env_dir` takes precedence if both overrides are provided. `--conda_pkgs_dir` optionally chooses a package cache for the workflow-managed environment.
+
+The workflow uses these pinned command forms:
+
+```bash
+gapseq doall <protein.faa> <media.csv> <Bacteria|Archaea>
+
+gapseq adapt \
+  -m <model.RDS> \
+  -w <cpd#####:TRUE|FALSE,...> \
+  -c <model-rxnWeights.RDS> \
+  -g <model-rxnXgenes.RDS> \
+  -b <model-all-Reactions.tbl> \
+  -f <adapt-output-dir>
+
+memote report snapshot --filename <report.html> <model.xml>
+memote run --ignore-git --filename <result.json> <model.xml>
+```
+
+The `gapseq doall` interface is positional. The `threads` parameter asks the Nextflow scheduler for CPUs for each `doall` task, but Module 7 does not translate it into a gapseq command-line argument. `gapseq_extra_args` is retired and fails preflight validation if supplied.
+
+## MEMOTE modes
+
+MEMOTE is enabled by default with `--memote_mode snapshot`.
+
+| `memote_mode` | Command | Output per final model |
+|---|---|---|
+| `snapshot` | `memote report snapshot` | HTML report |
+| `run` | `memote run --ignore-git` | JSON result |
+| `both` | Both commands | HTML report and JSON result |
+
+Set `--run_memote false` to skip every MEMOTE task. `--memote_extra_args` appends options to whichever MEMOTE command is selected; supply only options that MEMOTE `0.17.0` supports.
+
+## Parameters
+
+| Argument | Default | Description |
+|---|---|---|
+| `working_dir` | `null` | Primary SAMWISE working/results directory. When supplied, results are published to `<working_dir>/module_7_gems`. |
+| `output_dir` | `null` | Alternative results directory used only when `working_dir` is absent. |
+| `input_manifest` | `null` | Override path for the Module 6 eggNOG input manifest TSV. |
+| `protein_fasta_dir` | `null` | Override path for the Module 6 unified predicted-protein FASTA; this is a file path despite the name. |
+| `media_csv` | `null` | User medium CSV. The bundled comprehensive medium is used when unset. |
+| `template_organism` | `Bacteria` | gapseq template: exactly `Bacteria` or `Archaea`. |
+| `run_gapseq_adapt` | `false` | Enable adaptation for MAGs listed in `adapt_manifest`. |
+| `adapt_manifest` | `null` | Adaptation TSV. Required when `run_gapseq_adapt` is `true`. |
+| `adaptation_compounds` | retired | Do not supply. A global adaptation-compound list is rejected; use `adapt_manifest` for MAG-specific requirements. |
+| `run_memote` | `true` | Enable MEMOTE validation for final models. |
+| `memote_mode` | `snapshot` | `snapshot`, `run`, or `both`. |
+| `threads` | `null` | CPU count requested from Nextflow for each gapseq `doall` task. If `threads` is unset or `null`, Nextflow defaults allocation to 1 thread per `doall` process. |
+| `tool_env_dir` | `null` | Parent directory for a user-managed `gapseq` environment. |
+| `gapseq_env_dir` | `null` | Exact path to a user-managed environment; takes precedence over `tool_env_dir`. |
+| `auto_install` | `true` | Create a missing workflow-managed environment with `mamba` or `conda`. |
+| `conda_pkgs_dir` | `null` | Optional conda/mamba package cache for the managed environment. |
+| `gapseq_extra_args` | retired | Do not supply. gapseq `doall` uses a fixed positional interface in this workflow. |
+| `memote_extra_args` | `""` | Additional options appended to the selected MEMOTE command. |
+| `publish_gems_mode` | `copy` | Publish mode for prepared FASTAs and GEM directories: `copy`, `symlink`, or `move`. |
+| `publish_reports_mode` | `copy` | Publish mode for MEMOTE reports: `copy`, `symlink`, or `move`. |
+| `results_dir` | derived | Internal results root: `working_dir`, otherwise `output_dir`, otherwise `.`. Normally do not set directly. |
+| `outdir` | `<results_dir>/module_7_gems` | Internal Module 7 output location. Normally do not set directly. |
+| `module6_output_dir` | `<results_dir>/module_6_magannotate` | Default Module 6 output location used to derive input paths. |
+| `media_minimal` | bundled M9/glucose CSV | Internal path for the bundled minimal medium; use `media_csv` to select it. |
+| `media_comprehensive` | bundled all-nutrients CSV | Internal path for the bundled comprehensive medium used by default. |
+
+## Outputs
+
+All published outputs are beneath `<results_dir>/module_7_gems/`:
+
+```text
+module_7_gems/
+├── inputs/
+│   ├── protein_fastas/<mag_id>.faa
+│   ├── gapseq_input_manifest.tsv
+│   └── gapseq_inputs_stats.tsv
+├── setup/
+│   └── gapseq_setup_status.env
+├── gems/
+│   ├── doall/<mag_id>_gapseq_doall/
+│   └── adapt/<mag_id>_gapseq_adapt/             # selected MAGs only
+├── reports/
+│   ├── snapshot/<mag_id>_memote_snapshot.html   # snapshot or both
+│   └── run/<mag_id>_memote_run.json             # run or both
+├── logs/
+└── summary/
+    ├── module_7_gems_manifest.tsv
+    └── module_7_gems_summary.tsv
+```
+
+`logs/` contains the execution logs for `PREPARE_GAPSEQ_INPUTS`, `SETUP_GAPSEQ`, `RUN_GAPSEQ_DOALL`, `RUN_GAPSEQ_ADAPT`, `RUN_MEMOTE_*`, and `WRITE_OUTPUT_MANIFEST`.
+
+`summary/module_7_gems_manifest.tsv` has one row per MAG. It records the prepared protein FASTA, `doall` model and support-artifact paths, optional adaptation paths, selected final model stage and paths, optional MEMOTE output paths, and associated logs.
+
+`summary/module_7_gems_summary.tsv` reports the total MAG count, adapted MAG count, doall-only MAG count, and counts of snapshot- and full-run-validated MAGs.
+
+## Validation
+
+[`tests/module_7_smoke.sh`](tests/module_7_smoke.sh) runs a non-destructive `-stub-run` smoke matrix. It covers default snapshot mode, JSON MEMOTE mode, selective adaptation with both report formats, and MEMOTE disabled. The script creates a temporary fixture directory, does not install gapseq or MEMOTE, and removes the fixture when it exits.
+
+For concise usage instructions, see [`module_7_README_short.md`](module_7_README_short.md).
 
 ![SAMWISE AuxModules](images/AuxModules.png)
 
