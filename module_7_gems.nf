@@ -69,7 +69,7 @@ def requireRegularFile(String label, String pathText) {
 def parseMagIdsFromManifest(String pathText) {
     def ids = [] as Set
     def rows = new File(pathText).readLines()
-    def headerIndex = rows.findIndexOf { it?.trim() }
+    def headerIndex = rows.findIndexOf { row -> row?.trim() }
     if (headerIndex < 0) {
         error("Module 6 manifest is empty: ${pathText}")
     }
@@ -94,7 +94,7 @@ def parseMagIdsFromManifest(String pathText) {
 def parseAdaptManifestTSV(String pathText, Set upstreamMagIds) {
     def values = [:]
     def rows = new File(pathText).readLines()
-    def headerIndex = rows.findIndexOf { it?.trim() }
+    def headerIndex = rows.findIndexOf { row -> row?.trim() }
     if (headerIndex < 0) {
         error("Adapt manifest is empty: ${pathText}")
     }
@@ -949,7 +949,7 @@ workflow {
     def doallGems = RUN_GAPSEQ_DOALL.out.gems
     def adaptInputs = runAdapt \
         ? doallGems.filter { item -> adaptValues.containsKey(item[0]) }.map { item -> tuple(item[0], item[1], adaptValues[item[0]]) } \
-        : Channel.empty()
+        : channel.empty()
     def passThroughGems = runAdapt \
         ? doallGems.filter { item -> !adaptValues.containsKey(item[0]) } \
         : doallGems
@@ -970,13 +970,13 @@ workflow {
         runInputs = memoteSplit.run
     } else if (runMemote && memoteMode == 'snapshot') {
         snapshotInputs = finalGems
-        runInputs = Channel.empty()
+        runInputs = channel.empty()
     } else if (runMemote && memoteMode == 'run') {
-        snapshotInputs = Channel.empty()
+        snapshotInputs = channel.empty()
         runInputs = finalGems
     } else {
-        snapshotInputs = Channel.empty()
-        runInputs = Channel.empty()
+        snapshotInputs = channel.empty()
+        runInputs = channel.empty()
     }
 
     RUN_MEMOTE_SNAPSHOT(snapshotInputs, setupStatus)
