@@ -48,7 +48,7 @@ nextflow run module_1_readtrimming.nf \
 nextflow run module_2_readassembly.nf \
 -c ./bin/module_2_slurm.config \
 --working_dir ./samwise-main \
---slurm_account ChargeAccountID \
+--slurm_account ChargeAccountID (or User Account ID) \
 --threads 36 \
 --memory_gb 0 \
 --max_parallel_assemblies 8 \
@@ -66,7 +66,7 @@ nextflow run module_2b_coassembly.nf \
 -c ./bin/module_2b_slurm.config \
 --working_dir ./samwise-main \
 --coassembly_groups ./coassembly_manifest.txt \
---slurm_account ChargeAccountID \
+--slurm_account ChargeAccountID (or User Account ID) \
 --threads 36 \
 --memory_gb 0 \
 --max_parallel_coassemblies 4
