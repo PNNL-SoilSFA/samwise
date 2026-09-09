@@ -40,14 +40,26 @@ NOTE: Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interl
 have extensions (.fq or .fastq - gzipped or not gzipped is fine). See module_0 info below! The --input_dir flag just needs to point to any dir that has reads
 
 ```bash
+
+#A quick note: Feel free to remove -c, --slurm_account, and --maxparallel_fastqc
+#if you do not have a slurm manager or allocation. These are optional!
+
 # Pre-process your reads
 nextflow run module_0_readprocess.nf \
+-c ./bin/module_0_slurm.config \
+--working_dir ./samwise-main \
+--slurm_account ChargeAccountID (or User Account ID) \
+--max_parallel_fastqc 10 \
 --working_dir ./samwise-main \
 --input_dir ./reads_dir \
 --threads 36
 
 # Trim your reads
 nextflow run module_1_readtrimming.nf \
+-c ./bin/module_1_slurm.config \
+--working_dir ./samwise-main \
+--slurm_account ChargeAccountID (or User Account ID) \
+--max_parallel_trimming 10 \
 --working_dir ./samwise-main \
 --threads 36
 
@@ -56,9 +68,9 @@ nextflow run module_2_readassembly.nf \
 -c ./bin/module_2_slurm.config \
 --working_dir ./samwise-main \
 --slurm_account ChargeAccountID (or User Account ID) \
+--max_parallel_assemblies 8 \
 --threads 36 \
 --memory_gb 0 \
---max_parallel_assemblies 8 \
 --megahit \
 --metaspades \
 --rarefied_assembly TRUE \
@@ -101,6 +113,11 @@ nextflow run module_4_binrefinement.nf \
 
 # Run a subtractive assembly
 nextflow run module_5_subassembly.nf \
+-c ./bin/module_5_slurm.config \
+--working_dir ./samwise-main \
+--coassembly_groups ./coassembly_manifest.txt \
+--slurm_account ChargeAccountID (or User Account ID) \
+--max_parallel_subassembly 8 \
 --working_dir ./samwise-main \
 --threads 36 \
 --megahit \
