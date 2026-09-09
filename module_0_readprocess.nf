@@ -606,6 +606,11 @@ process VALIDATE_READS {
         }
         else if (mod == 2) {
             seq = \$0;
+
+            if (length(seq) == 0) {
+                print "ERROR: Sequence line is empty at line " NR;
+                errors++;
+            }
         }
         else if (mod == 3) {
             if (substr(\$0,1,1) != "+") {
@@ -616,6 +621,11 @@ process VALIDATE_READS {
         else if (mod == 0) {
             qual = \$0;
             rec++;
+
+            if (length(qual) == 0) {
+                print "ERROR: Quality line is empty at line " NR;
+                errors++;
+            }
 
             if (length(seq) != length(qual)) {
                 print "ERROR: Sequence and quality lengths differ for record ending at line " NR " (seq=" length(seq) ", qual=" length(qual) ")";
