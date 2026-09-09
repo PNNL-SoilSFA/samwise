@@ -6,7 +6,8 @@ nextflow.enable.dsl = 2
  * Module 5: Subtractive assembly + second-pass binning + final joint MAG refinement.
  */
 
-params.working_dir = null
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.output_dir = null
 params.input_trimmed_manifest = null
 params.input_original_binning_manifest = null
@@ -32,12 +33,12 @@ params.run_second_pass_binning_refinement = true
 params.secondpass_metabat2 = true
 params.secondpass_quickbin = true
 params.secondpass_maxbin2 = true
-params.module3_script = "${projectDir}/module_3_binning.nf"
-params.module4_script = "${projectDir}/module_4_binrefinement.nf"
+params.module3_script = "${params.samwise_dir}/module_3_binning.nf"
+params.module4_script = "${params.samwise_dir}/module_4_binrefinement.nf"
 params.nextflow_exe = "nextflow"
 params.secondpass_working_dir = null
 params.final_joint_working_dir = null
-params.dependencies_dir = "${projectDir}/dependencies"
+params.dependencies_dir = "${params.samwise_dir}/dependencies"
 params.tigrfam_hmm = null
 params.pfam_hmm = null
 params.magscot_script = null
@@ -1281,6 +1282,7 @@ process RUN_SECOND_PASS_BINNING {
 
     set +e
     ${params.nextflow_exe} run "${params.module3_script}" \\
+        --samwise_dir "${params.samwise_dir}" \\
         --working_dir "${params.secondpass_dir}" \\
         --input_trimmed_manifest "\$SUB_TRIMMED" \\
         --input_assembly_manifest "\$SUB_ASSEMBLY" \\
@@ -1521,6 +1523,7 @@ process RUN_FINAL_JOINT_REFINEMENT {
 
     set +e
     ${params.nextflow_exe} run "${params.module4_script}" \\
+        --samwise_dir "${params.samwise_dir}" \\
         --working_dir "${params.final_joint_dir}" \\
         --input_binning_manifest "\$COMBINED" \\
         ${thread_arg} \\

@@ -9,7 +9,9 @@ nextflow.enable.dsl = 2
 
 params.input_dir = null
 params.outdir = "./results/module_0_readprocess"
-params.working_dir = null
+
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.file_pattern = "*.{fastq.gz,fq.gz,fastq,fq}"
 params.fastqc_threads = 2
 params.threads = null

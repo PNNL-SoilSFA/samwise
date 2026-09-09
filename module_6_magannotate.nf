@@ -5,7 +5,8 @@ nextflow.enable.dsl = 2
  * Module 6: MAG annotate / quality / taxonomy.
  */
 
-params.working_dir = null
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.output_dir = null
 params.input_mag_dir = null
 params.input_mag_manifest = null
@@ -73,8 +74,8 @@ params.microtrait_git_ref = null
 params.grodon_github_repo = "jlw-ecoevo/gRodon"
 params.grodon_git_ref = null
 params.microtrait_auto_download_db = true
-params.microtrait_runner_script = "${projectDir}/bin/local_microTrait_runner.R"
-params.microtrait_merger_script = "${projectDir}/bin/microTrait_merger.R"
+params.microtrait_runner_script = "${params.samwise_dir}/bin/local_microTrait_runner.R"
+params.microtrait_merger_script = "${params.samwise_dir}/bin/microTrait_merger.R"
 params.microtrait_fail_nonfatal = false
 
 def absPath(value) {
@@ -196,7 +197,7 @@ workflow {
     def selected_mag_dir_file = file(selected_mag_dir, checkIfExists: true)
     def selected_mag_manifest_file = selected_mag_manifest
         ? file(selected_mag_manifest, checkIfExists: true)
-        : file("${projectDir}/dependencies/module6_no_manifest.placeholder", checkIfExists: true)
+        : file("${params.samwise_dir}/dependencies/module6_no_manifest.placeholder", checkIfExists: true)
 
     PREPARE_MAG_INPUTS(
         channel.value(selected_mag_dir_file),

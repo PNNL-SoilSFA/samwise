@@ -31,7 +31,9 @@ nextflow.enable.dsl = 2
 * This preserves MVP's required directory names and allows completed
 * outputs to remain available if a later MVP module fails.
 */
-params.working_dir = null
+
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.output_dir = null
 params.assembly_manifest = null
 params.trimmed_manifest = null

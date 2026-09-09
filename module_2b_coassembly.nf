@@ -5,7 +5,8 @@ nextflow.enable.dsl = 2
  * Module 2b: MEGAHIT co-assembly from Module 1 trimmed reads.
  */
 
-params.working_dir = null
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.output_dir = null
 params.input_manifest = null
 params.coassembly_groups = null

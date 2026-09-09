@@ -6,10 +6,11 @@ nextflow.enable.dsl = 2
  * Module 4: Bin refinement / MAGScoT preparation and execution.
 */
 
-params.working_dir = null
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.output_dir = null
 params.input_binning_manifest = null
-params.dependencies_dir = "${projectDir}/dependencies"
+params.dependencies_dir = "${params.samwise_dir}/dependencies"
 params.tigrfam_hmm = null
 params.pfam_hmm = null
 params.magscot_script = null
@@ -57,19 +58,19 @@ workflow {
     def binning_manifest_file = params.input_binning_manifest ?: "${params.module3_outdir}/summary/binning_manifest.tsv"
 
     def tigrfam_hmm_file = params.tigrfam_hmm ?: firstExistingPath(
-        ["${params.dependencies_dir}/hmm/gtdbtk_rel207_tigrfam.hmm", "${params.dependencies_dir}/gtdbtk_rel207_tigrfam.hmm", "${projectDir}/dependencies/hmm/gtdbtk_rel207_tigrfam.hmm", "${projectDir}/dependencies/gtdbtk_rel207_tigrfam.hmm"]
+        ["${params.dependencies_dir}/hmm/gtdbtk_rel207_tigrfam.hmm", "${params.dependencies_dir}/gtdbtk_rel207_tigrfam.hmm", "${params.samwise_dir}/dependencies/hmm/gtdbtk_rel207_tigrfam.hmm", "${params.samwise_dir}/dependencies/gtdbtk_rel207_tigrfam.hmm"]
     )
 
     def pfam_hmm_file = params.pfam_hmm ?: firstExistingPath(
-        ["${params.dependencies_dir}/hmm/gtdbtk_rel207_Pfam-A.hmm", "${params.dependencies_dir}/gtdbtk_rel207_Pfam-A.hmm", "${projectDir}/dependencies/hmm/gtdbtk_rel207_Pfam-A.hmm", "${projectDir}/dependencies/gtdbtk_rel207_Pfam-A.hmm", "${projectDir}/gtdbtk_rel207_Pfam-A.hmm"]
+        ["${params.dependencies_dir}/hmm/gtdbtk_rel207_Pfam-A.hmm", "${params.dependencies_dir}/gtdbtk_rel207_Pfam-A.hmm", "${params.samwise_dir}/dependencies/hmm/gtdbtk_rel207_Pfam-A.hmm", "${params.samwise_dir}/dependencies/gtdbtk_rel207_Pfam-A.hmm", "${params.samwise_dir}/gtdbtk_rel207_Pfam-A.hmm"]
     )
 
     def magscot_script_file = params.magscot_script ?: firstExistingPath(
-        ["${projectDir}/bin/MAGScoT.py", "${projectDir}/bin/magscot.py"]
+        ["${params.samwise_dir}/bin/MAGScoT.py", "${params.samwise_dir}/bin/magscot.py"]
     )
 
     def magscot_profiles_dir = params.magscot_profiles_dir ?: firstExistingPath(
-        ["${params.dependencies_dir}/", "${projectDir}/dependencies/", "${params.dependencies_dir}/MAGScoT_profiles", "${projectDir}/dependencies/MAGScoT_profiles"]
+        ["${params.dependencies_dir}/", "${params.samwise_dir}/dependencies/", "${params.dependencies_dir}/MAGScoT_profiles", "${params.samwise_dir}/dependencies/MAGScoT_profiles"]
     )
 
     if (params.magscot_threshold != null) {

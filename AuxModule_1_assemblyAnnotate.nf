@@ -2,7 +2,8 @@
 
 nextflow.enable.dsl = 2
 
-params.working_dir = null
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.min_scaffold_bp = 1000
 params.threads = null
 params.auto_install = true
@@ -61,7 +62,7 @@ def requireWorkingDir(value) {
 }
 
 
-params.results_dir = requireWorkingDir(params.working_dir)
+params.results_dir = requireWorkingDir(params.working_dir ?: params.samwise_dir)
 
 params.module2_assembly_dir = "${params.results_dir}/module_2_readassembly/assemblies"
 

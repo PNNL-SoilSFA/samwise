@@ -6,7 +6,8 @@ nextflow.enable.dsl = 2
  * Module 3: MAG binning from Module 2 assemblies and Module 1 trimmed reads.
  */
 
-params.working_dir = null
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.input_assembly_manifest = null
 params.input_trimmed_manifest = null
 params.input_coassembly_assembly_manifest = null

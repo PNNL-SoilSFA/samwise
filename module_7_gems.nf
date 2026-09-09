@@ -16,7 +16,8 @@ nextflow.enable.dsl = 2
 // PARAMETERS
 // ============================================================================
 
-params.working_dir = null
+params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
+params.working_dir = params.working_dir ?: params.samwise_dir
 params.output_dir = null
 params.input_manifest = null
 params.protein_fasta_dir = null
@@ -44,8 +45,8 @@ params.module6_output_dir = "${params.results_dir}/module_6_magannotate"
 params.gapseq_package = 'gapseq=1.4.0'
 params.memote_package = 'memote=0.17.0'
 
-params.media_minimal = "${projectDir}/background/media/gapseq_M9_glucose_aerobic.csv"
-params.media_comprehensive = "${projectDir}/background/media/gapseq_all_nutrients.csv"
+params.media_minimal = "${params.samwise_dir}/background/media/gapseq_M9_glucose_aerobic.csv"
+params.media_comprehensive = "${params.samwise_dir}/background/media/gapseq_all_nutrients.csv"
 
 // ============================================================================
 // HELPERS AND VALIDATION
