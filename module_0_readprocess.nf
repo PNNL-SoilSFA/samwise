@@ -135,19 +135,19 @@ status_paths = [Path(path) for path in sys.argv[3:]]
 invalid = {}
 for status_path in status_paths:
     with status_path.open(newline="") as handle:
-        for row in csv.DictReader(handle, delimiter="\t"):
+        for row in csv.DictReader(handle, delimiter=chr(9)):
             if row.get("status") == "invalid":
                 invalid[row["read_file"]] = row.get("reason", "FASTQ validation failed")
 
 with manifest_path.open(newline="") as inp, \\
      Path("filtered_read_manifest.tsv").open("w", newline="") as out, \\
      Path("ignored_bad_fastq_files.tsv").open("w", newline="") as ignored_out:
-    reader = csv.DictReader(inp, delimiter="\t")
+    reader = csv.DictReader(inp, delimiter=chr(9))
     fields = reader.fieldnames or []
-    writer = csv.DictWriter(out, fieldnames=fields, delimiter="\t", lineterminator="\n")
+    writer = csv.DictWriter(out, fieldnames=fields, delimiter=chr(9), lineterminator=chr(10))
     writer.writeheader()
 
-    ignored_writer = csv.writer(ignored_out, delimiter="\t", lineterminator="\n")
+    ignored_writer = csv.writer(ignored_out, delimiter=chr(9), lineterminator=chr(10))
     ignored_writer.writerow(["sample_id", "read_file", "reason", "message"])
 
     retained = 0
