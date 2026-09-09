@@ -303,6 +303,8 @@ process FASTP_PAIRED {
     path "${safe_id}_fastp.log", emit: log
 
     script:
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
+
     """
     set -euo pipefail
 
@@ -367,12 +369,12 @@ process FASTP_PAIRED {
         "${sample_id}" \\
         "${safe_id}" \\
         "paired" \\
-        "${params.outdir}/trimmed_reads/${safe_id}_R1_trimmed.fastq.gz" \\
-        "${params.outdir}/trimmed_reads/${safe_id}_R2_trimmed.fastq.gz" \\
+        "${published_outdir}/trimmed_reads/${safe_id}_R1_trimmed.fastq.gz" \\
+        "${published_outdir}/trimmed_reads/${safe_id}_R2_trimmed.fastq.gz" \\
         "" \\
         "" \\
-        "${params.outdir}/fastp_reports/${safe_id}_fastp.html" \\
-        "${params.outdir}/fastp_reports/${safe_id}_fastp.json" \\
+        "${published_outdir}/fastp_reports/${safe_id}_fastp.html" \\
+        "${published_outdir}/fastp_reports/${safe_id}_fastp.json" \\
         > "${safe_id}_trimmed_manifest_record.tsv"
     """
 }
@@ -404,6 +406,10 @@ process FASTP_INTERLEAVED {
     path "${safe_id}_fastp.log", emit: log
 
     script:
+    // Manifest entries are consumed from independent Module 2 task directories.
+    // Record absolute published paths so relative --results_dir values remain valid.
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
+
     """
     set -euo pipefail
 
@@ -465,10 +471,10 @@ process FASTP_INTERLEAVED {
         "interleaved" \\
         "" \\
         "" \\
-        "${params.outdir}/trimmed_reads/${safe_id}_interleaved_trimmed.fastq.gz" \\
+        "${published_outdir}/trimmed_reads/${safe_id}_interleaved_trimmed.fastq.gz" \\
         "" \\
-        "${params.outdir}/fastp_reports/${safe_id}_fastp.html" \\
-        "${params.outdir}/fastp_reports/${safe_id}_fastp.json" \\
+        "${published_outdir}/fastp_reports/${safe_id}_fastp.html" \\
+        "${published_outdir}/fastp_reports/${safe_id}_fastp.json" \\
         > "${safe_id}_trimmed_manifest_record.tsv"
     """
 }

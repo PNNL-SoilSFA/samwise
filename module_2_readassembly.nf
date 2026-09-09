@@ -74,6 +74,12 @@ def rareLabels(count) {
     return (0..<count).collect { idx -> rareLabelFromIndex(idx as int) }
 }
 
+def absoluteReadPath(value) {
+
+    def text = value?.toString()?.trim()
+    return text ? file(text).toAbsolutePath().normalize().toString() : ''
+}
+
 workflow {
 
     def use_megahit = params.megahit.toString().toBoolean()
@@ -167,14 +173,17 @@ workflow {
                 error("Unsupported layout in trimmed manifest for sample '${sample_id}': ${layout}")
             }
 
+            // Module 1 manifests created before absolute paths were recorded
+            // contain paths relative to the Nextflow launch directory. Resolve
+            // them here because assembly tasks execute in isolated work dirs.
             tuple(
                 sample_id,
                 safe_id,
                 assembly_sample_id,
                 layout,
-                row.read1.toString(),
-                row.read2.toString(),
-                row.interleaved.toString(),
+                absoluteReadPath(row.read1),
+                absoluteReadPath(row.read2),
+                absoluteReadPath(row.interleaved),
             )
         }
 
