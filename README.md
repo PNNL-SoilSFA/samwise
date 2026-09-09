@@ -171,7 +171,8 @@ nextflow run module_0_readprocess.nf \
 | `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_dir` | `null` | Directory where the metagenomic reads are stored. Please see the required filename formats. |
 | `threads` | `null` | Total number of threads to use. If provided, this overrides `fastqc_threads`. |
-| `skip_validate` | `false` | Optional flag to skip validation of read files. This speeds up the process by skipping checks that confirm the reads are valid FASTQ files. If your reads are large, compressed, and you are certain they are valid FASTQ files, we recommend using this flag. |
+| `skip_validate` | `false` | Skip FASTQ structure validation. Naming and pairing checks still run; every named read is passed to FastQC. |
+| `ignore_invalid_fastq` | `false` | Continue after FASTQ structure validation failures. Each invalid read is excluded from the Module 0 manifest, its validation report includes `READ IGNORED - BAD FASTQ FILE`, and `validation_reports/ignored_bad_fastq_files.tsv` records the exclusion. The default (`false`) stops the workflow on the first invalid FASTQ. Has no effect with `--skip_validate true`. |
 | `file_pattern` | `*.{fastq.gz,fq.gz,fastq,fq}` | Glob/text pattern used to detect input files inside `input_dir`. The default detects `fastq.gz`, `fq.gz`, `fastq`, and `fq` files. We recommend leaving this unchanged. |
 | `fastqc_threads` | `2` | Number of threads to use specifically for FastQC if the global `threads` argument is not passed. |
 | `fastqc_version` | `0.12.1` | FastQC version to install if a different version is desired. |

@@ -24,6 +24,7 @@ params.file_pattern = "*.{fastq.gz,fq.gz,fastq,fq}"
 params.fastqc_threads = 2
 params.threads = null
 params.skip_validate = false
+params.ignore_invalid_fastq = false
 params.fastqc_version = "0.12.1"
 params.auto_install = true
 params.tool_env_dir = null
@@ -56,7 +57,35 @@ workflow {
 
     CHECK_READ_NAMING(all_files_ch.collect())
 
-    def valid_named_reads_ch = CHECK_READ_NAMING.out.manifest
+    def named_reads_ch = CHECK_READ_NAMING.out.manifest
+        .splitCsv(header: true, sep: '\t')
+        .flatMap { row ->
+            if (row.layout == 'paired') {
+                return [tuple(row.read1, file(row.read1)), tuple(row.read2, file(row.read2))]
+            }
+            else if (row.layout == 'interleaved') {
+                return [tuple(row.interleaved, file(row.interleaved))]
+            }
+            return []
+        }
+
+    if (params.skip_validate.toString().toBoolean()) {
+        SKIP_VALIDATE_READS(named_reads_ch)
+    }
+    else {
+        VALIDATE_READS(named_reads_ch)
+    }
+
+    def validation_status_ch = params.skip_validate.toString().toBoolean()
+        ? SKIP_VALIDATE_READS.out.status
+        : VALIDATE_READS.out.status
+
+    FILTER_VALIDATED_READ_MANIFEST(
+        CHECK_READ_NAMING.out.manifest,
+        validation_status_ch.collect(),
+    )
+
+    def reads_ready_for_fastqc_ch = FILTER_VALIDATED_READ_MANIFEST.out.manifest
         .splitCsv(header: true, sep: '\t')
         .flatMap { row ->
             if (row.layout == 'paired') {
@@ -65,25 +94,86 @@ workflow {
             else if (row.layout == 'interleaved') {
                 return [file(row.interleaved)]
             }
-            else {
-                return []
-            }
+            return []
         }
-
-    def reads_ready_for_fastqc_ch
-
-    if (params.skip_validate.toString().toBoolean()) {
-        SKIP_VALIDATE_READS(valid_named_reads_ch)
-        reads_ready_for_fastqc_ch = SKIP_VALIDATE_READS.out
-    }
-    else {
-        VALIDATE_READS(valid_named_reads_ch)
-        reads_ready_for_fastqc_ch = VALIDATE_READS.out
-    }
 
     def reads_ready_with_tools_ch = reads_ready_for_fastqc_ch.combine(SETUP_MODULE0_TOOLS.out.status)
 
     RUN_FASTQC(reads_ready_with_tools_ch)
+}
+
+process FILTER_VALIDATED_READ_MANIFEST {
+
+    tag "filter_validated_reads"
+
+    publishDir "${params.module0_outdir}/naming", mode: 'copy', pattern: "filtered_read_manifest.tsv", saveAs: { 'read_manifest.tsv' }
+    publishDir "${params.module0_outdir}/validation_reports", mode: 'copy', pattern: "ignored_bad_fastq_files.tsv"
+
+    input:
+    path naming_manifest
+    path validation_statuses
+
+    output:
+    path "filtered_read_manifest.tsv", emit: manifest
+    path "ignored_bad_fastq_files.tsv", emit: ignored_reads
+
+    script:
+    def status_files = validation_statuses.collect { status_file -> status_file.name }.join(' ')
+
+    """
+    set -euo pipefail
+
+    python3 - "${naming_manifest}" "${params.ignore_invalid_fastq}" ${status_files} <<'PY'
+import csv
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+ignore_invalid = sys.argv[2].strip().lower() == "true"
+status_paths = [Path(path) for path in sys.argv[3:]]
+
+invalid = {}
+for status_path in status_paths:
+    with status_path.open(newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            if row.get("status") == "invalid":
+                invalid[row["read_file"]] = row.get("reason", "FASTQ validation failed")
+
+with manifest_path.open(newline="") as inp, \\
+     Path("filtered_read_manifest.tsv").open("w", newline="") as out, \\
+     Path("ignored_bad_fastq_files.tsv").open("w", newline="") as ignored_out:
+    reader = csv.DictReader(inp, delimiter="\t")
+    fields = reader.fieldnames or []
+    writer = csv.DictWriter(out, fieldnames=fields, delimiter="\t", lineterminator="\n")
+    writer.writeheader()
+
+    ignored_writer = csv.writer(ignored_out, delimiter="\t", lineterminator="\n")
+    ignored_writer.writerow(["sample_id", "read_file", "reason", "message"])
+
+    retained = 0
+    ignored_count = 0
+    for row in reader:
+        read_paths = [row.get("read1", ""), row.get("read2", ""), row.get("interleaved", "")]
+        bad_reads = [(read_path, invalid[read_path]) for read_path in read_paths if read_path in invalid]
+
+        if bad_reads:
+            for read_path, reason in bad_reads:
+                ignored_writer.writerow([row.get("sample_id", ""), read_path, reason, "READ IGNORED - BAD FASTQ FILE"])
+                ignored_count += 1
+            continue
+
+        writer.writerow(row)
+        retained += 1
+
+if invalid and not ignore_invalid:
+    raise SystemExit("ERROR: FASTQ validation failed. Re-run with --ignore_invalid_fastq true to omit invalid reads.")
+
+if retained == 0:
+    raise SystemExit("ERROR: No valid samples remain after FASTQ validation.")
+
+print(f"Retained {retained} valid sample(s); ignored {ignored_count} invalid read file(s).")
+PY
+    """
 }
 
 process SETUP_MODULE0_TOOLS {
@@ -214,7 +304,7 @@ process CHECK_READ_NAMING {
 
     tag "check_read_naming"
 
-    publishDir "${params.module0_outdir}/naming", mode: 'copy', pattern: "*.{txt,tsv}"
+    publishDir "${params.module0_outdir}/naming", mode: 'copy', pattern: "read_naming_report.txt"
 
     input:
     val read_files
@@ -454,10 +544,11 @@ process VALIDATE_READS {
     publishDir "${params.module0_outdir}/validation_reports", mode: 'copy', pattern: "*_validation*.txt"
 
     input:
-    path read_file
+    tuple val(source_read_file), path(read_file)
 
     output:
-    tuple path(read_file), path("${read_file.simpleName}_validation.txt")
+    path "${read_file.simpleName}_validation.txt", emit: report
+    path "${read_file.simpleName}_validation_status.tsv", emit: status
 
     script:
     """
@@ -465,6 +556,11 @@ process VALIDATE_READS {
 
     infile="${read_file}"
     report="${read_file.simpleName}_validation.txt"
+    status="${read_file.simpleName}_validation_status.tsv"
+
+    write_status() {
+        printf 'read_file\tstatus\treason\n%s\t%s\t%s\n' "${source_read_file}" "\$1" "\$2" > "\$status"
+    }
 
     echo "Validation report for: ${read_file}" > "\$report"
     echo "Started: \$(date)" >> "\$report"
@@ -476,8 +572,13 @@ process VALIDATE_READS {
             ;;
         *)
             echo "ERROR: Unsupported file extension. Expected .fastq, .fastq.gz, .fq, or .fq.gz" >> "\$report"
+            echo "READ IGNORED - BAD FASTQ FILE" >> "\$report"
+            write_status "invalid" "unsupported_file_extension"
             cat "\$report" >&2
-            exit 1
+            if [[ "${params.ignore_invalid_fastq}" != "true" ]]; then
+                exit 1
+            fi
+            exit 0
             ;;
     esac
 
@@ -544,10 +645,15 @@ process VALIDATE_READS {
     }' >> "\$report" 2>&1
     then
         echo "Validation completed successfully." >> "\$report"
+        write_status "valid" ""
     else
         echo "Validation failed." >> "\$report"
+        echo "READ IGNORED - BAD FASTQ FILE" >> "\$report"
+        write_status "invalid" "fastq_structure_validation_failed"
         cat "\$report" >&2
-        exit 1
+        if [[ "${params.ignore_invalid_fastq}" != "true" ]]; then
+            exit 1
+        fi
     fi
 
     echo "Finished: \$(date)" >> "\$report"
@@ -563,22 +669,25 @@ process SKIP_VALIDATE_READS {
     publishDir "${params.module0_outdir}/validation_reports", mode: 'copy', pattern: "*_validation*.txt"
 
     input:
-    path read_file
+    tuple val(source_read_file), path(read_file)
 
     output:
-    tuple path(read_file), path("${read_file.simpleName}_validation_skipped.txt")
+    path "${read_file.simpleName}_validation_skipped.txt", emit: report
+    path "${read_file.simpleName}_validation_status.tsv", emit: status
 
     script:
     """
     set -euo pipefail
 
     report="${read_file.simpleName}_validation_skipped.txt"
+    status="${read_file.simpleName}_validation_status.tsv"
 
     echo "Validation skipped for: ${read_file}" > "\$report"
     echo "Started: \$(date)" >> "\$report"
     echo "----------------------------------------" >> "\$report"
     echo "INFO: FASTQ structure validation was skipped because --skip_validate true was used." >> "\$report"
     echo "INFO: File naming and extension checks were still performed by CHECK_READ_NAMING." >> "\$report"
+    printf 'read_file\tstatus\treason\n%s\tskipped\tvalidation_skipped_by_user\n' "${source_read_file}" > "\$status"
     echo "INFO: This file was passed directly to FastQC." >> "\$report"
     echo "Finished: \$(date)" >> "\$report"
     """
@@ -599,7 +708,7 @@ process RUN_FASTQC {
     }
 
     input:
-    tuple path(read_file), path(validation_report), path(tools_status)
+    tuple path(read_file), path(tools_status)
 
     output:
     path "*_fastqc.html"
@@ -623,7 +732,6 @@ process RUN_FASTQC {
     fi
 
     echo "Running FastQC on: ${read_file}"
-    echo "Validation/skipping report: ${validation_report}"
     echo "FastQC threads: ${task.cpus}"
 
     fastqc \\
