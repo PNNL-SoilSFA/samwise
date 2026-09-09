@@ -5,9 +5,16 @@ nextflow.enable.dsl = 2
  * Module 2b: MEGAHIT co-assembly from Module 1 trimmed reads.
  */
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
-params.output_dir = null
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.input_manifest = null
 params.coassembly_groups = null
 params.megahit_version = "1.2.9"
@@ -20,7 +27,7 @@ params.memory_gb = 0
 params.megahit_preset = "meta-large"
 params.publish_assemblies_mode = "symlink"
 params.publish_coassembly_reads_mode = "symlink"
-params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
+params.results_dir = params.working_dir
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.outdir = "${params.results_dir}/module_2b_coassembly"
 
@@ -121,7 +128,9 @@ process SETUP_MODULE2B_TOOLS {
     path "module2b_tools_status.env", emit: status
 
     script:
-    def env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs/module2b_tools"
+    def env_dir = params.tool_env_dir
+        ? file(params.tool_env_dir).toAbsolutePath().toString()
+        : file("${params.outdir}/conda_envs/module2b_tools").toAbsolutePath().toString()
 
     """
     set -euo pipefail

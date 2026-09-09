@@ -32,9 +32,16 @@ nextflow.enable.dsl = 2
 * outputs to remain available if a later MVP module fails.
 */
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
-params.output_dir = null
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.assembly_manifest = null
 params.trimmed_manifest = null
 params.include_individual_assemblies = true
@@ -171,10 +178,6 @@ def absPath(value) {
 * Derived directories.
 */
 params.results_dir = params.working_dir
-    ? absPath(params.working_dir)
-    : (params.output_dir
-        ? absPath(params.output_dir)
-        : absPath("."))
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module2_outdir = "${params.results_dir}/module_2_readassembly"
 params.module2b_outdir = "${params.results_dir}/module_2b_coassembly"

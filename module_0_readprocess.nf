@@ -10,8 +10,16 @@ nextflow.enable.dsl = 2
 params.input_dir = null
 params.outdir = "./results/module_0_readprocess"
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.file_pattern = "*.{fastq.gz,fq.gz,fastq,fq}"
 params.fastqc_threads = 2
 params.threads = null
@@ -19,7 +27,7 @@ params.skip_validate = false
 params.fastqc_version = "0.12.1"
 params.auto_install = true
 params.tool_env_dir = null
-params.module0_outdir = params.working_dir ? "${params.working_dir}/module_0_readprocess" : params.outdir
+params.module0_outdir = "${params.working_dir}/module_0_readprocess"
 
 workflow {
 
@@ -89,7 +97,9 @@ process SETUP_MODULE0_TOOLS {
     path "module0_tools_status.env", emit: status
 
     script:
-    def env_dir = params.tool_env_dir ?: "${params.module0_outdir}/conda_envs/module0_tools"
+    def env_dir = params.tool_env_dir
+        ? file(params.tool_env_dir).toAbsolutePath().toString()
+        : file("${params.module0_outdir}/conda_envs/module0_tools").toAbsolutePath().toString()
 
     """
     set -euo pipefail

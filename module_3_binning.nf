@@ -6,15 +6,22 @@ nextflow.enable.dsl = 2
  * Module 3: MAG binning from Module 2 assemblies and Module 1 trimmed reads.
  */
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.input_assembly_manifest = null
 params.input_trimmed_manifest = null
 params.input_coassembly_assembly_manifest = null
 params.input_coassembly_trimmed_manifest = null
 params.include_module2 = true
 params.include_module2b = true
-params.output_dir = null
 params.metabat2 = false
 params.quickbin = false
 params.maxbin2 = false
@@ -51,7 +58,7 @@ params.quickbin_use_positional_bam = false
 params.publish_filtered_assemblies_mode = "symlink"
 params.publish_bam_mode = "symlink"
 params.publish_bins_mode = "symlink"
-params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
+params.results_dir = params.working_dir
 params.module1_outdir = "${params.results_dir}/module_1_readtrimming"
 params.module2_outdir = "${params.results_dir}/module_2_readassembly"
 params.module2b_outdir = "${params.results_dir}/module_2b_coassembly"
@@ -442,7 +449,9 @@ process SETUP_MODULE3_TOOLS {
     path "module3_tools_status.env", emit: status
 
     script:
-    def base_env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs"
+    def base_env_dir = params.tool_env_dir
+        ? file(params.tool_env_dir).toAbsolutePath().toString()
+        : file("${params.outdir}/conda_envs").toAbsolutePath().toString()
 
     def mapping_env_dir = "${base_env_dir}/module3_mapping_tools"
     def metabat2_env_dir = "${base_env_dir}/module3_metabat2_tools"

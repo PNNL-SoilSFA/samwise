@@ -6,10 +6,17 @@ nextflow.enable.dsl = 2
  * Module 1: Read trimming / quality control with fastp, followed by FastQC.
  */
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.input_manifest = null
-params.output_dir = null
 params.fastp_version = "0.23.4"
 params.fastqc_version = "0.12.1"
 params.auto_install = true
@@ -32,7 +39,7 @@ params.n_base_limit = 5
 params.length_required = 75
 params.trim_poly_g = false
 params.trim_poly_x = false
-params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
+params.results_dir = params.working_dir
 params.module0_outdir = "${params.results_dir}/module_0_readprocess"
 params.outdir = "${params.results_dir}/module_1_readtrimming"
 
@@ -145,7 +152,9 @@ process SETUP_MODULE1_TOOLS {
     path "module1_tools_status.env", emit: status
 
     script:
-    def env_dir = params.tool_env_dir ?: "${params.outdir}/conda_envs/module1_tools"
+    def env_dir = params.tool_env_dir
+        ? file(params.tool_env_dir).toAbsolutePath().toString()
+        : file("${params.outdir}/conda_envs/module1_tools").toAbsolutePath().toString()
 
     """
     set -euo pipefail

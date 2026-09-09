@@ -16,9 +16,16 @@ nextflow.enable.dsl = 2
 // PARAMETERS
 // ============================================================================
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
-params.output_dir = null
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.input_manifest = null
 params.protein_fasta_dir = null
 params.media_csv = null
@@ -37,7 +44,7 @@ params.gapseq_extra_args = '' // Retired: the pinned doall interface is position
 params.memote_extra_args = ''
 params.publish_gems_mode = 'copy'
 params.publish_reports_mode = 'copy'
-params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : '.')
+params.results_dir = params.working_dir
 params.outdir = "${params.results_dir}/module_7_gems"
 params.module6_output_dir = "${params.results_dir}/module_6_magannotate"
 
@@ -917,7 +924,7 @@ workflow {
         log.warn('An adapt manifest was supplied but --run_gapseq_adapt is false; adaptation will be skipped.')
     }
 
-    log.info("Module 7 parameter resolution: working_dir=${params.working_dir ?: '<unset>'}; output_dir=${params.output_dir ?: '<unset>'}; results_dir=${params.results_dir}")
+    log.info("Module 7 parameter resolution: samwise_dir=${params.samwise_dir}; working_dir=${params.working_dir}; results_dir=${params.results_dir}")
     log.info("Module 7 output and publishing: outdir=${params.outdir}; gems_mode=${params.publish_gems_mode}; reports_mode=${params.publish_reports_mode}")
     log.info("Module 7 outdir: ${params.outdir}")
     log.info("Pinned packages: ${params.gapseq_package}; ${params.memote_package}")

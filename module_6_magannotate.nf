@@ -5,9 +5,16 @@ nextflow.enable.dsl = 2
  * Module 6: MAG annotate / quality / taxonomy.
  */
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
-params.output_dir = null
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.input_mag_dir = null
 params.input_mag_manifest = null
 params.mag_extension = "fa"
@@ -56,7 +63,7 @@ params.eggnog_extra_args = ""
 params.eggnog_mmseqs_db = null
 params.eggnog_fail_nonfatal = false
 params.publish_tool_outputs_mode = "copy"
-params.results_dir = params.working_dir ? params.working_dir : (params.output_dir ? params.output_dir : ".")
+params.results_dir = params.working_dir
 params.outdir = "${params.results_dir}/module_6_magannotate"
 params.module5_final_mag_dir = "${params.results_dir}/module_5_subassembly/final_mag_database"
 params.module5_final_mag_manifest = "${params.results_dir}/module_5_subassembly/summary/final_mag_database_manifest.tsv"

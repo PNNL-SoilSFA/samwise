@@ -167,7 +167,8 @@ nextflow run module_0_readprocess.nf \
 ## Module 0 Arguments:
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Working directory where output files will be written. If provided, Module 0 outputs are written to `<working_dir>/module_0_readprocess`. |
+| `working_dir` | `null` | Results root. Module 0 outputs are written to `<working_dir>/module_0_readprocess`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_dir` | `null` | Directory where the metagenomic reads are stored. Please see the required filename formats. |
 | `threads` | `null` | Total number of threads to use. If provided, this overrides `fastqc_threads`. |
 | `skip_validate` | `false` | Optional flag to skip validation of read files. This speeds up the process by skipping checks that confirm the reads are valid FASTQ files. If your reads are large, compressed, and you are certain they are valid FASTQ files, we recommend using this flag. |
@@ -175,7 +176,7 @@ nextflow run module_0_readprocess.nf \
 | `fastqc_threads` | `2` | Number of threads to use specifically for FastQC if the global `threads` argument is not passed. |
 | `fastqc_version` | `0.12.1` | FastQC version to install if a different version is desired. |
 | `auto_install` | `true` | Controls whether SAMWISE installs required packages, such as FastQC. If set to `false`, FastQC must already be available in your environment. |
-| `outdir` | `<results_dir>/module_0_readprocess` | Only used if `working_dir` is not specified. |
+| `outdir` | `<working_dir>/module_0_readprocess` | Derived Module 0 output directory. |
 
 ```
 *IMPORTANT*
@@ -217,9 +218,9 @@ nextflow run module_1_readtrimming.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 1 outputs are written to `<working_dir>/module_1_readtrimming`. |
+| `working_dir` | `null` | Results root. Module 1 outputs are written to `<working_dir>/module_1_readtrimming`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_manifest` | `null` | Input read manifest file. This is typically the `read_manifest.tsv` produced by Module 0. |
-| `output_dir` | `null` | Alternative output directory used only if `--working_dir` is not provided. |
 | `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
 | `fastp_threads` | `4` | Number of threads to use for `fastp` read trimming. |
 | `fastqc_threads` | `2` | Number of threads to use for FastQC after trimming. |
@@ -241,7 +242,7 @@ nextflow run module_1_readtrimming.nf \
 | `length_required` | `75` | Minimum read length required after trimming/filtering. Reads shorter than this are discarded. |
 | `trim_poly_g` | `false` | Enables poly-G tail trimming. Often useful for reads generated on two-color Illumina platforms. |
 | `trim_poly_x` | `false` | Enables poly-X tail trimming. |
-| `results_dir` | null | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `results_dir` | null | Internal results root, derived from the resolved `working_dir`. Usually does not need to be set directly. |
 | `module0_outdir` | `<results_dir>/module_0_readprocess` | Expected Module 0 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_1_readtrimming` | Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 
@@ -288,9 +289,9 @@ nextflow run module_2_readassembly.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 2 outputs are written to `<working_dir>/module_2_readassembly`. |
+| `working_dir` | `null` | Results root. Module 2 outputs are written to `<working_dir>/module_2_readassembly`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_manifest` | `null` | Input manifest file containing reads for assembly. This is typically produced by Module 1 after read trimming. |
-| `output_dir` | `null` | Alternative output directory used only if `--working_dir` is not provided. |
 | `megahit` | `false` | Enables assembly with MEGAHIT. |
 | `metaspades` | `false` | Enables assembly with metaSPAdes. |
 | `single_assembly` | `true` | Performs a single assembly using the available input reads. |
@@ -306,7 +307,7 @@ nextflow run module_2_readassembly.nf \
 | `megahit_threads` | `null` | Optional MEGAHIT-specific thread override. If provided, this overrides the general assembly thread setting for MEGAHIT. This is really only important for mac users that need to specify a single thread for it to work. |
 | `megahit_preset` | `meta-large` | MEGAHIT preset to use for assembly. Default is `meta-large`. Could also use `meta-sensitive` |
 | `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
-| `results_dir` | `null` | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `results_dir` | `null` | Internal results root, derived from the resolved `working_dir`. Usually does not need to be set directly. |
 | `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_2_readassembly` | Module 2 output directory. Usually derived automatically and does not need to be set directly. |
 
@@ -345,10 +346,10 @@ nextflow run module_2b_coassembly.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory. Module 2B writes to `<working_dir>/module_2b_coassembly`. |
+| `working_dir` | `null` | Results root. Module 2B writes to `<working_dir>/module_2b_coassembly`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_manifest` | `null` | Module 1 trimmed-read manifest; defaults to Module 1's `summary/trimmed_manifest.tsv`. |
 | `coassembly_groups` | `null` | Required two-column tab-separated read/sample-to-group manifest. |
-| `output_dir` | `null` | Alternative results directory used when `--working_dir` is not supplied. |
 | `megahit_version` | `1.2.9` | MEGAHIT version to install/use. |
 | `auto_install` | `true` | Install MEGAHIT automatically when it is unavailable. |
 | `tool_env_dir` | `null` | Optional custom environment directory for Module 2B tools. |
@@ -387,14 +388,14 @@ nextflow run module_3_binning.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 3 outputs are written to `<working_dir>/module_3_binning`. |
+| `working_dir` | `null` | Results root. Module 3 outputs are written to `<working_dir>/module_3_binning`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_assembly_manifest` | `null` | Input assembly manifest file. Used to provide assemblies for binning. |
 | `input_trimmed_manifest` | `null` | Input trimmed-read manifest file. Used to provide trimmed reads for read mapping/coverage generation. |
 | `input_coassembly_assembly_manifest` | `null` | Input coassembly assembly manifest file, typically produced by Module 2B/coassembly. |
 | `input_coassembly_trimmed_manifest` | `null` | Input coassembly trimmed-read manifest file, typically used with Module 2B/coassembly outputs. |
 | `include_module2` | `true` | Whether to include/use assemblies from Module 2. |
 | `include_module2b` | `true` | Whether to include/use coassemblies from Module 2B. |
-| `output_dir` | `null` | Alternative output directory used only if `--working_dir` is not provided. |
 | `metabat2` | `false` | Enables binning with MetaBAT2. |
 | `quickbin` | `false` | Enables binning with QuickBin. |
 | `maxbin2` | `false` | Enables binning with MaxBin2. |
@@ -433,7 +434,7 @@ nextflow run module_3_binning.nf \
 | `publish_filtered_assemblies_mode` | `symlink` | How filtered assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`.|
 | `publish_bam_mode` | `symlink` | How BAM mapping files are published. Options can be `symlink`, `copy`, or `move`.| 
 | `publish_bins_mode` | `symlink` | How final bin files are published. Options can be `symlink`, `copy`, or `move`.|
-| `results_dir` | null | Internal results directory. Uses `--working_dir` if provided, otherwise `--output_dir`, otherwise `.`. Usually does not need to be set directly.|
+| `results_dir` | null | Internal results root, derived from the resolved `working_dir`. Usually does not need to be set directly.|
 | `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 | `module2_outdir` | `<results_dir>/module_2_readassembly` | Expected Module 2 output directory. Usually derived automatically and does not need to be set directly. |
 | `module2b_outdir` | `<results_dir>/module_2b_coassembly` | Expected Module 2B/coassembly output directory. Usually derived automatically and does not need to be set directly. |
@@ -458,10 +459,10 @@ nextflow run module_4_binrefinement.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 4 outputs are written to `<working_dir>/module_4_binrefinement`. |
-| `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
+| `working_dir` | `null` | Results root. Module 4 outputs are written to `<working_dir>/module_4_binrefinement`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_binning_manifest` | `null` | Input binning manifest file, typically produced by Module 3. This should describe the bins to be refined. |
-| `dependencies_dir` | `${projectDir}/dependencies` | Directory containing external dependency files used by Module 4. |
+| `dependencies_dir` | `${samwise_dir}/dependencies` | Directory containing external dependency files used by Module 4. |
 | `tigrfam_hmm` | `null` | Path to the TIGRFAM HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
 | `pfam_hmm` | `null` | Path to the Pfam HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
 | `magscot_script` | `null` | Path to the MAGSCOT script. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
@@ -478,7 +479,7 @@ nextflow run module_4_binrefinement.nf \
 | `magscot_threshold` | `0` | MAGSCOT threshold value used during bin refinement/scoring. |
 | `publish_gathered_bins_mode` | `copy` | How gathered bin files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
 | `publish_refined_bins_mode` | `copy` | How refined bin files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
-| `results_dir` | Derived | Internal results directory. Uses `working_dir` if provided, otherwise `output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `results_dir` | Derived | Internal results root, derived from the resolved `working_dir`. Usually does not need to be set directly. |
 | `module3_outdir` | `<results_dir>/module_3_binning` | Expected Module 3 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_4_binrefinement` | Module 4 output directory. Usually derived automatically and does not need to be set directly. |
 
@@ -511,8 +512,8 @@ nextflow run module_5_subassembly.nf \
 ```
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 5 outputs are written to `<working_dir>/module_5_subassembly`. |
-| `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
+| `working_dir` | `null` | Results root. Module 5 outputs are written to `<working_dir>/module_5_subassembly`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_trimmed_manifest` | `null` | Input trimmed-read manifest file, typically produced by Module 1. |
 | `input_original_binning_manifest` | `null` | Input original binning manifest file, typically produced by Module 3. |
 | `input_refined_manifest` | `null` | Input refined-bin manifest file, typically produced by Module 4. |
@@ -537,12 +538,12 @@ nextflow run module_5_subassembly.nf \
 | `secondpass_metabat2` | `true` | Enables MetaBAT2 during second-pass binning. |
 | `secondpass_quickbin` | `true` | Enables QuickBin during second-pass binning. |
 | `secondpass_maxbin2` | `true` | Enables MaxBin2 during second-pass binning. |
-| `module3_script` | `${projectDir}/module_3_binning.nf` | Path to the Module 3 binning Nextflow script used for second-pass binning. |
-| `module4_script` | `${projectDir}/module_4_binrefinement.nf` | Path to the Module 4 bin refinement Nextflow script used for final/second-pass refinement. |
+| `module3_script` | `${samwise_dir}/module_3_binning.nf` | Path to the Module 3 binning Nextflow script used for second-pass binning. |
+| `module4_script` | `${samwise_dir}/module_4_binrefinement.nf` | Path to the Module 4 bin refinement Nextflow script used for final/second-pass refinement. |
 | `nextflow_exe` | `nextflow` | Nextflow executable used to launch nested/second-pass workflows. |
 | `secondpass_working_dir` | `null` | Optional custom working directory for second-pass binning/refinement. If unset, defaults to `<outdir>/second_pass`. |
 | `final_joint_working_dir` | `null` | Optional custom working directory for final joint refinement. If unset, defaults to `<outdir>/final_joint_refinement`. |
-| `dependencies_dir` | `${projectDir}/dependencies` | Directory containing external dependency files used by downstream refinement steps. |
+| `dependencies_dir` | `${samwise_dir}/dependencies` | Directory containing external dependency files used by downstream refinement steps. |
 | `tigrfam_hmm` | `null` | Path to the TIGRFAM HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
 | `pfam_hmm` | `null` | Path to the Pfam HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
 | `magscot_script` | `null` | Path to the MAGSCOT script. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
@@ -551,7 +552,7 @@ nextflow run module_5_subassembly.nf \
 | `publish_unmapped_mode` | `symlink` | How unmapped read files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
 | `publish_assemblies_mode` | `symlink` | How final assembly files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
 | `publish_final_mags_mode` | `copy` | How final MAG files are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
-| `results_dir` | `null` | Internal results directory. Uses `working_dir` if provided, otherwise `output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `results_dir` | `null` | Internal results root, derived from the resolved `working_dir`. Usually does not need to be set directly. |
 | `module1_outdir` | `<results_dir>/module_1_readtrimming` | Expected Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 | `module3_outdir` | `<results_dir>/module_3_binning` | Expected Module 3 output directory. Usually derived automatically and does not need to be set directly. |
 | `module4_outdir` | `<results_dir>/module_4_binrefinement` | Expected Module 4 output directory. Usually derived automatically and does not need to be set directly. |
@@ -593,8 +594,8 @@ nextflow run module_6_magannotate.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Main working/results directory for the pipeline. If provided, Module 6 outputs are written to `<working_dir>/module_6_magannotate`. |
-| `output_dir` | `null` | Alternative output directory used only if `working_dir` is not provided. |
+| `working_dir` | `null` | Results root. Module 6 outputs are written to `<working_dir>/module_6_magannotate`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_mag_dir` | `null` | Directory containing MAG FASTA files to annotate. Nextflow stages this directory as a formal workflow input. If unset, Module 6 prefers Module 5's `final_mag_database`, then falls back to Module 4 refined bins. |
 | `input_mag_manifest` | `null` | Input MAG manifest describing MAG files to annotate. Nextflow stages this file as a formal workflow input. If unset and Module 5's final MAG database is selected, Module 6 automatically uses Module 5's `summary/final_mag_database_manifest.tsv`. |
 | `mag_extension` | `fa` | Required prepared-MAG extension. Module 6 normalizes all inputs to uncompressed `.fa`; this value must remain `fa`. |
@@ -645,7 +646,7 @@ nextflow run module_6_magannotate.nf \
 | `microtrait_auto_download_db` | `true` | Whether microTrait dependencies/databases may be downloaded during setup. |
 | `microtrait_fail_nonfatal` | `false` | If enabled, an unrecoverable microTrait failure is recorded without failing the complete workflow. |
 | `publish_tool_outputs_mode` | `copy` | How annotation and quality-control tool outputs are published to the output directory. Options can be `symlink`, `copy`, or `move`. |
-| `results_dir` | `null` | Internal results directory. Uses `working_dir` if provided, otherwise `output_dir`, otherwise `.`. Usually does not need to be set directly. |
+| `results_dir` | `null` | Internal results root, derived from the resolved `working_dir`. Usually does not need to be set directly. |
 | `outdir` | `<results_dir>/module_6_magannotate` | Module 6 output directory. Usually derived automatically and does not need to be set directly. |
 | `module5_final_mag_dir` | `<results_dir>/module_5_subassembly/final_mag_database` | Candidate MAG directory from Module 5 subtractive assembly. |
 | `module5_final_mag_manifest` | `<results_dir>/module_5_subassembly/summary/final_mag_database_manifest.tsv` | Module 5 final-MAG manifest used automatically when Module 5's final MAG directory is selected. |
@@ -723,7 +724,7 @@ nextflow run module_7_gems.nf \
 
 ```bash
 nextflow run module_7_gems.nf \
-  --output_dir ./module_7_results \
+  --working_dir ./module_7_results \
   --protein_fasta_dir /absolute/path/to/samwise_eggnog.emapper.genepred.fasta \
   --input_manifest /absolute/path/to/eggnog_input_manifest.tsv
 ```
@@ -739,7 +740,7 @@ When `working_dir` is supplied, Module 7 reads these files by default:
 | Unified eggNOG predicted-protein FASTA | `<working_dir>/module_6_magannotate/eggnog/samwise_eggnog.emapper.genepred.fasta` |
 | eggNOG input manifest | `<working_dir>/module_6_magannotate/summary/eggnog_input_manifest.tsv` |
 
-If `working_dir` is not provided, the same paths are derived below `output_dir`; if neither is supplied, they are derived below the current directory. Override one or both defaults with `--protein_fasta_dir` and `--input_manifest`.
+If only `samwise_dir` is provided, `working_dir` inherits that same directory. Override one or both defaults with `--protein_fasta_dir` and `--input_manifest`.
 
 The unified FASTA and manifest must be present and non-empty. The manifest must include a non-empty `mag_id` column. Module 7 associates proteins with MAGs from FASTA headers: the text before the first `|` (or whitespace, if there is no `|`) must equal a `mag_id` in the manifest. MAGs with no matching proteins are recorded as warnings; the run fails only if no proteins match any MAG.
 
@@ -826,8 +827,8 @@ Set `--run_memote false` to skip every MEMOTE task. `--memote_extra_args` append
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | Primary SAMWISE working/results directory. When supplied, results are published to `<working_dir>/module_7_gems`. |
-| `output_dir` | `null` | Alternative results directory used only when `working_dir` is absent. |
+| `working_dir` | `null` | Results root. Module 7 outputs are published to `<working_dir>/module_7_gems`. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `input_manifest` | `null` | Override path for the Module 6 eggNOG input manifest TSV. |
 | `protein_fasta_dir` | `null` | Override path for the Module 6 unified predicted-protein FASTA; this is a file path despite the name. |
 | `media_csv` | `null` | User medium CSV. The bundled comprehensive medium is used when unset. |
@@ -846,7 +847,7 @@ Set `--run_memote false` to skip every MEMOTE task. `--memote_extra_args` append
 | `memote_extra_args` | `""` | Additional options appended to the selected MEMOTE command. |
 | `publish_gems_mode` | `copy` | Publish mode for prepared FASTAs and GEM directories: `copy`, `symlink`, or `move`. |
 | `publish_reports_mode` | `copy` | Publish mode for MEMOTE reports: `copy`, `symlink`, or `move`. |
-| `results_dir` | derived | Internal results root: `working_dir`, otherwise `output_dir`, otherwise `.`. Normally do not set directly. |
+| `results_dir` | derived | Internal results root, derived from the resolved `working_dir`. Normally do not set directly. |
 | `outdir` | `<results_dir>/module_7_gems` | Internal Module 7 output location. Normally do not set directly. |
 | `module6_output_dir` | `<results_dir>/module_6_magannotate` | Default Module 6 output location used to derive input paths. |
 | `media_minimal` | bundled M9/glucose CSV | Internal path for the bundled minimal medium; use `media_csv` to select it. |
@@ -884,9 +885,7 @@ module_7_gems/
 
 ## Validation
 
-[`tests/module_7_smoke.sh`](tests/module_7_smoke.sh) runs a non-destructive `-stub-run` smoke matrix. It covers default snapshot mode, JSON MEMOTE mode, selective adaptation with both report formats, and MEMOTE disabled. The script creates a temporary fixture directory, does not install gapseq or MEMOTE, and removes the fixture when it exits.
-
-For concise usage instructions, see [`module_7_README_short.md`](module_7_README_short.md).
+Before production use, run Module 7 on a small representative Module 6 output set and inspect the generated `summary/module_7_gems_manifest.tsv`, gapseq logs, and MEMOTE reports. This confirms that the installed gapseq and MEMOTE versions, selected medium, and available compute resources are appropriate for the local environment.
 
 ![SAMWISE AuxModules](images/AuxModules.png)
 
@@ -903,7 +902,8 @@ nextflow run AuxModule_1_assemblyAnnotate.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | required | SAMWISE results root containing Module 2, Module 2B, and/or Module 5 outputs. |
+| `working_dir` | `null` | Results root containing Module 2, Module 2B, and/or Module 5 outputs. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `min_scaffold_bp` | `1000` | Minimum scaffold length retained for annotation. |
 | `threads` | `null` | Global EggNOG thread override. |
 | `auto_install` | `true` | Install required tools when unavailable. |
@@ -930,8 +930,8 @@ nextflow run AuxModule_2_mvp.nf \
 
 | Argument | Default | Description |
 |---|---|---|
-| `working_dir` | `null` | SAMWISE results root. |
-| `output_dir` | `null` | Alternative results root when `--working_dir` is omitted. |
+| `working_dir` | `null` | Results root. If omitted, it inherits `samwise_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
 | `mvp_modules` | `0,1,2,3,4,5,100` | Comma-, semicolon-, or whitespace-separated MVP stages; valid values are `0,1,2,3,4,5,6,7,99,100`. |
 | `include_individual_assemblies` | `true` | Include Module 2 assemblies. |
 | `include_coassemblies` | `true` | Include Module 2B assemblies when present. |

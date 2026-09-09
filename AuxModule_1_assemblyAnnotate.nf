@@ -2,8 +2,16 @@
 
 nextflow.enable.dsl = 2
 
-params.samwise_dir = params.samwise_dir ?: params.working_dir ?: projectDir
-params.working_dir = params.working_dir ?: params.samwise_dir
+params.samwise_dir = java.nio.file.Paths
+    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
+params.working_dir = java.nio.file.Paths
+    .get((params.working_dir ?: params.samwise_dir).toString())
+    .toAbsolutePath()
+    .normalize()
+    .toString()
 params.min_scaffold_bp = 1000
 params.threads = null
 params.auto_install = true
@@ -43,26 +51,7 @@ def absPath(value) {
 }
 
 
-def requireWorkingDir(value) {
-    def workingDir = absPath(value)
-
-    if (!workingDir) {
-        error(
-            """
-            Missing required SAMWISE root directory.
-
-            Supply the path to the samwise-main directory:
-
-              --working_dir /path/to/samwise-main
-            """.stripIndent()
-        )
-    }
-
-    return workingDir
-}
-
-
-params.results_dir = requireWorkingDir(params.working_dir ?: params.samwise_dir)
+params.results_dir = params.working_dir
 
 params.module2_assembly_dir = "${params.results_dir}/module_2_readassembly/assemblies"
 
