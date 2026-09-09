@@ -6,8 +6,12 @@ nextflow.enable.dsl = 2
  * Module 4: Bin refinement / MAGScoT preparation and execution.
 */
 
+// samwise_dir identifies the installed SAMWISE source tree; working_dir is
+// independently the results/environment root. Never infer source assets from
+// working_dir, because a results-only invocation must still find this script's
+// bundled helpers and dependencies.
 params.samwise_dir = java.nio.file.Paths
-    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .get((params.samwise_dir ?: projectDir).toString())
     .toAbsolutePath()
     .normalize()
     .toString()
@@ -415,6 +419,8 @@ process PREPARE_MAG_COLLECTION {
     path "prepare_mag_collection.log", emit: log_file
 
     script:
+    def launch_dir = workflow.launchDir.toAbsolutePath().normalize().toString()
+
     """
     set -euo pipefail
 
@@ -438,7 +444,9 @@ process PREPARE_MAG_COLLECTION {
 
     mkdir -p gathered_bins
 
-    python - "${binning_manifest}" <<'PY'
+    # The manifest is staged into this isolated task directory. Its legacy
+    # relative bin_fasta entries must still be resolved from the launch dir.
+    python - "${binning_manifest}" "${launch_dir}" <<'PY'
 import csv
 import gzip
 import re
@@ -447,6 +455,7 @@ import sys
 from pathlib import Path
 
 manifest_path = Path(sys.argv[1])
+launch_dir = Path(sys.argv[2]).resolve()
 
 log_path = Path("prepare_mag_collection.log")
 gathered_dir = Path("gathered_bins")
@@ -469,6 +478,12 @@ def sanitize_id(value):
     value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
     value = value.strip("_")
     return value or "unnamed_mag"
+
+def resolve_manifest_path(value):
+    path = Path(str(value or "").strip())
+    if not path.is_absolute():
+        path = launch_dir / path
+    return path.resolve()
 
 def open_text(path):
     path = Path(path)
@@ -555,7 +570,7 @@ with collection_manifest_path.open("w") as collection_manifest, \
     used_mag_ids = set()
 
     for idx, row in enumerate(rows, start=1):
-        source_fasta = Path(row.get("bin_fasta", "").strip())
+        source_fasta = resolve_manifest_path(row.get("bin_fasta", ""))
         binner = row.get("binner", "").strip()
         raw_bin_id = row.get("bin_id", "").strip() or f"bin_{idx:06d}"
         mag_id_base = sanitize_id(raw_bin_id)
@@ -1016,6 +1031,8 @@ process BUILD_REFINED_MAGS {
     path "build_refined_mags.log", emit: log_file
 
     script:
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
+
     """
     set -euo pipefail
 
@@ -1049,7 +1066,7 @@ process BUILD_REFINED_MAGS {
         "magscot_refined_bins_manifest.tsv" \\
         "magscot_refined_bins_stats.tsv" \\
         "\$LOG_FILE" \\
-        "${params.outdir}/refined_bins" <<'PY'
+        "${published_outdir}/refined_bins" <<'PY'
 import gzip
 import re
 import sys

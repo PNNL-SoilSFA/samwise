@@ -6,8 +6,12 @@ nextflow.enable.dsl = 2
  * Module 3: MAG binning from Module 2 assemblies and Module 1 trimmed reads.
  */
 
+// samwise_dir identifies the installed SAMWISE source tree; working_dir is
+// independently the results/environment root. Never infer source assets from
+// working_dir, because a results-only invocation must still find this script's
+// bundled helpers and dependencies.
 params.samwise_dir = java.nio.file.Paths
-    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .get((params.samwise_dir ?: projectDir).toString())
     .toAbsolutePath()
     .normalize()
     .toString()
@@ -693,6 +697,8 @@ process FILTER_ASSEMBLY_BY_LENGTH {
     path "${binning_id}.filter_assembly.log", emit: log_file
 
     script:
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
+
     """
     set -euo pipefail
 
@@ -737,7 +743,7 @@ process FILTER_ASSEMBLY_BY_LENGTH {
         "${assembly_strategy}" \\
         "${binning_id}" \\
         "${params.min_scaffold_length}" \\
-        "${params.outdir}/filtered_assemblies/\$OUT_FASTA" <<'PY'
+        "${published_outdir}/filtered_assemblies/\$OUT_FASTA" <<'PY'
 import gzip
 import sys
 from pathlib import Path
@@ -1100,6 +1106,8 @@ process RUN_METABAT2 {
     path "${binning_id}.metabat2.log", emit: log_file
 
     script:
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
+
     """
     set -euo pipefail
 
@@ -1165,8 +1173,8 @@ process RUN_METABAT2 {
         "${assembly_strategy}" \\
         "${binning_id}" \\
         "\$BINNER" \\
-        "${params.outdir}/bins/metabat2/${binning_id}" \\
-        "${params.outdir}/logs/${binning_id}.metabat2.log" \\
+        "${published_outdir}/bins/metabat2/${binning_id}" \\
+        "${published_outdir}/logs/${binning_id}.metabat2.log" \\
         "" \\
         "\$BINNER_EXIT_STATUS" \\
         "\$BINNER_STATUS" \\
@@ -1329,6 +1337,8 @@ process RUN_MAXBIN2 {
     path "${binning_id}.maxbin2.log", emit: log_file
 
     script:
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
+
     """
     set -euo pipefail
 
@@ -1409,8 +1419,8 @@ process RUN_MAXBIN2 {
         "${assembly_strategy}" \\
         "${binning_id}" \\
         "\$BINNER" \\
-        "${params.outdir}/bins/maxbin2/${binning_id}" \\
-        "${params.outdir}/logs/${binning_id}.maxbin2.log" \\
+        "${published_outdir}/bins/maxbin2/${binning_id}" \\
+        "${published_outdir}/logs/${binning_id}.maxbin2.log" \\
         "" \\
         "\$BINNER_EXIT_STATUS" \\
         "\$BINNER_STATUS" \\
@@ -1578,6 +1588,7 @@ process RUN_QUICKBIN {
 
     script:
     def quickbin_xmx_arg = ""
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
     if (params.quickbin_xmx) {
         def x = params.quickbin_xmx.toString()
         quickbin_xmx_arg = x.startsWith("-Xmx") ? x : "-Xmx${x}"
@@ -1705,9 +1716,9 @@ process RUN_QUICKBIN {
         "${assembly_strategy}" \\
         "${binning_id}" \\
         "\$BINNER" \\
-        "${params.outdir}/bins/quickbin/${binning_id}" \\
-        "${params.outdir}/logs/${binning_id}.quickbin.log" \\
-        "${params.outdir}/logs/${binning_id}.quickbin.report.tsv" \\
+        "${published_outdir}/bins/quickbin/${binning_id}" \\
+        "${published_outdir}/logs/${binning_id}.quickbin.log" \\
+        "${published_outdir}/logs/${binning_id}.quickbin.report.tsv" \\
         "\$BINNER_EXIT_STATUS" \\
         "\$BINNER_STATUS" \\
         "\$BINNER_MESSAGE" <<'PY'

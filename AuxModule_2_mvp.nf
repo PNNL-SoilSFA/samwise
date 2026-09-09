@@ -32,8 +32,12 @@ nextflow.enable.dsl = 2
 * outputs to remain available if a later MVP module fails.
 */
 
+// samwise_dir identifies the installed SAMWISE source tree; working_dir is
+// independently the results/environment root. Never infer source assets from
+// working_dir, because a results-only invocation must still find this script's
+// bundled helpers and dependencies.
 params.samwise_dir = java.nio.file.Paths
-    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .get((params.samwise_dir ?: projectDir).toString())
     .toAbsolutePath()
     .normalize()
     .toString()
@@ -371,7 +375,7 @@ workflow {
         channel.value(coassembly_reads_file),
         channel.value(subtractive_manifest_file),
         channel.value(subtractive_unmapped_reads_dir),
-        channel.value(params.results_dir),
+        channel.value(workflow.launchDir.toAbsolutePath().normalize().toString()),
         SETUP_AUXMODULE2_MVP.out.status,
     )
 
@@ -387,7 +391,7 @@ workflow {
         channel.value(coassembly_reads_file),
         channel.value(subtractive_manifest_file),
         channel.value(subtractive_unmapped_reads_dir),
-        channel.value(params.results_dir),
+        channel.value(workflow.launchDir.toAbsolutePath().normalize().toString()),
         SETUP_AUXMODULE2_MVP.out.status,
         SETUP_BBTOOLS.out.status,
     )
@@ -401,7 +405,7 @@ workflow {
         channel.value(coassembly_manifest_file),
         channel.value(subtractive_manifest_file),
         channel.value(subtractive_assembly_dir),
-        channel.value(params.results_dir),
+        channel.value(workflow.launchDir.toAbsolutePath().normalize().toString()),
         SETUP_AUXMODULE2_MVP.out.status,
     )
 

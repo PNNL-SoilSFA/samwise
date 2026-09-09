@@ -6,8 +6,12 @@ nextflow.enable.dsl = 2
  * Module 5: Subtractive assembly + second-pass binning + final joint MAG refinement.
  */
 
+// samwise_dir identifies the installed SAMWISE source tree; working_dir is
+// independently the results/environment root. Never infer source assets from
+// working_dir, because a results-only invocation must still find this script's
+// bundled helpers and dependencies.
 params.samwise_dir = java.nio.file.Paths
-    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .get((params.samwise_dir ?: projectDir).toString())
     .toAbsolutePath()
     .normalize()
     .toString()
@@ -60,18 +64,19 @@ params.outdir = "${params.results_dir}/module_5_subassembly"
 params.secondpass_dir = params.secondpass_working_dir ?: "${params.outdir}/second_pass_binning"
 params.final_joint_dir = params.final_joint_working_dir ?: "${params.outdir}/final_joint_refinement"
 
-def absOrEmpty(value) {
+def absOrEmpty(value, baseDir = workflow.launchDir) {
     def s = value == null ? "" : value.toString().trim()
 
     if (!s || s == "null" || s == "NA") {
         return ""
     }
 
-    return java.nio.file.Paths
-        .get(s)
-        .toAbsolutePath()
-        .normalize()
-        .toString()
+    def path = java.nio.file.Paths.get(s)
+    if (!path.isAbsolute()) {
+        path = java.nio.file.Paths.get(baseDir.toString()).resolve(path)
+    }
+
+    return path.toAbsolutePath().normalize().toString()
 }
 
 
@@ -213,7 +218,8 @@ workflow {
     SETUP_MODULE5_TOOLS()
 
     PREPARE_REFINED_MAG_REFERENCE(
-        refined_manifest_ch
+        refined_manifest_ch,
+        workflow.launchDir.toAbsolutePath().normalize().toString(),
     )
 
     MAP_READS_TO_REFINED_MAGS(
@@ -461,6 +467,7 @@ process PREPARE_REFINED_MAG_REFERENCE {
 
     input:
     path refined_manifest
+    val manifest_base_dir
 
     output:
     tuple path("refined_mags_reference.fa"), path("refined_mags_reference_stats.tsv"), emit: reference_info
@@ -477,6 +484,7 @@ process PREPARE_REFINED_MAG_REFERENCE {
 
     echo "Preparing refined MAG reference: \$(date)" > "\$LOG_FILE"
     echo "Refined MAG manifest: ${refined_manifest}" >> "\$LOG_FILE"
+    echo "Legacy manifest path base directory: ${manifest_base_dir}" >> "\$LOG_FILE"
     echo "Task working directory: \$(pwd -P)" >> "\$LOG_FILE"
     echo "Reference output file: \$REF_OUT" >> "\$LOG_FILE"
     echo "----------------------------------------" >> "\$LOG_FILE"
@@ -486,13 +494,14 @@ process PREPARE_REFINED_MAG_REFERENCE {
         exit 1
     fi
 
-    python3 - "${refined_manifest}" "\$FASTA_LIST" <<'PY'
+    python3 - "${refined_manifest}" "${manifest_base_dir}" "\$FASTA_LIST" <<'PY'
 import csv
 import sys
 from pathlib import Path
 
 manifest_path = Path(sys.argv[1]).resolve()
-output_list = Path(sys.argv[2])
+manifest_base_dir = Path(sys.argv[2]).resolve()
+output_list = Path(sys.argv[3])
 
 if not manifest_path.exists() or manifest_path.stat().st_size == 0:
     raise SystemExit(f"ERROR: manifest missing or empty: {manifest_path}")
@@ -522,8 +531,10 @@ with manifest_path.open() as handle:
 
         fasta = Path(value)
 
+        # Legacy SAMWISE manifests store relative paths relative to the
+        # workflow launch directory, not the staged manifest's task path.
         if not fasta.is_absolute():
-            fasta = manifest_path.parent / fasta
+            fasta = manifest_base_dir / fasta
 
         fasta = fasta.resolve()
 
@@ -1619,7 +1630,8 @@ process BUILD_FINAL_MAG_DATABASE_FROM_JOINT_REFINEMENT {
         "final_mag_database_manifest.tsv" \\
         "final_mag_database_stats.tsv" \\
         "\$LOG_FILE" \\
-        "${params.outdir}/final_mag_database" <<'PY'
+        "${params.outdir}/final_mag_database" \\
+        "${workflow.launchDir.toAbsolutePath().normalize()}" <<'PY'
 import csv
 import gzip
 import re
@@ -1634,11 +1646,12 @@ from pathlib import Path
     final_manifest,
     final_stats,
     log_file,
-    published_final_dir
+    published_final_dir,
+    manifest_base_dir,
 ) = sys.argv[1:]
 
 selected_manifest = Path(selected_manifest).resolve()
-selected_manifest_dir = selected_manifest.parent
+manifest_base_dir = Path(manifest_base_dir).resolve()
 final_dir = Path(final_dir)
 final_manifest = Path(final_manifest)
 final_stats = Path(final_stats)
@@ -1725,8 +1738,10 @@ with final_manifest.open("w") as out:
     for idx, (bin_id, fasta) in enumerate(rows, start=1):
         fasta = Path(fasta)
 
+        # Legacy SAMWISE manifests store relative paths relative to the
+        # workflow launch directory, not the selected manifest's directory.
         if not fasta.is_absolute():
-            fasta = selected_manifest_dir / fasta
+            fasta = manifest_base_dir / fasta
 
         fasta = fasta.resolve()
 

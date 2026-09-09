@@ -22,11 +22,24 @@ We recommend that you install NextFlow into its own, separate environment from y
 
 Once NextFlow is installed, go ahead and clone this repo or download it / extract. You can click on `clone repo` in the top right on GitHub or just download the whole thing. Then, change directory into the directory of the cloned repo: `cd ./samwise-main`
 
-A helpful note: the cloned `samwise` directory holds the Nextflow workflows, helper scripts, and bundled dependencies that are needed. If you would like, SAMWISE can keep source assets and results separate with two directory parameters:
-- `--samwise_dir`: SAMWISE installation/clone directory containing the `.nf` workflows, `bin/`, and `dependencies/`.
+A helpful note: the cloned `samwise` directory holds the Nextflow workflows, helper scripts, and bundled dependencies that are needed. SAMWISE supports independent source and results paths:
+- `--samwise_dir`: SAMWISE installation/clone directory containing the `.nf` workflows, `bin/`, `background/`, and `dependencies/`.
 - `--working_dir`: results directory. Module outputs, generated Conda environments, and downloaded tool databases are written below this directory.
 
-For simplicity, if either `--working_dir` or `--samwise_dir` are omitted, they inherit the same value, meaning that existing in-place commands continue to work and all outputs are written to whatever directory is provided. If BOTH `--working_dir` and `--samwise_dir` are supplied on every module invocation, it will then split up the code directory and output directory.
+Path resolution is consistent in every workflow:
+- Supplying **both** parameters keeps source assets under `--samwise_dir` and results/tool environments under `--working_dir`.
+- Supplying only `--working_dir` uses the directory containing the launched workflow as `samwise_dir`; results are written under `--working_dir`.
+- Supplying only `--samwise_dir` uses that source directory as the default `working_dir`; results are written under `--samwise_dir`.
+
+For separate source and results directories, invoke the workflow by its absolute source path or from the source checkout, for example:
+
+```bash
+nextflow run /path/to/samwise/module_0_readprocess.nf \
+  --samwise_dir /path/to/samwise \
+  --working_dir /path/to/samwise-results
+```
+
+SAMWISE normalizes both roots to absolute paths before it creates input channels, tool environments, databases, manifests, or published outputs.
 
 Now, you are ready to proceed with SAMWISE!
 
@@ -185,7 +198,7 @@ nextflow run module_0_readprocess.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 0 outputs are written to `<working_dir>/module_0_readprocess`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_dir` | `null` | Directory where the metagenomic reads are stored. Please see the required filename formats. |
 | `threads` | `null` | Total number of threads to use. If provided, this overrides `fastqc_threads`. |
 | `skip_validate` | `false` | Skip FASTQ structure validation. Naming and pairing checks still run; every named read is passed to FastQC. |
@@ -237,7 +250,7 @@ nextflow run module_1_readtrimming.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 1 outputs are written to `<working_dir>/module_1_readtrimming`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_manifest` | `null` | Input read manifest file. This is typically the `read_manifest.tsv` produced by Module 0. |
 | `threads` | `null` | Global thread override. If provided, this can be used instead of module-specific thread settings. |
 | `fastp_threads` | `4` | Number of threads to use for `fastp` read trimming. |
@@ -308,7 +321,7 @@ nextflow run module_2_readassembly.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 2 outputs are written to `<working_dir>/module_2_readassembly`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_manifest` | `null` | Input manifest file containing reads for assembly. This is typically produced by Module 1 after read trimming. |
 | `megahit` | `false` | Enables assembly with MEGAHIT. |
 | `metaspades` | `false` | Enables assembly with metaSPAdes. |
@@ -365,7 +378,7 @@ nextflow run module_2b_coassembly.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 2B writes to `<working_dir>/module_2b_coassembly`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_manifest` | `null` | Module 1 trimmed-read manifest; defaults to Module 1's `summary/trimmed_manifest.tsv`. |
 | `coassembly_groups` | `null` | Required two-column tab-separated read/sample-to-group manifest. |
 | `megahit_version` | `1.2.9` | MEGAHIT version to install/use. |
@@ -407,7 +420,7 @@ nextflow run module_3_binning.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 3 outputs are written to `<working_dir>/module_3_binning`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_assembly_manifest` | `null` | Input assembly manifest file. Used to provide assemblies for binning. |
 | `input_trimmed_manifest` | `null` | Input trimmed-read manifest file. Used to provide trimmed reads for read mapping/coverage generation. |
 | `input_coassembly_assembly_manifest` | `null` | Input coassembly assembly manifest file, typically produced by Module 2B/coassembly. |
@@ -478,7 +491,7 @@ nextflow run module_4_binrefinement.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 4 outputs are written to `<working_dir>/module_4_binrefinement`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_binning_manifest` | `null` | Input binning manifest file, typically produced by Module 3. This should describe the bins to be refined. |
 | `dependencies_dir` | `${samwise_dir}/dependencies` | Directory containing external dependency files used by Module 4. |
 | `tigrfam_hmm` | `null` | Path to the TIGRFAM HMM database file. If not provided, the workflow may look for it in `dependencies_dir`, depending on module logic. |
@@ -531,7 +544,7 @@ nextflow run module_5_subassembly.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 5 outputs are written to `<working_dir>/module_5_subassembly`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_trimmed_manifest` | `null` | Input trimmed-read manifest file, typically produced by Module 1. |
 | `input_original_binning_manifest` | `null` | Input original binning manifest file, typically produced by Module 3. |
 | `input_refined_manifest` | `null` | Input refined-bin manifest file, typically produced by Module 4. |
@@ -613,7 +626,7 @@ nextflow run module_6_magannotate.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 6 outputs are written to `<working_dir>/module_6_magannotate`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_mag_dir` | `null` | Directory containing MAG FASTA files to annotate. Nextflow stages this directory as a formal workflow input. If unset, Module 6 prefers Module 5's `final_mag_database`, then falls back to Module 4 refined bins. |
 | `input_mag_manifest` | `null` | Input MAG manifest describing MAG files to annotate. Nextflow stages this file as a formal workflow input. If unset and Module 5's final MAG database is selected, Module 6 automatically uses Module 5's `summary/final_mag_database_manifest.tsv`. |
 | `mag_extension` | `fa` | Required prepared-MAG extension. Module 6 normalizes all inputs to uncompressed `.fa`; this value must remain `fa`. |
@@ -846,7 +859,7 @@ Set `--run_memote false` to skip every MEMOTE task. `--memote_extra_args` append
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. Module 7 outputs are published to `<working_dir>/module_7_gems`. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `input_manifest` | `null` | Override path for the Module 6 eggNOG input manifest TSV. |
 | `protein_fasta_dir` | `null` | Override path for the Module 6 unified predicted-protein FASTA; this is a file path despite the name. |
 | `media_csv` | `null` | User medium CSV. The bundled comprehensive medium is used when unset. |
@@ -921,7 +934,7 @@ nextflow run AuxModule_1_assemblyAnnotate.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root containing Module 2, Module 2B, and/or Module 5 outputs. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `min_scaffold_bp` | `1000` | Minimum scaffold length retained for annotation. |
 | `threads` | `null` | Global EggNOG thread override. |
 | `auto_install` | `true` | Install required tools when unavailable. |
@@ -949,7 +962,7 @@ nextflow run AuxModule_2_mvp.nf \
 | Argument | Default | Description |
 |---|---|---|
 | `working_dir` | `null` | Results root. If omitted, it inherits `samwise_dir`. |
-| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it inherits `working_dir`. |
+| `samwise_dir` | `null` | SAMWISE source directory containing the workflows, `bin/`, and `dependencies/`. If omitted, it defaults to the directory containing the launched workflow. |
 | `mvp_modules` | `0,1,2,3,4,5,100` | Comma-, semicolon-, or whitespace-separated MVP stages; valid values are `0,1,2,3,4,5,6,7,99,100`. |
 | `include_individual_assemblies` | `true` | Include Module 2 assemblies. |
 | `include_coassemblies` | `true` | Include Module 2B assemblies when present. |

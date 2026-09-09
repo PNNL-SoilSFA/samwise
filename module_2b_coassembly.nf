@@ -5,8 +5,12 @@ nextflow.enable.dsl = 2
  * Module 2b: MEGAHIT co-assembly from Module 1 trimmed reads.
  */
 
+// samwise_dir identifies the installed SAMWISE source tree; working_dir is
+// independently the results/environment root. Never infer source assets from
+// working_dir, because a results-only invocation must still find this script's
+// bundled helpers and dependencies.
 params.samwise_dir = java.nio.file.Paths
-    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .get((params.samwise_dir ?: projectDir).toString())
     .toAbsolutePath()
     .normalize()
     .toString()

@@ -21,8 +21,12 @@ nextflow.enable.dsl = 2
 * results identically in either execution mode.
 */
 
+// samwise_dir identifies the installed SAMWISE source tree; working_dir is
+// independently the results/environment root. Never infer source assets from
+// working_dir, because a results-only invocation must still find this script's
+// bundled helpers and dependencies.
 params.samwise_dir = java.nio.file.Paths
-    .get((params.samwise_dir ?: params.working_dir ?: projectDir).toString())
+    .get((params.samwise_dir ?: projectDir).toString())
     .toAbsolutePath()
     .normalize()
     .toString()
@@ -472,6 +476,7 @@ process ASSEMBLE_SINGLE {
     def clean_stale = params.clean_partial_assembler_outputs.toString().toBoolean()
     def assembly_strategy = assembler == 'megahit' ? 'A' : 'B'
     def raw_out = assembler == 'megahit' ? 'megahit_out' : 'metaspades_out'
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
 
     """
     set -euo pipefail
@@ -563,7 +568,7 @@ process ASSEMBLE_SINGLE {
         --assembly-strategy ${assembly_strategy} \\
         --assembly-status "\$ASSEMBLY_STATUS" \\
         --assembly-warning "\$ASSEMBLY_WARNING" \\
-        --published-fasta "${params.outdir}/assemblies/\$OUT_FASTA"
+        --published-fasta "${published_outdir}/assemblies/\$OUT_FASTA"
 
     rm -f input_R1.fastq.gz input_R2.fastq.gz input_interleaved.fastq.gz
     rm -rf "${raw_out}"
@@ -613,6 +618,7 @@ process ASSEMBLE_RAREFIED {
     def assembly_strategy = assembler == 'megahit' ? 'C' : 'D'
     def raw_out = assembler == 'megahit' ? 'megahit_rarefied_out' : 'metaspades_rarefied_out'
     def rare_zero_index = (rare_index as int) - 1
+    def published_outdir = file(params.outdir).toAbsolutePath().normalize().toString()
 
     """
     set -euo pipefail
@@ -697,7 +703,7 @@ process ASSEMBLE_RAREFIED {
         --assembly-strategy ${assembly_strategy} \\
         --assembly-status "\$ASSEMBLY_STATUS" \\
         --assembly-warning "\$ASSEMBLY_WARNING" \\
-        --published-fasta "${params.outdir}/assemblies/\$OUT_FASTA"
+        --published-fasta "${published_outdir}/assemblies/\$OUT_FASTA"
 
     rm -f "\$SUB_R1" "\$SUB_R2" "\$SUB_12"
     rm -rf "${raw_out}"
