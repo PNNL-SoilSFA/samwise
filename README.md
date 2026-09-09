@@ -20,21 +20,13 @@ To start with SAMWISE, you will want to make sure that you have `mamba` (or `con
 Then, you need to install NextFlow - this can be done via `mamba` / `conda`: https://anaconda.org/channels/bioconda/packages/nextflow/overview
 We recommend that you install NextFlow into its own, separate environment from your base environment. For example, with `mamba install -n nextflow -c bioconda nextflow` Then, when running SAMWISE, make sure that you activate your NextFlow environment with `mamba activate nextflow`!
 
-Once NextFlow is isntalled, go ahead and clone this repo or download it / extract. You can click on `clone repo` in the top right on GitHub or just download the whole thing. Then, change directory into the directory of the cloned repo: `cd ./samwise-main`
+Once NextFlow is installed, go ahead and clone this repo or download it / extract. You can click on `clone repo` in the top right on GitHub or just download the whole thing. Then, change directory into the directory of the cloned repo: `cd ./samwise-main`
 
-`samwise` holds the Nextflow workflows, helper scripts, and bundled dependencies. SAMWISE keeps source assets and results separate with two directory parameters:
-
+A helpful note: the cloned `samwise` directory holds the Nextflow workflows, helper scripts, and bundled dependencies that are needed. If you would like, SAMWISE can keep source assets and results separate with two directory parameters:
 - `--samwise_dir`: SAMWISE installation/clone directory containing the `.nf` workflows, `bin/`, and `dependencies/`.
 - `--working_dir`: results directory. Module outputs, generated Conda environments, and downloaded tool databases are written below this directory.
 
-For backward compatibility, if `--working_dir` is omitted, it inherits `--samwise_dir`; existing in-place commands therefore continue to work. If only `--working_dir` is supplied, SAMWISE treats it as both directories, preserving the original behavior. To separate code from generated data, provide both flags on every module invocation:
-
-```bash
-nextflow run /path/to/samwise/module_0_readprocess.nf \
-  --samwise_dir /path/to/samwise \
-  --working_dir /path/to/samwise-results \
-  --input_dir /path/to/reads
-```
+For simplicity, if either `--working_dir` or `--samwise_dir` are omitted, they inherit the same value, meaning that existing in-place commands continue to work and all outputs are written to whatever directory is provided. If BOTH `--working_dir` and `--samwise_dir` are supplied on every module invocation, it will then split up the code directory and output directory.
 
 Now, you are ready to proceed with SAMWISE!
 
