@@ -37,12 +37,11 @@ For separate source and results directories, invoke the workflow by its absolute
 nextflow run /path/to/samwise/module_0_readprocess.nf \
   --samwise_dir /path/to/samwise \
   --working_dir /path/to/samwise-results
-
-A final note: The AI Agent that is distributed as part of this package DOES NOT deploy or orchestrate anything within the workflow by default. The Agent must be specifically set up with your own API key and LLM of choice (see setup at end of readme) and will only be usable if activated via its python launcher. The only role of the AI agent is to interrogate the output directory of files written by SAMWISE. SAMWISE itself is a standalone wrapper / workflow that can be fully used without this agent.
-
 ```
 
 SAMWISE normalizes both roots to absolute paths before it creates input channels, tool environments, databases, manifests, or published outputs.
+
+A final note: The AI Agent that is distributed as part of this package DOES NOT deploy or orchestrate anything within the workflow by default. The Agent must be specifically set up with your own API key and LLM of choice (see setup at end of readme) and will only be usable if activated via its python launcher. The only role of the AI agent is to interrogate the output directory of files written by SAMWISE. SAMWISE itself is a standalone wrapper / workflow that can be fully used without this agent.
 
 Now, you are ready to proceed with SAMWISE!
 
