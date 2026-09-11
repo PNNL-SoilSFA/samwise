@@ -141,6 +141,10 @@ nextflow run module_5_subassembly.nf \
 --secondpass_quickbin true \
 --secondpass_maxbin2 true
 
+#Note on module 5: sometimes there is a weird racing issue that results in empty dir for dir "final_mag_database",
+#however, it is simply a cleanup issue and the final refined MAGs
+#are in ./final_joint_refinement/module_4_binrefinement/refined_bins and read by downstream steps perfectly fine!
+
 # Run final MAG annotation:
 nextflow run module_6_magannotate.nf \
 --working_dir ./samwise-main \
@@ -160,6 +164,9 @@ nextflow run module_6_magannotate.nf \
 # --checkm2_db_path /path/to/uniref100.KO.1.dmnd
 # --gtdbtk_data_path /path/to/gtdbtk/database_directory
 # --eggnog_data_path /path/to/eggnog/database_directory
+
+#Note on module 6: sometimes there is a weird racing issue that results in empty dir for gtdbtk,
+#however, it is simply a cleanup issue and the final gtdb results are all fine and within the summary folder!
 
 nextflow run module_7_gems.nf \
 --working_dir ./output_samwise
