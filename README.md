@@ -56,7 +56,7 @@ have extensions (.fq or .fastq - gzipped or not gzipped is fine). See module_0 i
 
 ```bash
 
-#A quick note: Feel free to remove -c, --slurm_account, and --maxparallel_fastqc
+#A quick note: Feel free to remove -c, --slurm_account, and whatever parallel flag is given
 #if you do not have a slurm manager or allocation. These are optional!
 
 # Pre-process your reads
