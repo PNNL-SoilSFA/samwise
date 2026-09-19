@@ -18,20 +18,20 @@ SAMWISE is a semi-automated, end-to-end metagenomic read processing program. Her
 To start with SAMWISE, you will want to make sure that you have `mamba` (or `conda`) installed. We recommend mamba, and you can follow the instructions here: https://conda-forge.org/download/
 
 Then, you need to install NextFlow - this can be done via `mamba` / `conda`: https://anaconda.org/channels/bioconda/packages/nextflow/overview
-We recommend that you install NextFlow into its own, separate environment from your base environment. For example, with `mamba install -n nextflow -c bioconda nextflow` Then, when running SAMWISE, make sure that you activate your NextFlow environment with `mamba activate nextflow`!
+We recommend that you install NextFlow into its own, separate environment from your base environment. For example, with `mamba install -n nextflow -c bioconda nextflow` Then, when running SAMWISE, make sure that you activate your NextFlow environment with `mamba activate nextflow`
 
-Once NextFlow is installed, go ahead and clone this repo or download it / extract. You can click on `clone repo` in the top right on GitHub or just download the whole thing. Then, change directory into the directory of the cloned repo: `cd ./samwise-main`
+Once NextFlow is installed, go ahead and clone this repo with the command `git clone https://github.com/PNNL-SoilSFA/samwise.git` or simply download / extract it in the location of your choice.
 
-A helpful note: the cloned `samwise` directory holds the Nextflow workflows, helper scripts, and bundled dependencies that are needed. SAMWISE supports independent source and results paths:
-- `--samwise_dir`: SAMWISE installation/clone directory containing the `.nf` workflows, `bin/`, `background/`, and `dependencies/`.
+The downloaded `samwise` directory holds the Nextflow workflows, helper scripts, and bundled dependencies that are needed. For directory cleanliness, SAMWISE supports independent source code and results paths. Specifically, the flags are:
+- `--samwise_dir`: SAMWISE installation/clone directory containing the `.nf` workflows, `bin/`, `background/`, `dependencies/`, etc.
 - `--working_dir`: results directory. Module outputs, generated Conda environments, and downloaded tool databases are written below this directory.
 
-Path resolution is consistent in every workflow:
-- Supplying **both** parameters keeps source assets under `--samwise_dir` and results/tool environments under `--working_dir`.
-- Supplying only `--working_dir` uses the directory containing the launched workflow as `samwise_dir`; results are written under `--working_dir`.
-- Supplying only `--samwise_dir` uses that source directory as the default `working_dir`; results are written under `--samwise_dir`.
+As such, when running the different modules:
+- Supplying **both** parameters keeps source code under `--samwise_dir` and the results / created tool environments under `--working_dir`.
+- Supplying **only** `--working_dir` uses the directory containing the launched workflow as `samwise_dir`; results and code are under `--working_dir`.
+- Supplying **only** `--samwise_dir` uses that source directory as the default `working_dir`; results are code are under `--samwise_dir`.
 
-For separate source and results directories, invoke the workflow by its absolute source path or from the source checkout, for example:
+For separate source code and results directories, invoke the workflow file by its absolute path, for example:
 
 ```bash
 nextflow run /path/to/samwise/module_0_readprocess.nf \
@@ -39,25 +39,47 @@ nextflow run /path/to/samwise/module_0_readprocess.nf \
   --working_dir /path/to/samwise-results
 ```
 
-SAMWISE normalizes both roots to absolute paths before it creates input channels, tool environments, databases, manifests, or published outputs.
+A final note: The AI Agent that is distributed as part of this package **DOES NOT** deploy or orchestrate anything within the workflow by default. The Agent must be specifically set up with your own API key and LLM of choice (see setup at end of readme) and will only be usable if activated via its python launcher. The role of the AI agent is to interrogate the output directory of files written by SAMWISE. SAMWISE itself is a standalone wrapper / workflow that can be fully used without this agent.
 
-A final note: The AI Agent that is distributed as part of this package DOES NOT deploy or orchestrate anything within the workflow by default. The Agent must be specifically set up with your own API key and LLM of choice (see setup at end of readme) and will only be usable if activated via its python launcher. The only role of the AI agent is to interrogate the output directory of files written by SAMWISE. SAMWISE itself is a standalone wrapper / workflow that can be fully used without this agent.
+## PREPARING YOUR READS FOR SAMWISE
 
-Now, you are ready to proceed with SAMWISE!
+SAMWISE Module 0 will help set you up for the entirety of the workflow automatically. However, there are some minor things SAMWISE needs from you before you begin. Specifically, Module 0 will run a validation check on your .fastq files to make sure all reads are where they should be (i.e., all R1 / R2 files are paired, all interleaved files are named correctly, etc.). While flexible for the most commonly used naming conventions, SAMWISE requires reads to be in the following name formats (both zipped [gz] and unzipped files are fine):
+```
+reads_dir/
+├── SampleA_R1.fastq.gz
+├── SampleA_R2.fastq.gz
+├── SampleB_1.fq
+├── SampleB_2.fq
+└── SampleC_interleaved.fastq
+```
+**IMPORTANTLY**, SAMWISE will standardize your file names and name your sample whatever if finds up to the first period of the name. So for the example above, the file names would be:
+```
+SampleA
+SampleB
+SampleC
+```
+That means that if you have reads that are named something like: 
+```
+├── Sample.1_interleaved.fastq
+└──Sample.2_interleaved.fastq
+```
+SAMWISE Module 0 (and the rest of the workflow) **WILL FAIL** - because it will name both samples: "Sample". Please make sure that your reads are in the correct naming formats.
 
 ---
 ![SAMWISE quickstart](images/quick_start.png)
 ---
 
-Alright alright - you want to run SAMWISE quickly and do not want to read through the full docs. Here is how I would run this as an sbatch script on a server.
+You want to run SAMWISE quickly and do not want to read through the full docs? Here is how I would run this as an sbatch script on a server.
 
 NOTE: Your reads MUST be in one of the naming formats (_R1, _R2, _1, _2, _interleaved) and must
-have extensions (.fq or .fastq - gzipped or not gzipped is fine). See module_0 info below! The --input_dir flag just needs to point to any dir that has reads
+have extensions (.fq or .fastq - gzipped or not gzipped is fine).
 
 ```bash
 
-#A quick note: Feel free to remove -c, --slurm_account, and whatever parallel flag is given
-#if you do not have a slurm manager or allocation. These are optional!
+#Note: You can safely remove -c, --slurm_account, and whatever parallel flag is given
+#if you do not have a slurm manager or allocation. These are optional - the /bin/.config
+#files are included in SAMWISE source code for those who want to parallelize the modules
+#and do not require any modifications to work in SLURM-based systems.
 
 # Pre-process your reads
 nextflow run module_0_readprocess.nf \
@@ -69,6 +91,8 @@ nextflow run module_0_readprocess.nf \
 --input_dir ./reads_dir \
 --threads 36
 
+#Optional parallelization flags: -c, --slurm_account, --max_parallel_fastqc
+
 # Trim your reads
 nextflow run module_1_readtrimming.nf \
 -c ./bin/module_1_slurm.config \
@@ -77,6 +101,8 @@ nextflow run module_1_readtrimming.nf \
 --max_parallel_trimming 10 \
 --working_dir ./samwise-main \
 --threads 36
+
+#Optional parallelization flags: -c, --slurm_account, --max_parallel_trimming
 
 # Assemble reads in parallel across SLURM nodes
 nextflow run module_2_readassembly.nf \
@@ -91,6 +117,8 @@ nextflow run module_2_readassembly.nf \
 --rarefied_assembly TRUE \
 --rarefaction_splits 2
 
+#Optional parallelization flags: -c, --slurm_account, --max_parallel_assemblies
+
 # Keep --memory_gb 0 with this SLURM config: each assembly receives a whole
 # node and auto-detects its available memory. Adjust --max_parallel_assemblies
 # to the number of simultaneous assembly jobs permitted by your allocation.
@@ -104,6 +132,8 @@ nextflow run module_2b_coassembly.nf \
 --threads 36 \
 --memory_gb 0 \
 --max_parallel_coassemblies 4
+
+#Optional parallelization flags: -c, --slurm_account, --max_parallel_coassemblies
 
 # Each distinct group becomes one MEGAHIT job. Keep --memory_gb 0 with this
 # SLURM profile; set --max_parallel_coassemblies to the allowed group-job count.
@@ -140,6 +170,8 @@ nextflow run module_5_subassembly.nf \
 --secondpass_metabat2 true \
 --secondpass_quickbin true \
 --secondpass_maxbin2 true
+
+#Optional parallelization flags: -c, --slurm_account, --max_parallel_subassembly
 
 #Note on module 5: sometimes there is a weird racing issue that results in empty dir for dir "final_mag_database",
 #however, it is simply a cleanup issue and the final refined MAGs
@@ -183,10 +215,7 @@ nextflow run AuxModule_2_mvp.nf \
 --memory_gb 0
 ```
 
-```
-Now that you got what you wanted, let's do a deep dive on the flags and modules that SAMWISE has to offer! 
-First, a quick note. If you ever have a module (for example, an assembly module) halt because of time or whatever issue, you can resume the assembly by simply passing "-resume" as an argument for that module.
-```
+**If you ever have a module (for example, an assembly module) halt because of time or whatever issue, you can resume the assembly by simply passing "-resume" as an argument for that module.**
 
 ![SAMWISE step0](images/step_0.png)
 
@@ -990,6 +1019,7 @@ nextflow run AuxModule_2_mvp.nf \
 
 MVP stages are not reordered by the supplied list. If an earlier MVP stage is omitted, any outputs it requires must already exist under the Module 2 output directory from a prior MVP run.
 
+## Module 8
 BETA AI AGENT: 
 
 If you would like to test out the AI Agent that can help you interrogate your genomes and their metabolisms, simply set up the OpenAI agent by running:
