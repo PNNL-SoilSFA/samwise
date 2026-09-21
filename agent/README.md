@@ -8,6 +8,6 @@ If you would like to test out the AI Agent that can help you interrogate your ge
 
 This will generate a conda environment called `langchain-chat-openai` that you then need to activate with `conda activate langchain-chat-openai`. 
 
-After this, you need to set up your environment file (see env.txt example in samwise-main/agent/) to include your API key as well as user settings. Once that is done, change the file name to .env instead of env.txt so that the agent can find it. 
+After this, copy `.env.example` to `.env` in the `agent/` directory and set your API key and user settings there. The `.env` file is local configuration and must not be committed.
 
 Then, you can run the agent using `python chatOpenai.py` within the /agent/ folder (you need to cd /agent/ if you have not already).
