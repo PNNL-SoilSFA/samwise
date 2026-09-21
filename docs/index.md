@@ -28,6 +28,6 @@ The source repository is available at
 [PNNL-SoilSFA/samwise](https://github.com/PNNL-SoilSFA/samwise). See the
 repository's `LICENSE.md` for licensing and government disclaimer terms.
 
-The documentation is being reorganized from the root `README.md`. During this
-transition, the README remains the most complete reference for every workflow
-parameter.
+The documentation is being organized from the root `README.md`. The root README
+remains unchanged during this parity review; the Zensical pages are being
+expanded to provide the complete workflow reference before any README cleanup.

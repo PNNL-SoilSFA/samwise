@@ -1,15 +1,24 @@
-![SAMWISE title](images/SAMWISE_title_v2.png)
+![SAMWISE title](docs/images/SAMWISE_title_v2.png)
 
 # Welcome to SAMWISE!
 
 SAMWISE is a semi-automated, end-to-end metagenomic read processing program. Here is a quick conceptual rundown of what this software can enable you to do via Nextflow DSL2 workflows.
 
-![SAMWISE workflow](images/SAMWISE_FULL-manuscript_v3.png)
+## Documentation
+
+The current documentation is available at
+<https://pnnl-soilsfa.github.io/samwise/>. The documentation site is built
+with Zensical and published through GitHub Pages.
+
+![SAMWISE workflow](docs/images/SAMWISE_FULL-manuscript_v3.png)
 
 
 ---
 
+<!-- zensical-source: docs/getting-started/requirements.md -->
 ## Requirements
+
+**Full documentation:** [Requirements and installation](https://pnnl-soilsfa.github.io/samwise/getting-started/requirements/)
 
 - [Nextflow](https://www.nextflow.io/)
 - `mamba` (or `conda`) for automatic package installation
@@ -41,7 +50,10 @@ nextflow run /path/to/samwise/module_0_readprocess.nf \
 
 A final note: The AI Agent that is distributed as part of this package **DOES NOT** deploy or orchestrate anything within the workflow by default. The Agent must be specifically set up with your own API key and LLM of choice (see setup at end of readme) and will only be usable if activated via its python launcher. The role of the AI agent is to interrogate the output directory of files written by SAMWISE. SAMWISE itself is a standalone wrapper / workflow that can be fully used without this agent.
 
-## PREPARING YOUR READS FOR SAMWISE
+<!-- zensical-source: docs/getting-started/inputs.md -->
+## Preparing your reads for SAMWISE
+
+**Full documentation:** [Input preparation](https://pnnl-soilsfa.github.io/samwise/getting-started/inputs/)
 
 SAMWISE Module 0 will help set you up for the entirety of the workflow automatically. However, there are some minor things SAMWISE needs from you before you begin. Specifically, Module 0 will run a validation check on your .fastq files to make sure all reads are where they should be (i.e., all R1 / R2 files are paired, all interleaved files are named correctly, etc.). While flexible for the most commonly used naming conventions, SAMWISE requires reads to be in the following name formats (both zipped [gz] and unzipped files are fine):
 ```
@@ -66,7 +78,10 @@ That means that if you have reads that are named something like:
 SAMWISE Module 0 (and the rest of the workflow) **WILL FAIL** - because it will name both samples: "Sample". Please make sure that your reads are in the correct naming formats.
 
 ---
-![SAMWISE quickstart](images/quick_start.png)
+<!-- zensical-source: docs/getting-started/quick-start.md -->
+![SAMWISE quickstart](docs/images/quick_start.png)
+
+**Full documentation:** [Quick start](https://pnnl-soilsfa.github.io/samwise/getting-started/quick-start/)
 ---
 
 You want to run SAMWISE quickly and do not want to read through the full docs? Here is how I would run this as an sbatch script on a server.
@@ -217,7 +232,13 @@ nextflow run AuxModule_2_mvp.nf \
 
 **If you ever have a module (for example, an assembly module) halt because of time or whatever issue, you can resume the assembly by simply passing "-resume" as an argument for that module.**
 
-![SAMWISE step0](images/step_0.png)
+<!-- module: module_0_readprocess.nf -->
+<!-- zensical-source: docs/workflows/module-0-read-processing.md -->
+![SAMWISE step0](docs/images/step_0.png)
+
+## Module 0: Read processing
+
+**Full documentation:** [Module 0: Read processing](https://pnnl-soilsfa.github.io/samwise/workflows/module-0-read-processing/)
 
 `module_0_readprocess.nf` is a workflow for initial read preprocessing and validation. It checks read file names, detects paired-end or interleaved read layouts, validates FASTQ structure (optional), and runs FastQC.
 
@@ -266,7 +287,13 @@ reads_dir/
 └── SampleC_interleaved.fastq
 ```
 
-![SAMWISE step1](images/step_1.png)
+<!-- module: module_1_readtrimming.nf -->
+<!-- zensical-source: docs/workflows/module-1-read-trimming.md -->
+![SAMWISE step1](docs/images/step_1.png)
+
+## Module 1: Read trimming
+
+**Full documentation:** [Module 1: Read trimming](https://pnnl-soilsfa.github.io/samwise/workflows/module-1-read-trimming/)
 
 `module_1_readtrimming.nf` is a workflow for trimming of reads that have been validated in module 0. Module 1 will trim all reads with `fastp`, run `fastqc` on the trimmed reads, and provide a summary table of the trimming statistics.
 
@@ -316,7 +343,13 @@ nextflow run module_1_readtrimming.nf \
 | `outdir` | `<results_dir>/module_1_readtrimming` | Module 1 output directory. Usually derived automatically and does not need to be set directly. |
 
 
-![SAMWISE step2](images/step_2.png)
+<!-- module: module_2_readassembly.nf -->
+<!-- zensical-source: docs/workflows/module-2-assembly.md -->
+![SAMWISE step2](docs/images/step_2.png)
+
+## Module 2: Assembly
+
+**Full documentation:** [Module 2: Assembly](https://pnnl-soilsfa.github.io/samwise/workflows/module-2-assembly/)
 
 `module_2_readassembly.nf` assembles reads trimmed by Module 1. It can run single assemblies with `megahit`, `metaspades`, or both; when `--rarefied_assembly` is enabled, it can also run rarefied assemblies with either selected assembler. Final contigs are renamed and standardized for downstream Module 3 binning.
 
@@ -387,7 +420,13 @@ write out the output assemblies into a more accessible location, you can set pub
 `copy`. Argument `move` here would also work but may cause issues with NextFlow not finding what it needs.
 ```
 
-![SAMWISE step2b](images/step_2b.png)
+<!-- module: module_2b_coassembly.nf -->
+<!-- zensical-source: docs/workflows/module-2b-coassembly.md -->
+![SAMWISE step2b](docs/images/step_2b.png)
+
+## Module 2B: Grouped coassembly
+
+**Full documentation:** [Module 2B: Grouped coassembly](https://pnnl-soilsfa.github.io/samwise/workflows/module-2b-coassembly/)
 
 `module_2b_coassembly.nf` performs **grouped co-assembly** from Module 1 trimmed reads using **MEGAHIT only**. This module is designed to run alongside the normal Module 2 assembly workflow. It produces Module-3-compatible manifests so that Module 3 can automatically bin co-assemblies using the exact concatenated reads that were used to generate each co-assembly. Coassembly contigs use assembly strategy `G`.
 
@@ -438,7 +477,13 @@ nextflow run module_2b_coassembly.nf \
 metaSPAdes support for this we can certainly add it, just reach out to devs or open an issue.
 ```
 
-![SAMWISE step3](images/step_3.png)
+<!-- module: module_3_binning.nf -->
+<!-- zensical-source: docs/workflows/module-3-binning.md -->
+![SAMWISE step3](docs/images/step_3.png)
+
+## Module 3: Binning
+
+**Full documentation:** [Module 3: Binning](https://pnnl-soilsfa.github.io/samwise/workflows/module-3-binning/)
 
 `module_3_binning.nf` performs binning of metagenome assembled genomes (MAGs). It produces a folder with all of the MAGs that can then be fed into refinement pipelines (Module 4). For this, we run 3 different binners: `quickbin`, `metabat2`, and `maxbin2`
 
@@ -509,7 +554,13 @@ nextflow run module_3_binning.nf \
 | `module2b_outdir` | `<results_dir>/module_2b_coassembly` | Expected Module 2B/coassembly output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_3_binning` | Module 3 output directory. Usually derived automatically and does not need to be set directly. |
 
-![SAMWISE step4](images/step_4.png)
+<!-- module: module_4_binrefinement.nf -->
+<!-- zensical-source: docs/workflows/module-4-refinement.md -->
+![SAMWISE step4](docs/images/step_4.png)
+
+## Module 4: Bin refinement
+
+**Full documentation:** [Module 4: Bin refinement](https://pnnl-soilsfa.github.io/samwise/workflows/module-4-refinement/)
 
 `module_4_binrefinement.nf` collects Module 3 bins, predicts genes with Prodigal, runs HMMER marker searches, runs MAGScoT, and reconstructs refined MAG FASTAs. Its primary downstream contract is `summary/magscot_refined_bins_manifest.tsv` together with `refined_bins/`.
 
@@ -552,7 +603,13 @@ nextflow run module_4_binrefinement.nf \
 | `module3_outdir` | `<results_dir>/module_3_binning` | Expected Module 3 output directory. Usually derived automatically and does not need to be set directly. |
 | `outdir` | `<results_dir>/module_4_binrefinement` | Module 4 output directory. Usually derived automatically and does not need to be set directly. |
 
-![SAMWISE step5](images/step_5.png)
+<!-- module: module_5_subassembly.nf -->
+<!-- zensical-source: docs/workflows/module-5-subassembly.md -->
+![SAMWISE step5](docs/images/step_5.png)
+
+## Module 5: Subtractive assembly
+
+**Full documentation:** [Module 5: Subtractive assembly](https://pnnl-soilsfa.github.io/samwise/workflows/module-5-subassembly/)
 
 This module performs the following steps:
 
@@ -629,7 +686,13 @@ nextflow run module_5_subassembly.nf \
 | `secondpass_dir` | `<outdir>/second_pass` | Derived second-pass output directory. Uses `secondpass_working_dir` if provided. Usually does not need to be set directly. |
 | `final_joint_dir` | `<outdir>/final_joint_refinement` | Derived final joint refinement output directory. Uses `final_joint_working_dir` if provided. Usually does not need to be set directly. |
 
-![SAMWISE step6](images/step_6.png)
+<!-- module: module_6_magannotate.nf -->
+<!-- zensical-source: docs/workflows/module-6-annotation.md -->
+![SAMWISE step6](docs/images/step_6.png)
+
+## Module 6: MAG annotation
+
+**Full documentation:** [Module 6: MAG annotation](https://pnnl-soilsfa.github.io/samwise/workflows/module-6-annotation/)
 
 `module_6_magannotate.nf` prepares normalized MAG FASTAs and runs the selected final quality and annotation tools. It prefers Module 5's `final_mag_database` and its manifest; if that is unavailable, it falls back to Module 4 `refined_bins`.
 
@@ -725,7 +788,13 @@ nextflow run module_6_magannotate.nf \
 | `gtdbtk_db_outdir` | `<outdir>/databases/gtdbtk` | Derived GTDB-Tk database output directory. Uses `gtdbtk_db_dir` if provided. Usually does not need to be set directly. |
 | `eggnog_db_outdir` | `<outdir>/databases/eggnog` | Derived EggNOG-mapper database output directory. Uses `eggnog_data_path` or `eggnog_data_dir` if provided. Usually does not need to be set directly. |
 
-![SAMWISE step7](images/step_7.png)
+<!-- module: module_7_gems.nf -->
+<!-- zensical-source: docs/workflows/module-7-gems.md -->
+![SAMWISE step7](docs/images/step_7.png)
+
+## Module 7: GEM generation
+
+**Full documentation:** [Module 7: GEM generation](https://pnnl-soilsfa.github.io/samwise/workflows/module-7-gems/)
 
 # Module 7: Genome-Scale Metabolic Model Generation
 
@@ -957,7 +1026,13 @@ module_7_gems/
 
 Before production use, run Module 7 on a small representative Module 6 output set and inspect the generated `summary/module_7_gems_manifest.tsv`, gapseq logs, and MEMOTE reports. This confirms that the installed gapseq and MEMOTE versions, selected medium, and available compute resources are appropriate for the local environment.
 
-![SAMWISE AuxModules](images/AuxModules.png)
+<!-- module: AuxModule_1_assemblyAnnotate.nf, AuxModule_2_mvp.nf -->
+<!-- zensical-source: docs/workflows/auxiliary-modules.md -->
+![SAMWISE AuxModules](docs/images/AuxModules.png)
+
+## Auxiliary modules
+
+**Full documentation:** [Auxiliary modules](https://pnnl-soilsfa.github.io/samwise/workflows/auxiliary-modules/)
 
 ## Auxiliary Module 1: Assembly annotation
 
@@ -1019,7 +1094,12 @@ nextflow run AuxModule_2_mvp.nf \
 
 MVP stages are not reordered by the supplied list. If an earlier MVP stage is omitted, any outputs it requires must already exist under the Module 2 output directory from a prior MVP run.
 
-## Module 8
+<!-- module: agent/ -->
+<!-- zensical-source: docs/agent.md -->
+## Optional AI agent
+
+**Full documentation:** [Optional AI agent](https://pnnl-soilsfa.github.io/samwise/agent/)
+
 BETA AI AGENT: 
 
 If you would like to test out the AI Agent that can help you interrogate your genomes and their metabolisms, simply set up the OpenAI agent by running:

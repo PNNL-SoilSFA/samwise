@@ -22,6 +22,7 @@ nav = [
       "workflows/module-0-read-processing.md",
       "workflows/module-1-read-trimming.md",
       "workflows/module-2-assembly.md",
+      "workflows/module-2b-coassembly.md",
       "workflows/module-3-binning.md",
       "workflows/module-4-refinement.md",
       "workflows/module-5-subassembly.md",
@@ -31,6 +32,13 @@ nav = [
     { "Auxiliary modules" = "workflows/auxiliary-modules.md" },
   ] },
   { "AI agent" = "agent.md" },
+  { "Project information" = [
+    { "Contributing" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/CONTRIBUTING.md" },
+    { "Security" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/SECURITY.md" },
+    { "Versioning" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/VERSIONING.md" },
+    { "Citation" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/CITATION.md" },
+    { "Code of Conduct" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/CODE_OF_CONDUCT.md" },
+  ] },
   { "Source repository" = "https://github.com/PNNL-SoilSFA/samwise" },
 ]
 
