@@ -4,6 +4,9 @@ work/
 .nextflow.log*
 .nextflow.cache/
 
+# Zensical build output
+site/
+
 # Temporary/log files
 *.log
 *.tmp
