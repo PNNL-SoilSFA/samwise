@@ -1,0 +1,57 @@
+[project]
+site_name = "SAMWISE documentation"
+site_description = "Documentation for the SAMWISE metagenomic read processing workflows."
+site_author = "SAMWISE contributors"
+site_url = "https://pnnl-soilsfa.github.io/samwise/"
+site_dir = "site"
+docs_dir = "docs"
+use_directory_urls = true
+extra_css = [
+  "stylesheets/extra.css",
+]
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = [
+    "getting-started/requirements.md",
+    "getting-started/quick-start.md",
+    "getting-started/inputs.md",
+  ] },
+  { "Workflows" = [
+    { "Core modules" = [
+      "workflows/module-0-read-processing.md",
+      "workflows/module-1-read-trimming.md",
+      "workflows/module-2-assembly.md",
+      "workflows/module-2b-coassembly.md",
+      "workflows/module-3-binning.md",
+      "workflows/module-4-refinement.md",
+      "workflows/module-5-subassembly.md",
+      "workflows/module-6-annotation.md",
+      "workflows/module-7-gems.md",
+    ] },
+    { "Auxiliary modules" = "workflows/auxiliary-modules.md" },
+  ] },
+  { "AI agent" = "agent.md" },
+  { "Project information" = [
+    { "Contributing" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/CONTRIBUTING.md" },
+    { "Security" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/SECURITY.md" },
+    { "Versioning" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/VERSIONING.md" },
+    { "Citation" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/CITATION.md" },
+    { "Code of Conduct" = "https://github.com/PNNL-SoilSFA/samwise/blob/main/CODE_OF_CONDUCT.md" },
+  ] },
+  { "Source repository" = "https://github.com/PNNL-SoilSFA/samwise" },
+]
+
+[project.theme]
+features = [
+  "navigation.instant",
+  "navigation.sections",
+  "navigation.path",
+  "navigation.top",
+  "toc.follow",
+]
+
+[project.theme.palette]
+scheme = "slate"
+primary = "black"
+accent = "custom"
