@@ -4,6 +4,9 @@ work/
 .nextflow.log*
 .nextflow.cache/
 
+# Zensical build output
+site/
+
 # Temporary/log files
 *.log
 *.tmp
@@ -15,3 +18,20 @@ work/
 # OS/editor files
 .DS_Store
 .vscode/
+
+# Local environments and credentials
+.venv/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# Local workflow results
+output_samwise/
+samwise-results/
+results/
