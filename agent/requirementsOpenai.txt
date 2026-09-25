@@ -1,0 +1,17 @@
+langchain
+langchain-openai
+langchain-community
+langchain-chroma
+langchain-huggingface
+langchain-text-splitters
+chromadb
+sentence-transformers
+pypdf
+docx2txt
+python-dotenv
+openpyxl
+numpy
+
+# Optional: only needed if you want the read_rds_file tool to read R .rds
+# files without also having R/Rscript installed on the machine.
+# pyreadr

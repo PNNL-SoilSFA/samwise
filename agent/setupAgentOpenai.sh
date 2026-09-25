@@ -5,7 +5,17 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 conda create -n langchain-chat-openai python=3.11 -y
 source ~/.bashrc
 conda activate langchain-chat-openai
-pip install langchain langchain-openai python-dotenv
+
+# Install everything the agent actually imports (see requirementsOpenai.txt).
+# NOTE: earlier versions of this script only installed
+# "langchain langchain-openai python-dotenv", which is why
+# langchain-chroma / langchain-community / langchain-huggingface / openpyxl
+# were missing for anyone who ran it before this fix.
+pip install -r requirementsOpenai.txt
+
+# sentence-transformers pulls in a GPU build of torch by default, which is
+# unnecessary (and slow to install) on a login/CPU node. Swap it for the
+# much smaller CPU-only build.
 pip uninstall -y torch nvidia-nccl-cu13 nvidia-cublas nvidia-cudnn-cu13 nvidia-cusparselt-cu13 nvidia-nvshmem-cu13 nvidia-cuda-cupti nvidia-cuda-nvrtc nvidia-cuda-runtime nvidia-cufft nvidia-cufile nvidia-curand nvidia-cusolver nvidia-cusparse nvidia-nvtx nvidia-nvjitlink cuda-toolkit cuda-bindings cuda-pathfinder triton
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install --upgrade --force-reinstall --no-deps pillow
