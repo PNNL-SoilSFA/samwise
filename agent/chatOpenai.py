@@ -212,13 +212,21 @@ def build_chat_model() -> ChatOpenAI:
     api.openai.com — e.g. an internal gateway/incubator API that speaks
     the OpenAI chat-completions protocol.
     """
+    # Some models behind this gateway (e.g. reasoning models like
+    # gpt-5.4-project) can take well over a minute to respond. The
+    # langchain-openai default timeout is too short for those and shows
+    # up as "[Error contacting model: ...]" in the chat loop, so give it
+    # a generous default here. Override with REQUEST_TIMEOUT in .env if
+    # your model/network needs even longer (or shorter).
+    request_timeout = int(os.getenv("REQUEST_TIMEOUT", "300"))
+
     llm = ChatOpenAI(
         model=MODEL_NAME,
         api_key=API_KEY,
         base_url=BASE_URL,
         temperature=0.7,
+        timeout=request_timeout,
         # max_tokens=1024,   # uncomment / adjust as needed
-        # timeout=60,        # uncomment / adjust as needed
     )
     # Give the model access to the RAG retrieval tool. It decides on its
     # own, per message, whether a question needs document context.

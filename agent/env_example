@@ -1,0 +1,64 @@
+# =============================================================================
+# env.example - copy this file to ".env" and fill in your own values.
+#
+#   cp env.example .env
+#
+# Everything below is read once, when chatOpenai.py starts. If you change
+# a value here, stop the chat (/exit) and restart python chatOpenai.py for
+# it to take effect.
+# =============================================================================
+
+# --- Required: chat model connection -----------------------------------------
+# BASE_URL is the OpenAI-compatible API endpoint (no trailing "/v1" needed
+# for the PNNL AI Incubator gateway). MODEL_NAME must be one of the model
+# ids the gateway exposes -- see the README section "Which model names /
+# embedding models are available?" for how to list them. API_KEY is your
+# personal key for that gateway; never commit a real key to git.
+BASE_URL=https://ai-incubator-api.pnnl.gov
+MODEL_NAME=gpt-5.4-project
+API_KEY=sk-REPLACE-WITH-YOUR-KEY
+
+# Some models (especially reasoning models like gpt-5.x) can take well
+# over a minute to answer. Raise this if you see
+# "[Error contacting model: ... timed out ...]".
+REQUEST_TIMEOUT=300
+
+# --- Filesystem access (fs_skill.py, rds_skill.py, exec_skill.py, ...) ------
+# Colon-separated (Linux/macOS) or semicolon-separated (Windows) list of
+# directories the agent is allowed to READ from. Quotes are optional --
+# both of the following work identically:
+#   ALLOWED_ROOTS=/rcfs/projects/samwise/
+#   ALLOWED_ROOTS="/rcfs/projects/samwise/"
+# Do NOT put a double slash ("//") anywhere in the path -- that's just a
+# typo, not special syntax; a single trailing slash is fine either way.
+ALLOWED_ROOTS=/rcfs/projects/samwise/
+
+# --- Document search / RAG (rag_skill.py) ------------------------------------
+# Folder of .txt/.md/.pdf/.docx files to index for search_documents().
+# Created automatically on first run if it doesn't exist yet.
+DOCS_DIR=./docs
+# Where the vector index is persisted. Created automatically.
+VECTOR_DB_DIR=./chroma_db
+# Local embedding model (downloaded from Hugging Face on first use).
+# See README for how to find other valid model names.
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+RAG_TOP_K=4
+
+# --- Feedback memory (feedback_memory_skill.py) ------------------------------
+# SQLite file the agent uses to remember your feedback across sessions.
+# The parent folder is created automatically if it doesn't exist.
+FEEDBACK_DB_PATH=./feedback_memory.db
+FEEDBACK_EMBED_MODEL=all-MiniLM-L6-v2
+FEEDBACK_TOP_K=5
+
+# --- Nextflow module design / writing ----------------------------------------
+# Where draft module designs (JSON) are saved. Created automatically.
+MODULE_DESIGN_DIR=./module_designs
+# Colon/semicolon-separated list of directories the agent is allowed to
+# WRITE generated .nf module files into. Separate from ALLOWED_ROOTS
+# (which is read-only) for safety.
+MODULE_WRITE_ROOTS=./output:./generated:./pipeline_modules
+MODULE_BACKUP_ENABLED=true
+
+# --- Large file reading state (large_file_skill.py) --------------------------
+LARGE_FILE_DB_PATH=./large_file_state.db
