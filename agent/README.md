@@ -1,6 +1,6 @@
 # SAMWISE Query Agent - Setup and Usage Guide
 
-This is a terminal chatbot that can answer questions and *do things* with files on disk: read documents, browse and search directories, analyze Python code, explain Nextflow pipelines, read Excel/R data files, design new Nextflow modules with your feedback, and remember your feedback across sessions. It's built with [LangChain](https://python.langchain.com/) and talks to a chat model (an LLM) through an OpenAI-compatible API endpoint — by default, PNNL's internal "AI Incubator" gateway.
+This is a terminal chatbot that can answer questions and *do things* with files on disk: read documents, browse and search directories, analyze Python code, explain Nextflow pipelines, read Excel/R data files, design new Nextflow modules with your feedback, and remember your feedback across sessions. It's built with [LangChain](https://python.langchain.com/) and talks to a chat model (an LLM) through an OpenAI-compatible API endpoint of your choosing.
 
 This guide assumes no prior experience with Python packaging, conda, or LangChain. If a step doesn't apply to you (e.g. you're not on an HPC cluster), skip it.
 
@@ -28,7 +28,7 @@ This guide assumes no prior experience with Python packaging, conda, or LangChai
 ### 2.1 Get the code and go to the project folder
 
 ```bash
-cd /rcfs/projects/samwise/query_agent      # or wherever you cloned it
+cd /path/to/project/samwise/query_agent      # or wherever you cloned it
 ```
 
 ### 2.2 Create the conda environment and install dependencies
@@ -64,16 +64,16 @@ cp .env.example .env
 Then open `.env` in any text editor and fill in your values. At minimum you need:
 
 ```
-BASE_URL=https://ai-incubator-api.pnnl.gov
-MODEL_NAME=gpt-5.4-project
-API_KEY=sk-your-real-key-here
+BASE_URL=https://api.openai.com/v1
+MODEL_NAME=gpt-5.6
+API_KEY=sk-REPLACE-WITH-YOUR-KEY
 ```
 
-Everything else in `.env.example` has a working default and is explained inline with comments — read through it once, it's short.
+Everything else in `env.example` has a working default and is explained inline with comments — read through it once, it's short.
 
 A few things that trip people up (see also the FAQ at the bottom):
 
-* **Quotes around values are optional.** `ALLOWED_ROOTS=/rcfs/projects/samwise/` and `ALLOWED_ROOTS="/rcfs/projects/samwise/"` both work identically — don't worry about which one to use.
+* **Quotes around values are optional.** `ALLOWED_ROOTS=/path/to/project/samwise/` and `ALLOWED_ROOTS="/path/to/project/samwise/"` both work identically — don't worry about which one to use.
 * **Don't type a double slash (`//`)** anywhere in a path, e.g. `FEEDBACK_DB_PATH=/some/path//feedback_memory.db` — that's just a typo, not special syntax. Use a single slash: `/some/path/feedback_memory.db`.
 * **Folders and database files do not need to exist beforehand.** The agent creates any folder or `.db` file it needs automatically the first time it's used (see the FAQ below for details).
 
@@ -110,7 +110,7 @@ You'll see a startup banner, then a `You:` prompt. Type a question or request an
 
 ### Do you need an active SLURM session to run this?
 
-**No**, not for `chatOpenai.py`. It only makes outbound HTTPS requests to the PNNL AI Incubator API (or whichever `BASE_URL` you configured) and, the first time it runs, downloads a small embedding model (`all-MiniLM-L6-v2`, a few hundred MB) from Hugging Face to run locally on CPU. Neither of those needs a GPU or a batch job — a login node or your own laptop is fine.
+**No**, not for `chatOpenai.py`. It only makes outbound HTTPS requests to the model API (or whichever `BASE_URL` you configured) and, the first time it runs, downloads a small embedding model (`all-MiniLM-L6-v2`, a few hundred MB) from Hugging Face to run locally on CPU. Neither of those needs a GPU or a batch job — a login node or your own laptop is fine.
 
 A SLURM/GPU session (and `ollama.sh`) is only relevant if you deliberately choose the **local Ollama** path (`chatOllama.py`) instead, e.g. because you want a fully offline model with no external API calls.
 
@@ -135,14 +135,7 @@ The agent also remembers feedback you give it (via `feedback_memory.db`) and wil
 
 ### How do I find which `MODEL_NAME` / embedding model values are valid?
 
-**`MODEL_NAME`** (the chat model) must be one of the model IDs the gateway in `BASE_URL` actually serves. For the PNNL AI Incubator gateway, you can list them yourself with your API key:
-
-```bash
-curl -s https://ai-incubator-api.pnnl.gov/v1/models \
-  -H "Authorization: Bearer YOUR_API_KEY" | python -m json.tool
-```
-
-That returns a JSON list of model ids (e.g. `gpt-5.4-project`, `gpt-4o-project`, `claude-opus-4-5-20251101-v1-project`, `gemini-2.5-pro-project`, etc.) — use one of those for `MODEL_NAME`. You can also browse the same gateway's Swagger UI in a browser at `https://ai-incubator-api.pnnl.gov` and look under the "model management" section, or ask whoever manages the gateway for the current list.
+**`MODEL_NAME`** (the chat model) must be one of the model IDs the gateway in `BASE_URL` actually serves. 
 
 **`EMBEDDING_MODEL` / `FEEDBACK_EMBED_MODEL`** are different — those are local [sentence-transformers](https://www.sbert.net/) models used for document/feedback search, downloaded from Hugging Face the first time they're used (no PNNL gateway involved). Any model name from the [sentence-transformers model list on Hugging Face](https://huggingface.co/models?library=sentence-transformers) works; the default, `all-MiniLM-L6-v2`, is small, fast, and good enough for most use cases. You generally don't need to change this.
 
@@ -160,7 +153,7 @@ The only thing you must create yourself is `.env` (from `.env.example`), and opt
 
 ### Do I need quotation marks around `ALLOWED_ROOTS` (or any other `.env` value)?
 
-No — quotes are optional. `python-dotenv` (the library that reads `.env`) strips them either way, so `ALLOWED_ROOTS=/rcfs/projects/samwise/` and `ALLOWED_ROOTS="/rcfs/projects/samwise/"` are exactly equivalent. Use whichever is easier for you to read; it's harmless to leave the quotes in or take them out.
+No — quotes are optional. `python-dotenv` (the library that reads `.env`) strips them either way, so `ALLOWED_ROOTS=/path/to/project/samwise/` and `ALLOWED_ROOTS="/path/to/project/samwise/"` are exactly equivalent. Use whichever is easier for you to read; it's harmless to leave the quotes in or take them out.
 
 ### Is `FEEDBACK_DB_PATH=/some/path//feedback_memory.db` (double slash) supposed to look like that?
 
@@ -193,11 +186,11 @@ Most commonly this is one of:
 
 ## 6. Example walkthrough
 
-A realistic session, assuming a SAMWISE-style pipeline output directory under `ALLOWED_ROOTS` (e.g. `/rcfs/projects/samwise/some_pipeline_run/`):
+A realistic session, assuming a SAMWISE-style pipeline output directory under `ALLOWED_ROOTS` (e.g. `/path/to/project/samwise/some_pipeline_run/`):
 
 ```
-You: What Nextflow pipelines are under /rcfs/projects/samwise/some_pipeline_run?
-  [calling tool: find_nextflow_pipelines({'path': '/rcfs/projects/samwise/some_pipeline_run'})]
+You: What Nextflow pipelines are under /path/to/project/samwise/some_pipeline_run?
+  [calling tool: find_nextflow_pipelines({'path': '/path/to/project/samwise/some_pipeline_run'})]
 Agent: Found main.nf, nextflow.config, and 6 modules under modules/local/...
 
 You: Summarize what the pipeline does.
@@ -232,7 +225,7 @@ BASE_URL=https://api.openai.com/v1
 MODEL_NAME=gpt-4o
 API_KEY=sk-...
 
-# PNNL AI Incubator gateway (default)
+# PNNL AI Incubator gateway (authorized use only)
 BASE_URL=https://ai-incubator-api.pnnl.gov
 MODEL_NAME=gpt-5.4-project
 API_KEY=sk-...

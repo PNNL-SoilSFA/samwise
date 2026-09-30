@@ -14,8 +14,8 @@
 # ids the gateway exposes -- see the README section "Which model names /
 # embedding models are available?" for how to list them. API_KEY is your
 # personal key for that gateway; never commit a real key to git.
-BASE_URL=https://ai-incubator-api.pnnl.gov
-MODEL_NAME=gpt-5.4-project
+BASE_URL=https://api.openai.com/v1
+MODEL_NAME=gpt-5.6
 API_KEY=sk-REPLACE-WITH-YOUR-KEY
 
 # Some models (especially reasoning models like gpt-5.x) can take well
@@ -27,11 +27,11 @@ REQUEST_TIMEOUT=300
 # Colon-separated (Linux/macOS) or semicolon-separated (Windows) list of
 # directories the agent is allowed to READ from. Quotes are optional --
 # both of the following work identically:
-#   ALLOWED_ROOTS=/rcfs/projects/samwise/
-#   ALLOWED_ROOTS="/rcfs/projects/samwise/"
+#   ALLOWED_ROOTS=/path/to/project/samwise/
+#   ALLOWED_ROOTS="/path/to/project/samwise/"
 # Do NOT put a double slash ("//") anywhere in the path -- that's just a
 # typo, not special syntax; a single trailing slash is fine either way.
-ALLOWED_ROOTS=/rcfs/projects/samwise/
+ALLOWED_ROOTS=/path/to/project/samwise/
 
 # --- Document search / RAG (rag_skill.py) ------------------------------------
 # Folder of .txt/.md/.pdf/.docx files to index for search_documents().
