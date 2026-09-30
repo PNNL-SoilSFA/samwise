@@ -69,7 +69,7 @@ MODEL_NAME=gpt-5.6
 API_KEY=sk-REPLACE-WITH-YOUR-KEY
 ```
 
-Everything else in `env.example` has a working default and is explained inline with comments — read through it once, it's short.
+Everything else in `.env.example` has a working default and is explained inline with comments — read through it once, it's short.
 
 A few things that trip people up (see also the FAQ at the bottom):
 
