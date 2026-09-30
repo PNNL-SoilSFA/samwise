@@ -17,10 +17,10 @@ assembler_result.env) describing what happened:
     ASSEMBLER_EXIT_CODE='0'
     RAW_OUT='megahit_out'
 
-metaSPAdes exit code 12 means "not enough memory". That is treated as
-non-fatal so the run can still produce summaries, exactly as before: status
-becomes 'failed_nonfatal' and an empty placeholder FASTA is emitted if
-metaSPAdes wrote no contigs.
+metaSPAdes exit code 12, or exit code 21 with the specific read k-mer memory
+error, is non-fatal so the run can still produce summaries: status becomes
+'failed_nonfatal' and an empty placeholder FASTA is emitted if metaSPAdes
+wrote no contigs. Other exit code 21 failures remain fatal.
 
 Run standalone:
 
@@ -40,6 +40,8 @@ import sys
 from pathlib import Path
 
 OOM_EXIT_CODE = 12
+KMER_MEMORY_EXIT_CODE = 21
+KMER_MEMORY_MESSAGE = b"The reads contain too many k-mers to fit into available memory."
 OOM_WARNING = "assembly failed - not enough memory"
 
 # Fraction of detected node memory to hand to metaSPAdes, leaving headroom for
@@ -146,6 +148,13 @@ def run_and_capture(cmd, log_file):
     return proc.returncode
 
 
+def has_kmer_memory_error(log_file, output_offset):
+    """Check only this invocation's output, not errors from previous attempts."""
+    with open(log_file, "rb") as handle:
+        handle.seek(output_offset)
+        return any(KMER_MEMORY_MESSAGE in line for line in handle)
+
+
 def build_read_args(layout, read1, read2, interleaved):
     if layout == "paired":
         return ["-1", read1, "-2", read2]
@@ -198,21 +207,31 @@ def run_metaspades(args, memory_gb, log_file):
     log(log_file, f"metaSPAdes threads: {args.threads}")
     log(log_file, f"metaSPAdes memory budget GB: {memory_gb if memory_gb is not None else 'assembler default'}")
 
+    output_offset = Path(log_file).stat().st_size
     exit_code = run_and_capture(cmd, log_file)
 
     log(log_file, f"metaSPAdes exit code: {exit_code}")
 
-    if exit_code not in (0, OOM_EXIT_CODE):
+    kmer_memory_failure = (
+        exit_code == KMER_MEMORY_EXIT_CODE
+        and has_kmer_memory_error(log_file, output_offset)
+    )
+    memory_failure = exit_code == OOM_EXIT_CODE or kmer_memory_failure
+
+    if exit_code != 0 and not memory_failure:
         log(log_file, f"ERROR: metaSPAdes failed with fatal exit code {exit_code}")
         sys.exit(exit_code)
 
     status = "ok"
     warning = ""
 
-    if exit_code == OOM_EXIT_CODE:
+    if memory_failure:
         status = "failed_nonfatal"
         warning = OOM_WARNING
-        log(log_file, "WARNING: metaSPAdes exited with code 12. Treating this as non-fatal so summaries can be written.")
+        if kmer_memory_failure:
+            warning += " (too many read k-mers to fit into available memory)"
+            log(log_file, "ERROR: metaSPAdes reads contain too many k-mers to fit into available memory (exit code 21).")
+        log(log_file, f"WARNING: metaSPAdes exited with code {exit_code}. Treating this as non-fatal so summaries can be written.")
         log(log_file, f"WARNING: {warning}")
 
     out_dir = Path(args.out_dir)
@@ -221,9 +240,9 @@ def run_metaspades(args, memory_gb, log_file):
         if candidate.exists() and candidate.stat().st_size > 0:
             return str(candidate), status, warning, exit_code
 
-    if exit_code == OOM_EXIT_CODE:
-        log(log_file, "WARNING: metaSPAdes exit code 12 produced no scaffolds.fasta or contigs.fasta. Creating empty placeholder FASTA.")
-        placeholder = Path("metaspades_exit12_empty_contigs.fasta")
+    if memory_failure:
+        log(log_file, f"WARNING: metaSPAdes exit code {exit_code} produced no scaffolds.fasta or contigs.fasta. Creating empty placeholder FASTA.")
+        placeholder = Path(f"metaspades_exit{exit_code}_empty_contigs.fasta")
         placeholder.write_text("")
         return str(placeholder), status, warning, exit_code
 
