@@ -188,7 +188,7 @@ workflow {
 
 process CLEAN_MODULE4_PUBLISHED_OUTPUTS {
     tag "clean_module4_published_outputs"
-    cache false
+    // cache false // disabled 03NOV26: was invalidating -resume
 
     publishDir "${params.outdir}/summary", mode: 'copy', pattern: "module4_publication_cleanup_status.tsv"
 
@@ -215,7 +215,7 @@ process CLEAN_MODULE4_PUBLISHED_OUTPUTS {
 
 process SETUP_MODULE4_TOOLS {
     tag "setup_module4_tools"
-    cache false
+    // cache false // disabled 03NOV26: was invalidating -resume
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module4_tools_status.env"
 

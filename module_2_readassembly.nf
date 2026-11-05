@@ -285,7 +285,7 @@ workflow {
 process SETUP_MODULE2_TOOLS {
 
     tag "setup_assemblers"
-    cache false
+    // cache false // disabled 05NOV26: regenerated status file was invalidating -resume
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module2_tools_status.env"
 

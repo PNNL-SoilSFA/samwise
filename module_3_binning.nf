@@ -445,7 +445,7 @@ workflow {
 
 process SETUP_MODULE3_TOOLS {
     tag "setup_binning_tools"
-    cache false
+    // cache false // disabled 02NOV26: regenerated status file was invalidating -resume
 
     publishDir "${params.outdir}/setup", mode: 'copy', pattern: "module3_tools_status.env"
 
