@@ -235,6 +235,8 @@ nextflow run AuxModule_2_mvp.nf \
 ```
 
 **If you ever have a module (for example, an assembly module) halt because of time or whatever issue, you can resume the assembly by simply passing "-resume" as an argument for that module.**
+**A note on resume, however, is that if it fails mid-assembly or in some modules, it may not resume as optimally as it can because I have set default cache behavior to FALSE to prevent improper builds of the conda environment.**
+**As such, if you are confident in what you are doing and know your environments will install ok, feel free to go into the module code and change all of those `cache FALSE` to `cache TRUE`**
 
 <!-- module: module_0_readprocess.nf -->
 <!-- zensical-source: docs/workflows/module-0-read-processing.md -->
