@@ -170,6 +170,10 @@ nextflow run module_4_binrefinement.nf \
 --threads 36
 
 #Note: you can only run this if you have run more than 1 binner.
+#Note 2: If you have thousands of MAGs, we have included an additional
+#alt module here that can speed up the refinement process. Please run
+#the alt module as: module_4_binrefinement_alt.nf which uses two added
+#parameters: --prodigal_threads and --prodigal_chunks_per_cpu
 
 # Run a subtractive assembly
 nextflow run module_5_subassembly.nf \
