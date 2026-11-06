@@ -576,9 +576,20 @@ nextflow run module_4_binrefinement.nf \
 --working_dir ./output_samwise \
 --magscot_threshold 0
 
-#MAGScoT original code sets this threshold at 0.5, but since we are doing gtdb + checkm runs after on the latest databases, its better to just pass this as default 0 and retain all possible MAGs. Feel free to change that --magscot_threshold param to 0.5
+nextflow run module_4_binrefinement_alt.nf \
+--working_dir ./output_samwise \
+--magscot_threshold 0 \
+--prodigal_threads 8 \
+--prodigal_chunks_per_cpu 20
 
+#MAGScoT original code sets this threshold at 0.5, but since we are doing gtdb + checkm runs after on the latest databases, its better to just pass this as default 0 and retain all possible MAGs. Feel free to change that --magscot_threshold param to 0.5
 # use `--` for any additional flags as well
+
+#If you have thousands of MAGs, we have included an additional
+#alt module here that can speed up the refinement process. Please run
+#the alt module as: module_4_binrefinement_alt.nf which uses two added
+#parameters: --prodigal_threads and --prodigal_chunks_per_cpu
+
 ```
 
 | Argument | Default | Description |
